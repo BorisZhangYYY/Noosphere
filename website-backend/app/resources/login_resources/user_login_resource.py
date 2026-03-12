@@ -29,9 +29,7 @@ class UserLoginResource(Resource):
     Required:
         username (str): 3-30 chars, alphanumeric + underscores, starts with a letter.
         password (str): min 8 chars, >=1 uppercase, >=1 lowercase, >=1 digit.
-
-    Optional:
-        email (str): valid email address.
+        email (str): valid email address, used for password recovery.
 
     Returns 201 on success with a JWT access token.
     Returns 400 on validation errors.
@@ -50,15 +48,14 @@ class UserLoginResource(Resource):
         # ------------------------------------------------------------------
         # 1. Presence check for required fields
         # ------------------------------------------------------------------
-        ok, errors = require_json_fields(payload, ("username", "password"))
+        ok, errors = require_json_fields(payload, ("username", "password", "email"))
         if not ok:
             return {"message": "validation_error", "errors": errors}, 400
 
         assert isinstance(payload, dict)
         username: str = str(payload["username"]).strip()
         password: str = str(payload["password"])
-        email_raw: Any = payload.get("email")
-        email: str | None = str(email_raw).strip() if isinstance(email_raw, str) and email_raw.strip() else None
+        email: str = str(payload["email"]).strip()
 
         # ------------------------------------------------------------------
         # 2. Field-level validation
@@ -71,10 +68,9 @@ class UserLoginResource(Resource):
         if not valid_password:
             return {"message": "validation_error", "errors": {"password": password_err}}, 400
 
-        if email is not None:
-            valid_email, email_err = validate_email(email)
-            if not valid_email:
-                return {"message": "validation_error", "errors": {"email": email_err}}, 400
+        valid_email, email_err = validate_email(email)
+        if not valid_email:
+            return {"message": "validation_error", "errors": {"email": email_err}}, 400
 
         # ------------------------------------------------------------------
         # 3. Ensure schema is up-to-date before first write
