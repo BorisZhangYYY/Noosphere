@@ -2,3 +2,4 @@ flask
 psycopg[binary]
 flask-restful
 PyJWT
+werkzeug

@@ -1,11 +1,10 @@
 <script setup>
 import LayoutShell from './components/LayoutShell.vue'
-import Register from './pages/Register.vue'
 </script>
 
 <template>
   <LayoutShell>
-    <Register />
+    <RouterView />
   </LayoutShell>
 </template>
 
