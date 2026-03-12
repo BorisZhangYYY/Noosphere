@@ -1,7 +1,9 @@
 import { http } from "./http.js";
 
-export async function register(username, password) {
-  const res = await http.post("/api/auth/register", { username, password });
+export async function register(username, password, email) {
+  const body = { username, password };
+  if (email) body.email = email;
+  const res = await http.post("/api/auth/register", body);
   const text = await res.text();
   return { status: res.status, body: text ? JSON.parse(text) : null };
 }

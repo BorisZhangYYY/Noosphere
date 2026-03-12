@@ -1,71 +1,60 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { register } from '../services/auth.js'
 import Card from '../components/Card.vue'
 
+const router = useRouter()
+
 const username = ref('')
 const password = ref('')
+const confirmPassword = ref('')
+const email = ref('')
 const loading = ref(false)
 const errorText = ref('')
-const statusCode = ref(null)
-const responseBody = ref(null)
-const copied = ref(false)
-
-const accessToken = computed(() => {
-  if (!responseBody.value || typeof responseBody.value !== 'object') return ''
-  return responseBody.value.access_token || ''
-})
-
-const isSuccess = computed(() => {
-  if (statusCode.value === null) return false
-  return statusCode.value >= 200 && statusCode.value < 300
-})
-
-const usernameReturned = computed(() => {
-  if (!responseBody.value || typeof responseBody.value !== 'object') return ''
-  return responseBody.value.username || ''
-})
-
-const userIdReturned = computed(() => {
-  if (!responseBody.value || typeof responseBody.value !== 'object') return ''
-  return responseBody.value.user_id || ''
-})
-
-const prettyToken = computed(() => {
-  const t = accessToken.value
-  if (!t) return ''
-  if (t.length <= 26) return t
-  return `${t.slice(0, 16)}…${t.slice(-8)}`
-})
-
-const serverErrors = computed(() => {
-  const b = responseBody.value
-  if (!b || typeof b !== 'object') return []
-  const errs = b.errors
-  if (!errs || typeof errs !== 'object') return []
-  return Object.entries(errs).map(([k, v]) => `${k}: ${String(v)}`)
-})
-
-const backendMessage = computed(() => {
-  const b = responseBody.value
-  if (!b || typeof b !== 'object') return ''
-  return b.message ? String(b.message) : ''
-})
+const successText = ref('')
 
 async function onSubmit() {
   errorText.value = ''
-  statusCode.value = null
-  responseBody.value = null
-  copied.value = false
+  successText.value = ''
+
+  if (password.value !== confirmPassword.value) {
+    errorText.value = 'Passwords do not match.'
+    return
+  }
+
   loading.value = true
   try {
-    const { status, body } = await register(username.value, password.value)
-    statusCode.value = status
-    responseBody.value = body
-    const token = accessToken.value
-    if (token) {
-      localStorage.setItem('access_token', token)
-      localStorage.setItem('username', String(body.username || ''))
+    const { status, body } = await register(
+      username.value.trim(),
+      password.value,
+      email.value.trim() || undefined,
+    )
+
+    if (status === 201) {
+      const token = body?.access_token
+      const user = body?.username
+      if (token) localStorage.setItem('access_token', token)
+      if (user) localStorage.setItem('username', String(user))
+
+      successText.value = `Welcome, ${body?.username || username.value}! Redirecting to login…`
+      setTimeout(() => {
+        router.push('/login')
+      }, 1500)
+    } else {
+      // Show field-level or message-level errors
+      if (body?.errors && typeof body.errors === 'object') {
+        const msgs = Object.entries(body.errors).map(([k, v]) => `${k}: ${v}`)
+        errorText.value = msgs.join('\n')
+      } else {
+        const msgMap = {
+          username_already_exists: 'That username is already taken.',
+          email_already_exists: 'That email address is already registered.',
+          validation_error: 'Please check your inputs and try again.',
+        }
+        const raw = body?.message || ''
+        errorText.value = msgMap[raw] || raw || `Error (HTTP ${status})`
+      }
     }
   } catch (e) {
     errorText.value = e instanceof Error ? e.message : String(e)
@@ -73,87 +62,84 @@ async function onSubmit() {
     loading.value = false
   }
 }
-
-async function copyToken() {
-  copied.value = false
-  const token = accessToken.value
-  if (!token) return
-  try {
-    await navigator.clipboard.writeText(token)
-    copied.value = true
-    setTimeout(() => {
-      copied.value = false
-    }, 1200)
-  } catch (e) {
-    errorText.value = e instanceof Error ? e.message : String(e)
-  }
-}
 </script>
 
 <template>
   <div class="wrap">
     <Card>
-      <h1 class="title">Register</h1>
+      <h1 class="title">Create Account</h1>
+
       <form class="form" @submit.prevent="onSubmit">
         <label class="field">
-          <span class="label">Username</span>
-          <input v-model="username" class="input" placeholder="demo_user" autocomplete="username" />
+          <span class="label">Username <span class="required">*</span></span>
+          <input
+            v-model="username"
+            class="input"
+            placeholder="demo_user"
+            autocomplete="username"
+            :disabled="loading || !!successText"
+          />
+          <span class="hint">3–30 characters, letters/numbers/underscores, must start with a letter.</span>
         </label>
+
         <label class="field">
-          <span class="label">Password</span>
-          <input v-model="password" class="input" type="password" placeholder="TempPass123!" autocomplete="new-password" />
+          <span class="label">Password <span class="required">*</span></span>
+          <input
+            v-model="password"
+            class="input"
+            type="password"
+            placeholder="••••••••"
+            autocomplete="new-password"
+            :disabled="loading || !!successText"
+          />
+          <span class="hint">At least 8 characters with uppercase, lowercase, and a number.</span>
         </label>
-        <button class="btn" :disabled="loading" type="submit">{{ loading ? 'Registering…' : 'Register' }}</button>
+
+        <label class="field">
+          <span class="label">Confirm Password <span class="required">*</span></span>
+          <input
+            v-model="confirmPassword"
+            class="input"
+            type="password"
+            placeholder="••••••••"
+            autocomplete="new-password"
+            :disabled="loading || !!successText"
+          />
+        </label>
+
+        <label class="field">
+          <span class="label">Email <span class="optional">(optional)</span></span>
+          <input
+            v-model="email"
+            class="input"
+            type="email"
+            placeholder="you@example.com"
+            autocomplete="email"
+            :disabled="loading || !!successText"
+          />
+          <span class="hint">Used for password recovery. You can add this later.</span>
+        </label>
+
+        <button class="btn" type="submit" :disabled="loading || !!successText">
+          {{ loading ? 'Creating account…' : 'Register' }}
+        </button>
       </form>
-      <div v-if="errorText" class="error">{{ errorText }}</div>
-      <div v-if="statusCode !== null" class="result" :class="{ ok: isSuccess, bad: !isSuccess }">
-        <div class="result-head">
-          <div class="status">
-            <span class="dot"></span>
-            <span>HTTP {{ statusCode }}</span>
-          </div>
-          <div v-if="accessToken" class="token-actions">
-            <button class="mini" type="button" @click="copyToken">{{ copied ? 'Copied' : 'Copy Token' }}</button>
-          </div>
-        </div>
 
-        <div class="result-body">
-          <div class="msg">
-            <span v-if="backendMessage">{{ backendMessage }}</span>
-            <span v-else>{{ isSuccess ? 'ok' : 'error' }}</span>
-          </div>
+      <div v-if="successText" class="success">
+        <span class="success-icon">✓</span> {{ successText }}
+      </div>
 
-          <div class="facts">
-            <div v-if="usernameReturned" class="fact">
-              <div class="k">Username</div>
-              <div class="v">{{ usernameReturned }}</div>
-            </div>
-            <div v-if="userIdReturned" class="fact">
-              <div class="k">User ID</div>
-              <div class="v">{{ userIdReturned }}</div>
-            </div>
-            <div v-if="accessToken" class="fact">
-              <div class="k">Access Token</div>
-              <div class="v mono">{{ prettyToken }}</div>
-            </div>
-          </div>
+      <div v-if="errorText" class="error">
+        <span v-for="line in errorText.split('\n')" :key="line" class="error-line">{{ line }}</span>
+      </div>
 
-          <div v-if="serverErrors.length" class="errs">
-            <div class="errs-title">Errors</div>
-            <ul class="errs-list">
-              <li v-for="e in serverErrors" :key="e">{{ e }}</li>
-            </ul>
-          </div>
-
-          <details class="details">
-            <summary>Show raw response</summary>
-            <pre class="json">{{ JSON.stringify(responseBody, null, 2) }}</pre>
-          </details>
-        </div>
+      <div class="links">
+        <span class="link-text">Already have an account?</span>
+        <RouterLink class="link" to="/login">Login</RouterLink>
       </div>
     </Card>
   </div>
-  </template>
+</template>
 
 <style scoped>
 .wrap {
@@ -161,10 +147,12 @@ async function copyToken() {
   text-align: center;
   margin: 0 auto;
 }
+
 .title {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-5);
   font-size: 2.25rem;
 }
+
 .form {
   display: grid;
   gap: var(--space-4);
@@ -174,14 +162,37 @@ async function copyToken() {
   margin-left: auto;
   margin-right: auto;
 }
+
 .field {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.3rem;
+  text-align: left;
 }
+
 .label {
   font-size: 0.9rem;
   opacity: 0.9;
+  font-weight: 500;
 }
+
+.required {
+  color: #e05252;
+  margin-left: 2px;
+}
+
+.optional {
+  font-weight: 400;
+  opacity: 0.55;
+  font-size: 0.82rem;
+  margin-left: 4px;
+}
+
+.hint {
+  font-size: 0.78rem;
+  opacity: 0.55;
+  line-height: 1.4;
+}
+
 .input {
   width: 100%;
   padding: 0.85rem 1rem;
@@ -193,120 +204,112 @@ async function copyToken() {
   outline: none;
   box-sizing: border-box;
   font-size: 1rem;
+  transition: border-color 0.2s;
 }
+
 .input:focus {
   border-color: var(--brand);
 }
+
+.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .btn {
   padding: 0.8rem 1.2rem;
   height: 48px;
   width: 100%;
   max-width: 480px;
   box-sizing: border-box;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
 }
+
+.btn:hover:not(:disabled) {
+  background: var(--brand-600);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.success {
+  margin-top: var(--space-3);
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(27, 156, 63, 0.4);
+  background: color-mix(in oklab, rgba(27, 156, 63, 0.12) 80%, transparent);
+  color: #1b9c3f;
+  font-weight: 500;
+  text-align: left;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.success-icon {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
 .error {
   margin-top: var(--space-3);
   padding: 0.75rem 1rem;
   border-radius: var(--radius-md);
   border: 1px solid rgba(255, 0, 0, 0.35);
   color: #ff9a9a;
-}
-.result {
-  margin-top: var(--space-3);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  background: color-mix(in oklab, var(--bg-elev) 60%, transparent);
-  backdrop-filter: saturate(1.1) blur(10px);
   text-align: left;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  display: grid;
+  gap: 0.25rem;
 }
-.result.ok .dot {
-  background: #1b9c3f;
+
+.error-line {
+  display: block;
+  line-height: 1.5;
 }
-.result.bad .dot {
-  background: #c43131;
-}
-.result-head {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+
+.links {
+  margin-top: var(--space-5);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+  justify-content: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: 0.95rem;
+  opacity: 0.9;
 }
-.status {
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+
+.link {
+  color: var(--brand);
+  text-decoration: none;
+  font-weight: 500;
 }
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  display: inline-block;
+
+.link:hover {
+  color: var(--brand-600);
+  text-decoration: underline;
 }
-.mini {
-  height: 36px;
-  padding: 0 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--bg-elev) 75%, transparent);
-}
-.result-body {
-  padding: 1rem;
-  display: grid;
-  gap: var(--space-4);
-}
-.msg {
-  font-weight: 700;
-  font-size: 1.05rem;
-}
-.facts {
-  display: grid;
-  gap: var(--space-3);
-}
-.fact {
-  display: grid;
-  gap: 4px;
-  padding: 0.75rem 0.9rem;
-  border-radius: var(--radius-md);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--bg-elev) 70%, transparent);
-}
-.k {
-  font-size: 0.85rem;
-  opacity: 0.75;
-}
-.v {
-  font-weight: 600;
-}
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  overflow-wrap: anywhere;
-}
-.errs {
-  padding: 0.75rem 0.9rem;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(196, 49, 49, 0.35);
-  background: color-mix(in oklab, var(--bg-elev) 70%, transparent);
-}
-.errs-title {
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-.errs-list {
-  margin: 0;
-  padding-left: 18px;
-}
-.details summary {
-  cursor: pointer;
-  opacity: 0.8;
-}
-.json {
-  margin: 0;
-  padding: 0.75rem 0;
-  max-height: 260px;
-  overflow: auto;
+
+.link-text {
+  color: inherit;
 }
 </style>
