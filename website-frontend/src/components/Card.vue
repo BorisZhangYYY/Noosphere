@@ -6,8 +6,7 @@
 
 <style scoped>
 .card {
-  background: color-mix(in oklab, var(--bg-elev) 80%, transparent);
-  backdrop-filter: saturate(1.1) blur(6px);
+  background: var(--bg-elev);
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-1);

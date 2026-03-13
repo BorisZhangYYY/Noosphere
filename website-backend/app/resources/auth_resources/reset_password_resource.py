@@ -7,8 +7,9 @@ from flask_restful import Resource
 
 from app.auth.passwords import hash_password, verify_password
 from app.auth.validation import validate_email, validate_password
+from app.common_func.validation import require_json_fields
 from app.db.connection import get_db_connection
-from app.models.user_info_model import USERS_TABLE_NAME
+from app.db.user_info_model import USERS_TABLE_NAME
 from app.resources.auth_resources.email_verify_resource import is_otp_valid, otp_store
 
 
@@ -59,21 +60,8 @@ class ResetPasswordResource(Resource):
         # ------------------------------------------------------------------
         # 1. Payload structure check
         # ------------------------------------------------------------------
-        if not isinstance(payload, dict):
-            return {
-                "message": "validation_error",
-                "errors": {"payload": "JSON object is required"},
-            }, 400
-
-        # ------------------------------------------------------------------
-        # 2. Required-field presence checks
-        # ------------------------------------------------------------------
-        errors: Dict[str, str] = {}
-        for field in ("email", "otp_code", "new_password"):
-            value = payload.get(field)
-            if not isinstance(value, str) or not value.strip():
-                errors[field] = "This field is required"
-        if errors:
+        ok, errors = require_json_fields(payload, ("email", "otp_code", "new_password"))
+        if not ok:
             return {"message": "validation_error", "errors": errors}, 400
 
         email: str = str(payload["email"]).strip().lower()

@@ -8,18 +8,14 @@ from flask_restful import Resource
 
 from app.auth.jwt import create_access_token
 from app.auth.passwords import hash_password
-from app.auth.validation import (
-    require_json_fields,
-    validate_email,
-    validate_password,
-    validate_username,
-)
+from app.auth.validation import validate_email, validate_password, validate_username
+from app.common_func.validation import require_json_fields
 from app.db.connection import get_db_connection
 from app.db.migration import run_migrations
-from app.models.user_info_model import USERS_TABLE_NAME
+from app.db.user_info_model import USERS_TABLE_NAME
 
 
-class UserLoginResource(Resource):
+class RegisterResource(Resource):
     """User registration resource.
 
     POST /api/auth/register
@@ -43,11 +39,8 @@ class UserLoginResource(Resource):
         Returns:
             A tuple of (json_body, http_status_code).
         """
-        payload = request.get_json(silent=True)
+        payload: Any = request.get_json(silent=True)
 
-        # ------------------------------------------------------------------
-        # 1. Presence check for required fields
-        # ------------------------------------------------------------------
         ok, errors = require_json_fields(payload, ("username", "password", "email"))
         if not ok:
             return {"message": "validation_error", "errors": errors}, 400
@@ -57,9 +50,6 @@ class UserLoginResource(Resource):
         password: str = str(payload["password"])
         email: str = str(payload["email"]).strip()
 
-        # ------------------------------------------------------------------
-        # 2. Field-level validation
-        # ------------------------------------------------------------------
         valid_username, username_err = validate_username(username)
         if not valid_username:
             return {"message": "validation_error", "errors": {"username": username_err}}, 400
@@ -72,15 +62,8 @@ class UserLoginResource(Resource):
         if not valid_email:
             return {"message": "validation_error", "errors": {"email": email_err}}, 400
 
-        # ------------------------------------------------------------------
-        # 3. Ensure schema is up-to-date before first write
-        # ------------------------------------------------------------------
         run_migrations()
-
-        # ------------------------------------------------------------------
-        # 4. Insert user inside an explicit transaction
-        # ------------------------------------------------------------------
-        password_hash = hash_password(password)
+        password_hash: str = hash_password(password)
 
         try:
             with get_db_connection() as conn:
@@ -99,7 +82,6 @@ class UserLoginResource(Resource):
                         row = cur.fetchone()
             user_id: int = int(row[0]) if row else 0
         except psycopg.errors.UniqueViolation as exc:
-            # SQLSTATE 23505 — unique constraint violation
             detail: str = str(exc).lower()
             if "email" in detail:
                 return {"message": "email_already_exists"}, 409
@@ -107,9 +89,6 @@ class UserLoginResource(Resource):
         except Exception as exc:
             return {"message": "database_error", "detail": str(exc)}, 500
 
-        # ------------------------------------------------------------------
-        # 5. Issue JWT
-        # ------------------------------------------------------------------
         secret_key: str = str(current_app.config.get("SECRET_KEY", ""))
         token: str = create_access_token(
             subject=str(user_id),
