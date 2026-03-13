@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Iterable, List
 
 from app.db.connection import get_db_connection
-from app.models.user_info_model import (
+from app.db.user_schema_migration import (
     CREATE_SCHEMA_MIGRATIONS_TABLE_SQL,
     CREATE_USERS_TABLE_SQL,
     MIGRATIONS,
