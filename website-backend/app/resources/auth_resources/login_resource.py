@@ -8,9 +8,9 @@ from flask_restful import Resource
 
 from app.auth.jwt import create_access_token
 from app.auth.passwords import verify_password
-from app.auth.validation import require_json_fields
+from app.common_func.validation import require_json_fields
 from app.db.connection import get_db_connection
-from app.models.user_info_model import USERS_TABLE_NAME
+from app.db.user_info_model import USERS_TABLE_NAME
 
 # ---------------------------------------------------------------------------
 # Threshold: if last_login_at is NULL (first login) or older than 7 days,

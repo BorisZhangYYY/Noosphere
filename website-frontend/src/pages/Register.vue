@@ -73,6 +73,7 @@ async function onSubmit() {
 <template>
   <div class="wrap">
     <Card>
+      <span class="brand-row"><span class="mark">🌍</span> Noosphere</span>
       <h1 class="title">Create Account</h1>
 
       <form class="form" @submit.prevent="onSubmit">
@@ -151,8 +152,26 @@ async function onSubmit() {
 <style scoped>
 .wrap {
   width: min(720px, 100%);
+  min-height: 100dvh;
+  display: grid;
+  align-content: center;
   text-align: center;
   margin: 0 auto;
+  padding: var(--space-4) 0;
+  box-sizing: border-box;
+}
+
+.brand-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+}
+
+.mark {
+  color: var(--brand);
 }
 
 .title {
@@ -177,7 +196,7 @@ async function onSubmit() {
 }
 
 .label {
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   opacity: 0.9;
   font-weight: 500;
 }
@@ -202,15 +221,15 @@ async function onSubmit() {
 
 .input {
   width: 100%;
-  padding: 0.85rem 1rem;
-  height: 48px;
+  padding: 0.64rem 0.86rem;
+  height: 42px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: transparent;
   color: inherit;
   outline: none;
   box-sizing: border-box;
-  font-size: 1rem;
+  font-size: 0.9rem;
   transition: border-color 0.2s;
 }
 
@@ -224,8 +243,8 @@ async function onSubmit() {
 }
 
 .btn {
-  padding: 0.8rem 1.2rem;
-  height: 48px;
+  padding: 0.64rem 0.96rem;
+  height: 42px;
   width: 100%;
   max-width: 480px;
   box-sizing: border-box;
@@ -233,7 +252,7 @@ async function onSubmit() {
   color: #fff;
   border: none;
   border-radius: var(--radius-md);
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s, opacity 0.2s;

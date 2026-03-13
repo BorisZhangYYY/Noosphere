@@ -1,14 +1,12 @@
 @import './styles/variables.css';
 
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: light dark;
   color: var(--text);
   background-color: var(--bg);
-
+  --noosphere-pattern: url('./assets/noosphere-pattern.svg');
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -28,6 +26,18 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(circle at 14% 12%, rgba(74, 103, 255, 0.2) 0%, rgba(74, 103, 255, 0) 28%),
+    radial-gradient(circle at 86% 78%, rgba(53, 80, 220, 0.16) 0%, rgba(53, 80, 220, 0) 30%),
+    linear-gradient(rgba(74, 103, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(74, 103, 255, 0.1) 1px, transparent 1px),
+    var(--noosphere-pattern);
+  background-repeat: repeat;
+  background-size: auto, auto, 40px 40px, 40px 40px, 1200px 1200px;
+  background-attachment: fixed;
+  background-position: center, center, center, center, center;
+  color: var(--text);
 }
 
 h1 {
@@ -37,7 +47,7 @@ h1 {
 
 button {
   border-radius: var(--radius-sm);
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   padding: 0.6em 1.2em;
   font-size: 1em;
   font-weight: 500;
@@ -59,20 +69,5 @@ button:focus-visible {
 }
 
 #app {
-  max-width: var(--container-w);
-  margin: 0 auto;
-  padding: var(--space-6);
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: var(--text);
-    background-color: var(--bg);
-  }
-  a:hover {
-    color: var(--brand-600);
-  }
-  button {
-    background-color: var(--bg-elev);
-  }
+  min-height: 100vh;
 }

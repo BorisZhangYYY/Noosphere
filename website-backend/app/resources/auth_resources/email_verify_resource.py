@@ -8,6 +8,7 @@ from flask import request
 from flask_restful import Resource
 
 from app.auth.validation import validate_email
+from app.common_func.validation import require_json_fields
 
 # ---------------------------------------------------------------------------
 # In-memory OTP store
@@ -97,17 +98,10 @@ class EmailVerifyResource(Resource):
         """
         payload: Any = request.get_json(silent=True)
 
-        if not isinstance(payload, dict):
-            return {"message": "validation_error", "errors": {"payload": "JSON object is required"}}, 400
-
-        email_raw: Any = payload.get("email")
-        if not isinstance(email_raw, str) or not email_raw.strip():
-            return {
-                "message": "validation_error",
-                "errors": {"email": "This field is required"},
-            }, 400
-
-        email: str = email_raw.strip().lower()
+        ok, errors = require_json_fields(payload, ("email",))
+        if not ok:
+            return {"message": "validation_error", "errors": errors}, 400
+        email: str = str(payload["email"]).strip().lower()
 
         valid, email_err = validate_email(email)
         if not valid:

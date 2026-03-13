@@ -1,14 +1,26 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { logout } from '../services/auth.js'
 
 const router = useRouter()
+const SIDEBAR_EXPANDED_WIDTH = 208
+const SIDEBAR_COLLAPSED_WIDTH = 72
 
 const username = ref(localStorage.getItem('username') || 'User')
-const sidebarOpen = ref(true)
+const sidebarWidth = ref(SIDEBAR_EXPANDED_WIDTH)
 const profileModalVisible = ref(false)
 const logoutLoading = ref(false)
+const browsingHistory = ref([])
+const accountCardRef = ref(null)
+const sidePanelRef = ref(null)
+const floatingPanelRef = ref(null)
+const accountMenuOpen = ref(false)
+const activePanel = ref('')
+const centerMode = ref('explore')
+const floatingPanelOpen = ref(false)
+const floatingPanelKey = ref('')
+const floatingPanelTop = ref(16)
 
 const initials = computed(() => {
   const name = username.value || 'U'
@@ -16,48 +28,16 @@ const initials = computed(() => {
     .split(/[\s_\-]+/)
     .filter(Boolean)
     .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
+    .map((word) => word[0].toUpperCase())
     .join('')
 })
 
-function toggleSidebar() {
-  sidebarOpen.value = !sidebarOpen.value
-}
-
-function showProfileSettings() {
-  profileModalVisible.value = true
-}
-
-function closeProfileModal() {
-  profileModalVisible.value = false
-}
-
-function handleNavClick(label) {
-  console.log('TODO:', label)
-}
-
-async function onLogout() {
-  if (logoutLoading.value) return
-  logoutLoading.value = true
-  try {
-    const token = localStorage.getItem('access_token') || ''
-    await logout(token)
-  } catch (e) {
-    console.warn('Logout request failed:', e)
-  } finally {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('username')
-    logoutLoading.value = false
-    router.push('/login')
-  }
-}
-
 const navItems = [
-  { icon: '📝', label: 'Publish Content' },
-  { icon: '📦', label: 'Draft Box' },
-  { icon: '📋', label: 'History' },
-  { icon: '👥', label: 'Friends' },
-  { icon: '👤', label: 'My Profile' },
+  { key: 'publish', icon: '📝', label: 'Publish' },
+  { key: 'draft', icon: '📦', label: 'Draft Box' },
+  { key: 'bookmarks', icon: '🔖', label: 'Bookmarks' },
+  { key: 'friends', icon: '👥', label: 'Friends' },
+  { key: 'history', icon: '📋', label: 'History' },
 ]
 
 const placeholderPosts = [
@@ -87,150 +67,384 @@ const placeholderPosts = [
   },
 ]
 
-onMounted(() => {
-  // On small screens default sidebar to closed
-  if (window.innerWidth < 768) {
-    sidebarOpen.value = false
+const historyExamples = [
+  { id: 'example-1', type: 'Science', title: 'Understanding Quantum Computing Basics' },
+  { id: 'example-2', type: 'Engineering', title: 'The Art of Writing Clean Code' },
+  { id: 'example-3', type: 'Health', title: 'Why Sleep Is Your Superpower' },
+]
+
+const draftExamples = [
+  { id: 'draft-1', type: 'Draft', title: 'Async API design checklist' },
+  { id: 'draft-2', type: 'Draft', title: 'Database migration rollback notes' },
+]
+
+const bookmarkExamples = [
+  { id: 'bookmark-1', type: 'Bookmark', title: 'Vue composables patterns' },
+  { id: 'bookmark-2', type: 'Bookmark', title: 'Flask auth middleware flow' },
+]
+
+const friendExamples = [
+  { id: 'friend-1', type: 'Friend', title: 'Alice · Shared: Clean architecture notes' },
+  { id: 'friend-2', type: 'Friend', title: 'Bob · Shared: CSS motion references' },
+]
+
+const isIconMode = computed(() => sidebarWidth.value <= 132)
+const homeStyle = computed(() => ({ '--sidebar-w': `${sidebarWidth.value}px` }))
+const showAccountActions = computed(() => accountMenuOpen.value && !isIconMode.value)
+const panelViewKey = computed(() => (isIconMode.value ? floatingPanelKey.value : activePanel.value))
+const showFloatingPanel = computed(() => isIconMode.value && floatingPanelOpen.value && !!floatingPanelKey.value)
+const floatingPanelStyle = computed(() => ({
+  left: `${sidebarWidth.value + 12}px`,
+  top: `${floatingPanelTop.value}px`,
+}))
+const historyDisplayItems = computed(() => {
+  if (browsingHistory.value.length > 0) {
+    return browsingHistory.value.map((item) => ({
+      id: item.id,
+      type: item.type || 'Article',
+      title: item.title,
+    }))
   }
+  return historyExamples
+})
+const activePanelLabel = computed(() => {
+  const found = navItems.find((item) => item.key === panelViewKey.value)
+  return found ? found.label : ''
+})
+const activePanelIcon = computed(() => {
+  const found = navItems.find((item) => item.key === panelViewKey.value)
+  return found ? found.icon : ''
+})
+const activePanelItems = computed(() => {
+  if (panelViewKey.value === 'history') {
+    return historyDisplayItems.value
+  }
+  if (panelViewKey.value === 'draft') {
+    return draftExamples
+  }
+  if (panelViewKey.value === 'bookmarks') {
+    return bookmarkExamples
+  }
+  if (panelViewKey.value === 'friends') {
+    return friendExamples
+  }
+  return []
+})
+
+function showProfileSettings() {
+  profileModalVisible.value = true
+}
+
+function closeProfileModal() {
+  profileModalVisible.value = false
+}
+
+function toggleAccountMenu() {
+  if (isIconMode.value) {
+    accountMenuOpen.value = false
+    return
+  }
+  accountMenuOpen.value = !accountMenuOpen.value
+}
+
+function toggleSidebarMode() {
+  if (isIconMode.value) {
+    sidebarWidth.value = SIDEBAR_EXPANDED_WIDTH
+    floatingPanelOpen.value = false
+    floatingPanelKey.value = ''
+    localStorage.setItem('hk_sidebar_collapsed', '0')
+    return
+  }
+  sidebarWidth.value = SIDEBAR_COLLAPSED_WIDTH
+  activePanel.value = ''
+  accountMenuOpen.value = false
+  localStorage.setItem('hk_sidebar_collapsed', '1')
+}
+
+function onClickNav(item, event) {
+  if (item.key === 'publish') {
+    centerMode.value = 'publish'
+    activePanel.value = ''
+    floatingPanelOpen.value = false
+    floatingPanelKey.value = ''
+    return
+  }
+
+  centerMode.value = 'explore'
+  if (isIconMode.value) {
+    if (event?.currentTarget) {
+      const rect = event.currentTarget.getBoundingClientRect()
+      floatingPanelTop.value = Math.max(10, Math.min(window.innerHeight - 360, rect.top - 10))
+    }
+    if (floatingPanelOpen.value && floatingPanelKey.value === item.key) {
+      floatingPanelOpen.value = false
+      floatingPanelKey.value = ''
+    } else {
+      floatingPanelOpen.value = true
+      floatingPanelKey.value = item.key
+    }
+    activePanel.value = ''
+  } else {
+    activePanel.value = item.key
+    floatingPanelOpen.value = false
+    floatingPanelKey.value = ''
+  }
+  accountMenuOpen.value = false
+}
+
+function returnToDefaultNav() {
+  activePanel.value = ''
+  floatingPanelOpen.value = false
+  floatingPanelKey.value = ''
+}
+
+function openHistoryRecord(item) {
+  console.log('TODO: open history record', item.id)
+}
+
+function onOpenPost(post) {
+  const nextItem = {
+    id: Date.now(),
+    type: post.tag,
+    title: post.title,
+    at: new Date().toLocaleString(),
+  }
+  browsingHistory.value = [nextItem, ...browsingHistory.value].slice(0, 8)
+  localStorage.setItem('hk_browsing_history', JSON.stringify(browsingHistory.value))
+}
+
+function closeAccountMenu() {
+  accountMenuOpen.value = false
+}
+
+function onDocumentPointerDown(event) {
+  const accountNode = accountCardRef.value
+  const floatingNode = floatingPanelRef.value
+  const clickedInsideFloating = Boolean(floatingNode && floatingNode.contains(event.target))
+  const clickedInsideAccount = Boolean(accountNode && accountNode.contains(event.target))
+
+  if (!clickedInsideFloating) {
+    floatingPanelOpen.value = false
+    floatingPanelKey.value = ''
+  }
+  if (!clickedInsideAccount) {
+    closeAccountMenu()
+  }
+}
+
+async function onLogout() {
+  if (logoutLoading.value) return
+  logoutLoading.value = true
+  try {
+    const token = localStorage.getItem('access_token') || ''
+    await logout(token)
+  } catch (error) {
+    console.warn('Logout request failed:', error)
+  } finally {
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('username')
+    logoutLoading.value = false
+    router.push('/login')
+  }
+}
+
+onMounted(() => {
+  const collapsedState = localStorage.getItem('hk_sidebar_collapsed')
+  if (collapsedState === '1') {
+    sidebarWidth.value = SIDEBAR_COLLAPSED_WIDTH
+  } else {
+    sidebarWidth.value = SIDEBAR_EXPANDED_WIDTH
+  }
+
+  const savedHistory = localStorage.getItem('hk_browsing_history')
+  if (savedHistory) {
+    try {
+      const parsed = JSON.parse(savedHistory)
+      browsingHistory.value = Array.isArray(parsed) ? parsed : []
+    } catch {
+      browsingHistory.value = []
+    }
+  }
+
+  window.addEventListener('mousedown', onDocumentPointerDown)
+  window.addEventListener('touchstart', onDocumentPointerDown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('mousedown', onDocumentPointerDown)
+  window.removeEventListener('touchstart', onDocumentPointerDown)
 })
 </script>
 
 <template>
-  <div class="home-root">
-    <!-- ── Mobile hamburger ── -->
-    <button
-      class="hamburger"
-      :class="{ open: sidebarOpen }"
-      @click="toggleSidebar"
-      :title="sidebarOpen ? 'Close sidebar' : 'Open sidebar'"
-      aria-label="Toggle sidebar"
-    >
-      <span class="bar"></span>
-      <span class="bar"></span>
-      <span class="bar"></span>
-    </button>
-
-    <!-- ── Sidebar overlay (mobile) ── -->
-    <div
-      v-if="sidebarOpen"
-      class="sidebar-overlay"
-      @click="sidebarOpen = false"
-    ></div>
-
-    <!-- ── Left Sidebar ── -->
-    <aside class="sidebar" :class="{ collapsed: !sidebarOpen }">
-      <!-- User info -->
-      <div class="user-block">
-        <div class="avatar">{{ initials }}</div>
-        <div class="user-info">
-          <div class="user-name">{{ username }}</div>
-          <div class="user-role">Member</div>
+  <div class="home-root" :class="{ 'icon-mode': isIconMode }" :style="homeStyle">
+    <aside ref="sidePanelRef" class="side-panel">
+      <div class="brand-header">
+        <div class="brand-block">
+          <span class="brand-mark">🌍</span>
+          <span v-if="!isIconMode" class="brand-text">Noosphere</span>
         </div>
-      </div>
-
-      <div class="divider"></div>
-
-      <!-- Nav items -->
-      <nav class="nav-list">
-        <button
-          v-for="item in navItems"
-          :key="item.label"
-          class="nav-item"
-          @click="handleNavClick(item.label)"
-        >
-          <span class="nav-icon">{{ item.icon }}</span>
-          <span class="nav-label">{{ item.label }}</span>
+        <button class="collapse-btn" @click="toggleSidebarMode">
+          <span class="collapse-icon">{{ isIconMode ? '⟩' : '⟨' }}</span>
         </button>
-
-        <button class="nav-item" @click="showProfileSettings">
-          <span class="nav-icon">⚙️</span>
-          <span class="nav-label">Profile Settings</span>
-        </button>
-      </nav>
-
-      <div class="sidebar-spacer"></div>
-      <div class="divider"></div>
-
-      <!-- Logout -->
-      <button
-        class="logout-btn"
-        :disabled="logoutLoading"
-        @click="onLogout"
-      >
-        <span class="nav-icon">🚪</span>
-        <span class="nav-label">{{ logoutLoading ? 'Logging out…' : 'Logout' }}</span>
-      </button>
-    </aside>
-
-    <!-- ── Center column ── -->
-    <div class="center-col">
-      <!-- Search bar -->
-      <div class="search-wrap">
-        <div class="search-bar">
-          <span class="search-icon">🔍</span>
-          <input
-            class="search-input"
-            type="text"
-            placeholder="Search hot topics…"
-            disabled
-          />
-          <span class="search-todo">Coming soon</span>
-        </div>
       </div>
+      <div class="section-divider"></div>
 
-      <!-- Feed header -->
-      <div class="feed-header">
-        <h2 class="feed-title">🔥 Hot Knowledge Feed</h2>
-        <p class="feed-sub">Content coming soon in v0.6</p>
-      </div>
-
-      <!-- Placeholder post cards -->
-      <div class="feed-list">
-        <article
-          v-for="post in placeholderPosts"
-          :key="post.id"
-          class="post-card"
-        >
-          <div class="post-meta">
-            <span class="post-tag">{{ post.tag }}</span>
-            <span class="post-read-time">{{ post.readTime }}</span>
+      <div class="side-main">
+        <Transition name="panel-switch" mode="out-in">
+          <div v-if="activePanel && !isIconMode" key="panel" class="panel-content">
+            <div class="panel-head">
+              <div class="panel-head-main">
+                <span class="nav-icon">{{ activePanelIcon }}</span>
+                <span class="panel-title">{{ activePanelLabel }}</span>
+              </div>
+              <button class="panel-return" @click="returnToDefaultNav">Return</button>
+            </div>
+            <div class="section-divider panel-divider"></div>
+            <div class="history-frame">
+              <div class="history-list">
+                <button
+                  v-for="item in activePanelItems"
+                  :key="item.id"
+                  class="history-item"
+                  @click="openHistoryRecord(item)"
+                >
+                  <span class="history-item-type">{{ item.type }}</span>
+                  <span class="history-item-title">{{ item.title }}</span>
+                </button>
+              </div>
+              <p class="history-hint">Future: click item to jump to article page</p>
+            </div>
           </div>
-          <h3 class="post-title">{{ post.title }}</h3>
-          <p class="post-excerpt">{{ post.excerpt }}</p>
-          <button class="read-more" @click="console.log('TODO: open post', post.id)">
-            Read more →
+
+          <div v-else key="nav" class="nav-content">
+            <nav class="nav-list">
+              <button
+                v-for="item in navItems"
+                :key="item.key"
+                class="nav-item"
+                @click="onClickNav(item, $event)"
+              >
+                <span class="nav-icon">{{ item.icon }}</span>
+                <span v-if="!isIconMode" class="nav-label">{{ item.label }}</span>
+              </button>
+            </nav>
+          </div>
+        </Transition>
+      </div>
+
+      <section ref="accountCardRef" class="account-card" :class="{ open: showAccountActions }">
+        <button class="account-head" @click.stop="toggleAccountMenu">
+          <div class="avatar">{{ initials }}</div>
+          <div v-if="!isIconMode" class="account-meta">
+            <div class="account-name">{{ username }}</div>
+            <div class="account-role">Member</div>
+          </div>
+        </button>
+        <div v-if="showAccountActions" class="account-menu">
+          <button
+            class="account-action"
+            @click="returnToDefaultNav"
+          >
+            <span class="nav-icon">👤</span>
+            <span class="nav-label">My Profile</span>
           </button>
-        </article>
-      </div>
-    </div>
-
-    <!-- ── Right bookmarks panel ── -->
-    <aside class="right-panel">
-      <div class="panel-card">
-        <div class="panel-heading">
-          <span class="panel-icon">🔖</span>
-          <span>Bookmarks</span>
+          <button class="account-action" @click="showProfileSettings">
+            <span class="nav-icon">⚙️</span>
+            <span class="nav-label">Settings</span>
+          </button>
+          <button class="account-action danger" :disabled="logoutLoading" @click="onLogout">
+            <span class="nav-icon">🚪</span>
+            <span class="nav-label">{{ logoutLoading ? 'Logging out…' : 'Logout' }}</span>
+          </button>
         </div>
-        <div class="empty-state">
-          <span class="empty-icon">📭</span>
-          <p class="empty-text">No bookmarks yet</p>
-          <p class="empty-hint">Save posts to read them later.</p>
-        </div>
-      </div>
-
-      <div class="panel-card trending-card">
-        <div class="panel-heading">
-          <span class="panel-icon">📈</span>
-          <span>Trending</span>
-        </div>
-        <div class="empty-state">
-          <span class="empty-icon">🚧</span>
-          <p class="empty-text">Coming soon</p>
-        </div>
-      </div>
+      </section>
     </aside>
 
-    <!-- ── Profile settings modal ── -->
+    <main class="center-col">
+      <section v-if="centerMode === 'publish'" class="center-shell">
+        <div class="feed-toolbar">
+          <div class="toolbar-title-wrap">
+            <h2 class="feed-title">Publish</h2>
+            <p class="feed-sub">Writing workspace placeholder</p>
+          </div>
+        </div>
+        <div class="publish-placeholder">
+          <h3 class="publish-title">New Article Draft</h3>
+          <p class="publish-copy">Editor feature will be implemented in the next step.</p>
+          <button class="publish-disabled-btn" disabled>Start Writing</button>
+        </div>
+      </section>
+
+      <section v-else class="center-shell">
+        <div class="feed-toolbar">
+          <div class="toolbar-title-wrap">
+            <h2 class="feed-title">Explore</h2>
+            <p class="feed-sub">Hot knowledge and engineering insights</p>
+          </div>
+          <div class="search-bar">
+            <span class="search-icon">🔍</span>
+            <input
+              class="search-input"
+              type="text"
+              placeholder="Search topics"
+              disabled
+            />
+          </div>
+        </div>
+        <div class="feed-list">
+          <article v-for="post in placeholderPosts" :key="post.id" class="post-card">
+            <div class="post-meta">
+              <span class="post-tag">{{ post.tag }}</span>
+              <span class="post-read-time">{{ post.readTime }}</span>
+            </div>
+            <h3 class="post-title">{{ post.title }}</h3>
+            <p class="post-excerpt">{{ post.excerpt }}</p>
+            <button
+              class="read-more"
+              @click="onOpenPost(post)"
+            >
+              Read more →
+            </button>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <Teleport to="body">
+      <Transition name="panel-slide">
+        <section
+          v-if="showFloatingPanel"
+          ref="floatingPanelRef"
+          class="floating-panel"
+          :style="floatingPanelStyle"
+        >
+          <div class="panel-head">
+            <div class="panel-head-main">
+              <span class="nav-icon">{{ activePanelIcon }}</span>
+              <span class="panel-title">{{ activePanelLabel }}</span>
+            </div>
+            <button class="panel-return" @click="returnToDefaultNav">Return</button>
+          </div>
+          <div class="section-divider panel-divider"></div>
+          <div class="history-frame">
+            <div class="history-list">
+              <button
+                v-for="item in activePanelItems"
+                :key="item.id"
+                class="history-item"
+                @click="openHistoryRecord(item)"
+              >
+                <span class="history-item-type">{{ item.type }}</span>
+                <span class="history-item-title">{{ item.title }}</span>
+              </button>
+            </div>
+            <p class="history-hint">Future: click item to jump to article page</p>
+          </div>
+        </section>
+      </Transition>
+    </Teleport>
+
     <Teleport to="body">
       <div v-if="profileModalVisible" class="modal-backdrop" @click.self="closeProfileModal">
         <div class="modal-box">
@@ -252,431 +466,639 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* ────────────────────────────────────────
-   Root grid
-──────────────────────────────────────── */
 .home-root {
-  display: grid;
-  grid-template-columns: 240px 1fr 260px;
-  grid-template-areas: 'sidebar center right';
-  gap: var(--space-4);
-  align-items: start;
-  width: 100%;
-  max-width: var(--container-w);
-  margin: 0 auto;
-  min-height: calc(100vh - 80px);
-  padding: var(--space-4) var(--space-4) var(--space-6);
-  box-sizing: border-box;
   position: relative;
-}
-
-/* ────────────────────────────────────────
-   Sidebar
-──────────────────────────────────────── */
-.sidebar {
-  grid-area: sidebar;
-  display: flex;
-  flex-direction: column;
+  isolation: isolate;
+  width: 100%;
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   gap: 0;
-  background: color-mix(in oklab, var(--bg-elev) 75%, transparent);
-  backdrop-filter: saturate(1.1) blur(10px);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-1);
-  padding: var(--space-4) var(--space-3);
-  position: sticky;
-  top: calc(64px + var(--space-4));
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
-  box-sizing: border-box;
-  transition: transform 0.25s ease, opacity 0.25s ease;
-  min-height: 480px;
+  background: color-mix(in oklab, var(--bg) 32%, transparent);
+  overflow: hidden;
 }
 
-.user-block {
+.home-root::before {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  background-image: var(--noosphere-pattern);
+  background-size: 1200px 1200px;
+  background-repeat: repeat;
+  background-position: center;
+  filter: blur(14px) saturate(1.1);
+  opacity: 0.42;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.side-panel {
+  position: relative;
+  z-index: 1;
+  background: color-mix(in oklab, var(--bg) 62%, transparent);
+  backdrop-filter: saturate(1.08) blur(7px);
+  border-right: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
+  padding: 0.55rem 0.45rem calc(1.55rem + env(safe-area-inset-bottom));
+  height: 100dvh;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 0.2rem;
+}
+
+.home-root.icon-mode .side-panel {
+  padding-left: 0.16rem;
+  padding-right: 0.16rem;
+}
+
+.brand-header {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-2) var(--space-3);
+  justify-content: space-between;
+  min-height: 30px;
 }
 
-.avatar {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--brand) 0%, #a4508b 100%);
+.collapse-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  background: color-mix(in oklab, var(--bg-elev) 86%, transparent);
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
-  font-size: 0.95rem;
-  color: #fff;
-  letter-spacing: 0.02em;
-  box-shadow: 0 2px 8px color-mix(in oklab, var(--brand) 35%, transparent);
-  user-select: none;
+  margin-right: 0.12rem;
+  flex-shrink: 0;
 }
 
-.user-info {
+.collapse-btn:hover {
+  border-color: color-mix(in oklab, var(--brand) 30%, transparent);
+  background: color-mix(in oklab, var(--brand) 10%, var(--bg-elev));
+}
+
+.brand-block {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow: hidden;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 30px;
+  padding: 0 0.38rem;
 }
 
-.user-name {
-  font-weight: 700;
-  font-size: 0.95rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.home-root.icon-mode .brand-header {
+  justify-content: center;
 }
 
-.user-role {
-  font-size: 0.78rem;
-  opacity: 0.6;
+.home-root.icon-mode .brand-block {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
 }
 
-.divider {
+.home-root.icon-mode .collapse-btn {
+  position: static;
+  margin: 0 auto;
+}
+
+.collapse-icon {
+  transform: translateY(-1px);
+}
+
+.section-divider {
   height: 1px;
-  background: color-mix(in oklab, var(--border) 80%, transparent);
-  margin: var(--space-2) 0;
+  margin: 0.1rem 0.2rem 0.18rem;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--border) 94%, transparent) 18%,
+    color-mix(in oklab, var(--border) 94%, transparent) 82%,
+    transparent 100%
+  );
+}
+
+.brand-mark {
+  color: var(--brand);
+  font-size: 0.78rem;
+}
+
+.brand-text {
+  font-size: 0.83rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--space-2) 0;
+  gap: 0.15rem;
 }
 
-.nav-item {
+.nav-item,
+.account-action {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  width: 100%;
-  padding: 0.6rem var(--space-3);
-  border-radius: var(--radius-md);
+  gap: 0.42rem;
+  min-height: 30px;
+  border-radius: 10px;
   border: 1px solid transparent;
   background: transparent;
-  cursor: pointer;
-  text-align: left;
-  font-size: 0.9rem;
-  font-weight: 500;
   color: var(--text);
-  transition: background 0.15s, border-color 0.15s;
+  padding: 0.34rem 0.4rem;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.79rem;
 }
 
-.nav-item:hover {
-  background: color-mix(in oklab, var(--brand) 10%, transparent);
-  border-color: color-mix(in oklab, var(--brand) 25%, transparent);
+.nav-item:hover,
+.account-action:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--brand) 9%, transparent);
+  border-color: color-mix(in oklab, var(--brand) 26%, transparent);
+}
+
+.home-root.icon-mode .nav-item,
+.home-root.icon-mode .account-action {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  min-height: 28px;
 }
 
 .nav-icon {
-  font-size: 1.05rem;
-  width: 22px;
+  min-width: 16px;
+  width: 16px;
+  font-size: 0.87rem;
+  line-height: 1;
   text-align: center;
-  flex-shrink: 0;
+}
+
+.home-root.icon-mode .nav-icon {
+  min-width: 14px;
+  width: 14px;
+  font-size: 0.8rem;
 }
 
 .nav-label {
+  line-height: 1.14;
+  font-weight: 500;
+}
+
+.side-main {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 0.28rem;
+}
+
+.nav-content,
+.panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+}
+
+.history-frame {
+  border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  background: color-mix(in oklab, var(--bg-elev) 60%, transparent);
+  border-radius: 9px;
+  padding: 0.28rem;
+  backdrop-filter: saturate(1.08) blur(6px);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.26rem;
+}
+
+.panel-head-main {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+}
+
+.panel-title {
+  font-size: 0.79rem;
+  font-weight: 700;
+}
+
+.panel-return {
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  background: color-mix(in oklab, var(--bg-elev) 92%, transparent);
+  border-radius: 999px;
+  padding: 0.18rem 0.54rem;
+  font-size: 0.67rem;
+  cursor: pointer;
+}
+
+.panel-return:hover {
+  border-color: color-mix(in oklab, var(--brand) 30%, transparent);
+}
+
+.panel-divider {
+  margin-top: 0;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.3rem;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  text-align: left;
+  padding: 0.3rem 0.32rem;
+  cursor: pointer;
+}
+
+.history-item:hover {
+  background: color-mix(in oklab, var(--brand) 7%, transparent);
+  border-color: color-mix(in oklab, var(--brand) 24%, transparent);
+}
+
+.history-item-title {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.sidebar-spacer {
-  flex: 1;
+.history-item-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in oklab, var(--brand) 30%, transparent);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 0.64rem;
+  line-height: 1.2;
+  color: var(--brand);
+  background: color-mix(in oklab, var(--brand) 10%, transparent);
 }
 
-.logout-btn {
+.history-hint {
+  margin: 0.24rem 0 0;
+  font-size: 0.67rem;
+  opacity: 0.58;
+  padding: 0 0.14rem;
+}
+
+.account-card {
+  display: block;
+  position: relative;
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  background: color-mix(in oklab, var(--bg-elev) 60%, transparent);
+  border-radius: 10px;
+  padding: 0.34rem;
+  overflow: visible;
+  margin-top: 0;
+  margin-bottom: 0.12rem;
+}
+
+.home-root.icon-mode .account-head {
+  pointer-events: none;
+  justify-content: center;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  margin: 0 auto;
+}
+
+.home-root.icon-mode .account-card {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  justify-content: center;
+  width: 44px;
+  padding: 0.2rem;
+  margin: 0 auto 0.12rem;
+  border-radius: 999px;
+}
+
+.home-root.icon-mode .account-head .avatar {
+  margin: 0 auto;
+}
+
+.account-card.open {
+  border-color: color-mix(in oklab, var(--brand) 30%, var(--border));
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+}
+
+.account-head {
   width: 100%;
-  padding: 0.6rem var(--space-3);
-  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.22rem 0.16rem;
   border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   cursor: pointer;
-  text-align: left;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: #c43131;
-  transition: background 0.15s, border-color 0.15s;
-  margin-top: var(--space-2);
+  min-height: 34px;
 }
 
-.logout-btn:hover:not(:disabled) {
-  background: color-mix(in oklab, rgba(196, 49, 49, 0.15) 80%, transparent);
-  border-color: rgba(196, 49, 49, 0.3);
+.account-head:hover {
+  background: color-mix(in oklab, var(--brand) 8%, transparent);
+  border-color: color-mix(in oklab, var(--brand) 24%, transparent);
 }
 
-.logout-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.avatar {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--brand) 0%, #8a77f8 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 800;
 }
 
-/* ────────────────────────────────────────
-   Center column
-──────────────────────────────────────── */
-.center-col {
-  grid-area: center;
+.account-meta {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: 1px;
   min-width: 0;
 }
 
-/* Search */
-.search-wrap {
-  position: sticky;
-  top: calc(64px + var(--space-4));
-  z-index: 5;
+.account-name {
+  font-size: 0.79rem;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.search-bar {
+.account-role {
+  font-size: 0.67rem;
+  opacity: 0.58;
+}
+
+.account-menu {
+  position: absolute;
+  left: 0.34rem;
+  right: 0.34rem;
+  bottom: calc(100% + 0.22rem);
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.14rem;
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  background: color-mix(in oklab, var(--bg-elev) 72%, transparent);
+  border-radius: 10px;
+  padding: 0.26rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  z-index: 12;
+  backdrop-filter: saturate(1.08) blur(8px);
+}
+
+.floating-panel {
+  position: fixed;
+  width: min(300px, calc(100vw - 1.4rem));
+  max-height: calc(100vh - 1.44rem);
+  overflow-y: auto;
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  background: color-mix(in oklab, var(--bg-elev) 70%, transparent);
+  border-radius: 12px;
+  padding: 0.42rem;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.2);
+  z-index: 40;
+  backdrop-filter: saturate(1.1) blur(10px);
+}
+
+.account-action.danger {
+  color: #b83939;
+}
+
+.account-action.danger:hover:not(:disabled) {
+  background: color-mix(in oklab, rgba(184, 57, 57, 0.14) 84%, transparent);
+  border-color: rgba(184, 57, 57, 0.3);
+}
+
+.account-action:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.center-col {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.center-shell {
+  min-height: 100%;
+  padding: 0.82rem 1.02rem;
+}
+
+.publish-placeholder {
+  border: 1px dashed color-mix(in oklab, var(--border) 90%, transparent);
+  border-radius: 12px;
+  padding: 1rem;
+  background: color-mix(in oklab, var(--bg-elev) 58%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.46rem;
+  backdrop-filter: saturate(1.06) blur(7px);
+}
+
+.publish-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.publish-copy {
+  margin: 0;
+  opacity: 0.66;
+  font-size: 0.84rem;
+}
+
+.publish-disabled-btn {
+  align-self: flex-start;
+  border: 1px solid color-mix(in oklab, var(--brand) 30%, transparent);
+  border-radius: 8px;
+  padding: 0.4rem 0.76rem;
+  background: color-mix(in oklab, var(--brand) 8%, transparent);
+  color: var(--brand);
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.panel-switch-enter-active,
+.panel-switch-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.panel-switch-enter-from,
+.panel-switch-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.panel-slide-enter-active,
+.panel-slide-leave-active {
+  transition: opacity 0.24s ease, transform 0.24s ease;
+}
+
+.panel-slide-enter-from,
+.panel-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-18px) scale(0.98);
+}
+
+.feed-toolbar {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  background: color-mix(in oklab, var(--bg-elev) 80%, transparent);
-  backdrop-filter: saturate(1.1) blur(10px);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: 999px;
-  box-shadow: var(--shadow-1);
-  padding: 0 var(--space-4);
-  height: 48px;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding-bottom: 0.66rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  margin-bottom: 0.66rem;
 }
 
-.search-icon {
-  font-size: 1rem;
-  opacity: 0.7;
-  flex-shrink: 0;
-}
-
-.search-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text);
-  font-size: 0.95rem;
-  font-family: inherit;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.search-todo {
-  font-size: 0.75rem;
-  opacity: 0.5;
-  white-space: nowrap;
-  background: color-mix(in oklab, var(--bg-elev) 70%, transparent);
-  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
-  border-radius: var(--radius-sm);
-  padding: 2px 8px;
-}
-
-/* Feed header */
-.feed-header {
-  text-align: center;
-  padding: var(--space-3) 0 var(--space-2);
+.toolbar-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .feed-title {
-  margin: 0 0 var(--space-2);
-  font-size: 1.6rem;
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 700;
 }
 
 .feed-sub {
   margin: 0;
-  opacity: 0.6;
-  font-size: 0.9rem;
+  font-size: 0.75rem;
+  opacity: 0.62;
 }
 
-/* Post cards */
+.search-bar {
+  min-width: 200px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
+  background: color-mix(in oklab, var(--bg-elev) 88%, transparent);
+  padding: 0 10px;
+}
+
+.search-icon {
+  font-size: 0.82rem;
+  opacity: 0.56;
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.83rem;
+  font-family: inherit;
+  opacity: 0.65;
+}
+
 .feed-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: 0.54rem;
 }
 
 .post-card {
-  background: color-mix(in oklab, var(--bg-elev) 78%, transparent);
-  backdrop-filter: saturate(1.1) blur(8px);
+  background: color-mix(in oklab, var(--bg-elev) 62%, transparent);
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-1);
-  padding: var(--space-5);
+  border-radius: 11px;
+  padding: 0.8rem;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  transition: border-color 0.2s;
+  gap: 0.5rem;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  backdrop-filter: saturate(1.08) blur(8px);
 }
 
 .post-card:hover {
-  border-color: color-mix(in oklab, var(--brand) 40%, transparent);
+  background: color-mix(in oklab, var(--brand) 5%, var(--bg-elev));
+  border-color: color-mix(in oklab, var(--brand) 34%, transparent);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
 }
 
 .post-meta {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 0.5rem;
 }
 
 .post-tag {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 600;
-  padding: 3px 10px;
+  padding: 2px 8px;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--brand) 15%, transparent);
-  border: 1px solid color-mix(in oklab, var(--brand) 30%, transparent);
+  background: color-mix(in oklab, var(--brand) 14%, transparent);
+  border: 1px solid color-mix(in oklab, var(--brand) 28%, transparent);
   color: var(--brand);
 }
 
 .post-read-time {
-  font-size: 0.8rem;
-  opacity: 0.55;
+  font-size: 0.74rem;
+  opacity: 0.56;
 }
 
 .post-title {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 0.97rem;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1.38;
 }
 
 .post-excerpt {
   margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.65;
-  opacity: 0.8;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-size: 0.83rem;
+  line-height: 1.58;
+  opacity: 0.84;
 }
 
 .read-more {
   align-self: flex-start;
-  background: none;
-  border: 1px solid color-mix(in oklab, var(--brand) 35%, transparent);
-  border-radius: var(--radius-sm);
+  padding: 0.34rem 0.78rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--brand) 32%, transparent);
+  background: transparent;
   color: var(--brand);
-  font-size: 0.85rem;
+  font-size: 0.76rem;
   font-weight: 600;
-  padding: 0.4rem 0.9rem;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
 }
 
 .read-more:hover {
-  background: color-mix(in oklab, var(--brand) 12%, transparent);
-  border-color: var(--brand);
+  background: color-mix(in oklab, var(--brand) 11%, transparent);
 }
 
-/* ────────────────────────────────────────
-   Right panel
-──────────────────────────────────────── */
-.right-panel {
-  grid-area: right;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  position: sticky;
-  top: calc(64px + var(--space-4));
-}
-
-.panel-card {
-  background: color-mix(in oklab, var(--bg-elev) 75%, transparent);
-  backdrop-filter: saturate(1.1) blur(10px);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-1);
-  padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.panel-heading {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-weight: 700;
-  font-size: 0.95rem;
-}
-
-.panel-icon {
-  font-size: 1rem;
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) 0;
-  text-align: center;
-}
-
-.empty-icon {
-  font-size: 2rem;
-  line-height: 1;
-}
-
-.empty-text {
-  margin: 0;
-  font-size: 0.88rem;
-  font-weight: 600;
-  opacity: 0.75;
-}
-
-.empty-hint {
-  margin: 0;
-  font-size: 0.8rem;
-  opacity: 0.55;
-}
-
-/* ────────────────────────────────────────
-   Hamburger (mobile only)
-──────────────────────────────────────── */
-.hamburger {
-  display: none;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 5px;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
-  background: color-mix(in oklab, var(--bg-elev) 75%, transparent);
-  backdrop-filter: blur(6px);
-  position: fixed;
-  bottom: 72px;
-  left: 16px;
-  z-index: 30;
-  cursor: pointer;
-  box-shadow: var(--shadow-1);
-}
-
-.bar {
-  display: block;
-  width: 20px;
-  height: 2px;
-  background: var(--text);
-  border-radius: 2px;
-  transition: transform 0.2s, opacity 0.2s;
-}
-
-.sidebar-overlay {
-  display: none;
-}
-
-/* ────────────────────────────────────────
-   Profile settings modal
-──────────────────────────────────────── */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -727,7 +1149,6 @@ onMounted(() => {
   cursor: pointer;
   opacity: 0.6;
   font-size: 0.85rem;
-  line-height: 1;
 }
 
 .modal-close:hover {
@@ -737,7 +1158,7 @@ onMounted(() => {
 }
 
 .modal-body {
-  padding: var(--space-5);
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -778,83 +1199,38 @@ onMounted(() => {
   border-color: var(--brand);
 }
 
-/* ────────────────────────────────────────
-   Responsive
-──────────────────────────────────────── */
-@media (max-width: 1024px) {
+@media (max-width: 1219px) {
   .home-root {
-    grid-template-columns: 220px 1fr;
-    grid-template-areas:
-      'sidebar center'
-      'sidebar right';
-  }
-
-  .right-panel {
-    grid-area: right;
-    position: static;
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-
-  .panel-card {
-    flex: 1;
-    min-width: 200px;
+    grid-template-columns: minmax(72px, var(--sidebar-w)) minmax(0, 1fr);
   }
 }
 
 @media (max-width: 768px) {
   .home-root {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      'center'
-      'right';
-    padding: var(--space-3);
-    gap: var(--space-3);
+    grid-template-columns: max(72px, var(--sidebar-w)) minmax(0, 1fr);
   }
 
-  .hamburger {
-    display: flex;
+  .side-panel {
+    padding-left: 0.24rem;
+    padding-right: 0.24rem;
   }
 
-  .sidebar {
-    grid-area: unset;
-    position: fixed;
-    top: 0;
-    left: 0;
-    height: 100vh;
-    max-height: 100vh;
-    z-index: 40;
-    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
-    transform: translateX(0);
-    transition: transform 0.25s ease;
-    overflow-y: auto;
-  }
-
-  .sidebar.collapsed {
-    transform: translateX(-100%);
-  }
-
-  .sidebar-overlay {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.35);
-    z-index: 39;
-    backdrop-filter: blur(2px);
-  }
-
-  .search-wrap {
-    top: var(--space-3);
-  }
-
-  .right-panel {
-    grid-area: right;
+  .feed-toolbar {
     flex-direction: column;
-    position: static;
+    align-items: stretch;
   }
 
-  .panel-card {
-    min-width: unset;
+  .search-bar {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .center-shell {
+    padding: 0.66rem 0.7rem;
+  }
+
+  .post-card {
+    padding: 0.68rem;
   }
 }
 </style>

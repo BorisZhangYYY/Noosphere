@@ -96,6 +96,7 @@ function goToLogin() {
 <template>
   <div class="wrap">
     <Card>
+      <span class="brand-row"><span class="mark">🌍</span> Noosphere</span>
       <!-- Step indicator -->
       <div class="stepper">
         <div
@@ -235,8 +236,26 @@ function goToLogin() {
 <style scoped>
 .wrap {
   width: min(720px, 100%);
+  min-height: 100dvh;
+  display: grid;
+  align-content: center;
   margin: 0 auto;
   text-align: center;
+  padding: var(--space-4) 0;
+  box-sizing: border-box;
+}
+
+.brand-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: var(--space-4);
+}
+
+.mark {
+  color: var(--brand);
 }
 
 /* ── Stepper ── */
@@ -328,21 +347,21 @@ function goToLogin() {
 }
 
 .label {
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   opacity: 0.9;
 }
 
 .input {
   width: 100%;
-  padding: 0.85rem 1rem;
-  height: 48px;
+  padding: 0.64rem 0.86rem;
+  height: 42px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: transparent;
   color: inherit;
   outline: none;
   box-sizing: border-box;
-  font-size: 1rem;
+  font-size: 0.9rem;
   transition: border-color 0.2s;
 }
 
@@ -365,8 +384,8 @@ function goToLogin() {
 
 /* ── Button ── */
 .btn {
-  padding: 0.8rem 1.2rem;
-  height: 48px;
+  padding: 0.64rem 0.96rem;
+  height: 42px;
   width: 100%;
   max-width: 480px;
   box-sizing: border-box;
@@ -374,7 +393,7 @@ function goToLogin() {
   color: #fff;
   border: none;
   border-radius: var(--radius-md);
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s, opacity 0.2s;
