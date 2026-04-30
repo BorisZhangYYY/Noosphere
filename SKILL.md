@@ -44,6 +44,7 @@ SIYUAN_TOKEN=... python src/classifier.py --upload --parent-id TARGET_ID URL...
 
 ## Notes
 
+- To learn how to use siyuanAPI and crawl4ai, see the MD files in `references/`.
 - Local Markdown outputs live directly under `outputs/`.
 - Existing child documents with the same title are updated, not duplicated.
 - The SiYuan target can be either a notebook ID or a parent document block ID.
