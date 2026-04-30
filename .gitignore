@@ -1,0 +1,11 @@
+# environment
+.venv/
+config.json
+
+# AI
+.claude/
+
+# cache
+__pycache__/
+.crawl4ai-runtime/
+outputs/

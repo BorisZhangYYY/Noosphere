@@ -1,0 +1,19 @@
+{
+  "wechat_mp": {
+    "label": "微信公众号",
+    "url_patterns": [
+      "mp.weixin.qq.com/s/"
+    ]
+  },
+  "zhihu_zhuanlan": {
+    "label": "知乎专栏",
+    "url_patterns": [
+      "zhuanlan.zhihu.com/p/"
+    ]
+  },
+  "siyuan": {
+    "api_base": "http://127.0.0.1:6806",
+    "default_parent_id": "",
+    "token_env": "SIYUAN_TOKEN"
+  }
+}
