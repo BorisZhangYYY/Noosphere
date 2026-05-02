@@ -48,10 +48,12 @@ class Article:
             metadata.append(f"发布时间：{self.published_at}")
         metadata.append(f"抓取时间：{self.captured_at}")
 
+        # NOTE: Do NOT write a leading `# title` H1 here.
+        # The document title is set when createDocWithMd creates the doc,
+        # and write_document_blocks writes content below it.  Adding an H1
+        # here would create a duplicate heading inside the document body.
         return "\n".join(
             [
-                f"# {self.title.strip()}",
-                "",
                 "  \n".join(metadata),
                 "",
                 "---",
