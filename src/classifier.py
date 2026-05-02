@@ -132,6 +132,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--parent-id", help="SiYuan target notebook ID or parent document block ID when --upload is enabled.")
     parser.add_argument("--api-base", default="")
     parser.add_argument("--dry-run", action="store_true", help="Extract only; do not call SiYuan upload APIs.")
+    parser.add_argument("--extract-only", action="store_true", help="Extract and write to outputs/ only. Stop before upload; signal for AI review before continuing.")
     parser.add_argument("--upload", action="store_true", help="Also upload the extracted article into SiYuan.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Directory for local Markdown outputs.")
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
@@ -140,7 +141,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    records = asyncio.run(run(args.urls, args.parent_id, args.api_base, args.dry_run, args.upload, args.output_dir))
+
+    # --extract-only means: extract only, no upload, no dry-run (signal for AI review)
+    do_upload = args.upload and not args.extract_only
+    do_dry_run = args.dry_run and not args.extract_only
+
+    records = asyncio.run(run(args.urls, args.parent_id, args.api_base, do_dry_run, do_upload, args.output_dir))
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -154,7 +160,12 @@ def main() -> int:
             suffix = f" -> {upload['hpath']}" if upload else ""
             local_path = record.get("local_path") or ""
             local_suffix = f" [{local_path}]" if local_path else ""
-            print(f"- OK [{article['platform']}] {article['title']}{local_suffix}{suffix}")
+
+            if args.extract_only and local_path:
+                print(f"- EXTRACTED [{article['platform']}] {article['title']}{local_suffix}")
+                print(f"  -> Awaiting AI review before upload...")
+            else:
+                print(f"- OK [{article['platform']}] {article['title']}{local_suffix}{suffix}")
         else:
             print(f"- FAIL {record.get('url')}: {record['error']}")
     return 0 if ok_count == len(records) else 1

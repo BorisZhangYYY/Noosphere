@@ -16,36 +16,81 @@ Supported platforms:
 
 Do not use this skill for whole documentation sites, generic web crawling, asset mirroring, or unsupported platforms unless the user explicitly asks to extend the platform list.
 
-## Workflow
+---
 
-1. Classify each URL with `src/classifier.py`.
-2. Use the platform-specific extractor:
-   - `src/wechat_mp/extractor.py`
-   - `src/zhihu_zhuanlan/extractor.py`
-3. Extract article title, author when available, publish time when available, source URL, and main body.
-4. Write each article Markdown file directly into `outputs/` first.
-5. If `--upload` is enabled and a SiYuan target is provided, upload each article as a child document under that target.
-6. Read the SiYuan token from `SIYUAN_TOKEN`; never write it to project files.
-7. Write a JSON report to `outputs/p0_article_ingest_report.json`.
+## Two Operating Modes
 
-## Commands
+### Mode A — Direct Upload (default, no review)
 
-Extract only:
-
-```bash
-python src/classifier.py --dry-run URL...
-```
-
-Extract and optionally upload under a SiYuan target:
+One-shot extract + upload. Fast, no AI review.
 
 ```bash
 SIYUAN_TOKEN=... python src/classifier.py --upload --parent-id TARGET_ID URL...
 ```
 
+### Mode B — AI Review + Upload (`--extract-only`)
+
+Agent reviews and cleans up the markdown before uploading. Use when quality matters.
+
+```bash
+# Step 1: extract to outputs/ and stop
+SIYUAN_TOKEN=... python src/classifier.py --extract-only --parent-id TARGET_ID URL...
+
+# Step 2 (Agent): read outputs/ markdown, review and edit, then upload via SiyuanClient
+```
+
+Workflow for Mode B:
+
+1. `classifier.py` writes markdown to `outputs/`, prints `Awaiting AI review before upload...`
+2. Agent reads the markdown file from `outputs/`
+3. Agent reviews for:
+   - **Duplicate sections** — same heading or blockquote appearing twice → truncate at second occurrence
+   - **Platform noise** — Zhihu footer metadata (author bio, "× 人赞同", copyright, related-articles) → remove
+   - ** zd_token URLs** — Zhihu search links with bloated token params → stripped by extractor
+   - **Table rendering** — markdown tables → rendered as `<table data-type="table">` blocks by block-level API
+   - **Image quality** — `![](URL)` with missing alt text → preserve as-is (SiYuan renders it)
+4. If edits were made, agent logs the changes
+5. Agent calls `SiyuanClient.upload_article_under_parent()` to upload
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `--dry-run` | Extract only, write to `outputs/`, do not upload. Same as `--extract-only` but without the "Awaiting AI review" signal. |
+| `--extract-only` | Extract + write to `outputs/` + signal "Awaiting AI review" + stop before upload. Use this for the AI review workflow. |
+| `--upload` | After extraction, upload to SiYuan under `--parent-id`. |
+
+Examples:
+
+```bash
+# Direct upload (Mode A)
+SIYUAN_TOKEN=piqjme2w1q7n8s0b python src/classifier.py \
+  --upload --parent-id 20260502124430-lt2kpap \
+  https://zhuanlan.zhihu.com/p/2022347896658372406
+
+# AI review workflow (Mode B)
+SIYUAN_TOKEN=piqjme2w1q7n8s0b python src/classifier.py \
+  --extract-only --parent-id 20260502124430-lt2kpap \
+  https://zhuanlan.zhihu.com/p/2022347896658372406
+```
+
+## SiYuan Client Usage
+
+```python
+from src.common_func.siyuan import SiyuanClient
+
+client = SiyuanClient(api_base="http://127.0.0.1:6806", token="TOKEN")
+result = client.upload_article_under_parent(article, parent_doc_id)
+# result.doc_id, result.hpath, result.created
+```
+
 ## Notes
 
-- To learn how to use siyuanAPI and crawl4ai, see the MD files in `references/`.
-- Local Markdown outputs live directly under `outputs/`.
-- Existing child documents with the same title are updated, not duplicated.
-- The SiYuan target can be either a notebook ID or a parent document block ID.
-- P0 does not upload images as SiYuan assets.
+- Token: read from `SIYUAN_TOKEN` environment variable; never commit to project files.
+- Local Markdown outputs: `outputs/*.md`
+- Report: `outputs/p0_article_ingest_report.json`
+- Existing child documents with the same title are updated (not duplicated) via block-level rewrite.
+- SiYuan target can be a notebook ID or a parent document block ID.
+- P0 does not upload images as SiYuan assets (external URLs are preserved as-is).
