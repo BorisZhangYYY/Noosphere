@@ -38,23 +38,28 @@ class Article:
         return body
 
     def to_siyuan_markdown(self) -> str:
+        # NOTE: Do NOT write metadata header here.
+        # The document title is set by createDocWithMd.
+        # Metadata fields (url, platform, author, published_at, captured_at)
+        # are stored in Article dataclass for reference only.
+        return self.normalized_body()
+
+    def to_review_markdown(self) -> str:
         metadata = [
-            f"来源：[{self.url}]({self.url})",
-            f"平台：{self.platform_label}",
+            f"> 来源：[{self.url}]({self.url})",
+            f"> 平台：{self.platform_label}",
         ]
         if self.author:
-            metadata.append(f"作者：{self.author}")
+            metadata.append(f"> 作者：{self.author}")
         if self.published_at:
-            metadata.append(f"发布时间：{self.published_at}")
-        metadata.append(f"抓取时间：{self.captured_at}")
+            metadata.append(f"> 发布时间：{self.published_at}")
+        metadata.append(f"> 抓取时间：{self.captured_at}")
 
-        # NOTE: Do NOT write a leading `# title` H1 here.
-        # The document title is set when createDocWithMd creates the doc,
-        # and write_document_blocks writes content below it.  Adding an H1
-        # here would create a duplicate heading inside the document body.
         return "\n".join(
             [
-                "  \n".join(metadata),
+                f"# {self.title}",
+                "",
+                *metadata,
                 "",
                 "---",
                 "",

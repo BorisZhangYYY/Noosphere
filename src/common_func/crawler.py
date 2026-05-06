@@ -44,16 +44,21 @@ def _markdown_text(raw: object) -> str:
         return ""
     if isinstance(raw, str):
         return raw
-    return str(getattr(raw, "raw_markdown", "") or getattr(raw, "fit_markdown", "") or "")
+    return str(getattr(raw, "fit_markdown", "") or getattr(raw, "raw_markdown", "") or "")
 
 
 async def crawl_page(
     url: str,
     *,
     css_selector: str | None = None,
+    target_elements: list[str] | None = None,
+    excluded_tags: list[str] | None = None,
+    excluded_selector: str | None = None,
     wait_for: str | None = None,
     page_timeout: int = 60000,
     delay_before_return_html: float = 0.8,
+    pruning_threshold: float = 0.45,
+    word_count_threshold: int = 8,
 ) -> CrawledPage:
     browser_config = BrowserConfig(
         headless=True,
@@ -65,19 +70,25 @@ async def crawl_page(
         viewport_height=900,
     )
     markdown_generator = DefaultMarkdownGenerator(
-        content_filter=PruningContentFilter(threshold=0.45),
+        content_filter=PruningContentFilter(threshold=pruning_threshold, threshold_type="fixed"),
         content_source="cleaned_html",
     )
     run_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
+        word_count_threshold=word_count_threshold,
         css_selector=css_selector,
+        target_elements=target_elements,
+        excluded_tags=excluded_tags or ["script", "style", "noscript", "form", "nav", "footer", "header", "aside"],
+        excluded_selector=excluded_selector,
         wait_for=wait_for,
         wait_until="domcontentloaded",
         page_timeout=page_timeout,
         delay_before_return_html=delay_before_return_html,
         markdown_generator=markdown_generator,
+        remove_forms=True,
         scan_full_page=True,
         remove_overlay_elements=True,
+        exclude_social_media_links=True,
         remove_consent_popups=True,
         magic=True,
         simulate_user=True,

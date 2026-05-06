@@ -5,7 +5,6 @@ import os
 import time
 import urllib.error
 import urllib.request
-from dataclasses import asdict
 from typing import Any
 
 from src.common_func.article import Article, UploadResult
@@ -101,191 +100,24 @@ class SiyuanClient:
     def update_block_markdown(self, block_id: str, markdown: str) -> None:
         self.post("/api/block/updateBlock", {"id": block_id, "dataType": "markdown", "data": markdown})
 
-    # ─── Block-level document write (P0: proper table rendering) ───────────────
-
-    def _split_markdown_blocks(self, markdown: str) -> list[tuple[str, str]]:
-        """Split markdown into (block_type, content) tuples.
-
-        block_type is 'table', 'heading', or 'paragraph'.
-        Tables are detected by lines starting with '|' and returned as-is
-        so the caller can convert them to DOM.
-        """
-        lines = markdown.split("\n")
-        blocks: list[tuple[str, str]] = []
-        i = 0
-        n = len(lines)
-
-        while i < n:
-            line = lines[i]
-
-            # Skip blank lines
-            if not line.strip():
-                i += 1
-                continue
-
-            # Table: line starts with '|' (possibly preceded by blank lines)
-            if line.strip().startswith("|"):
-                table_lines = []
-                while i < n and lines[i].strip().startswith("|"):
-                    table_lines.append(lines[i])
-                    i += 1
-                blocks.append(("table", "\n".join(table_lines)))
-                continue
-
-            # Heading
-            m = re.match(r"^(#{1,6})\s+(.*)", line.strip())
-            if m:
-                blocks.append(("heading", line.strip()))
-                i += 1
-                continue
-
-            # Paragraph: collect consecutive non-blank, non-heading, non-table lines
-            para_lines = []
-            while i < n:
-                cur = lines[i].strip()
-                if not cur or cur.startswith("|") or re.match(r"^#{1,6}\s+", cur):
-                    break
-                para_lines.append(lines[i])
-                i += 1
-            if para_lines:
-                blocks.append(("paragraph", "\n".join(para_lines)))
-
-        return blocks
-
-    def _table_to_dom(self, table_md: str) -> str:
-        """Convert a markdown table to SiYuan table DOM (HTML)."""
-        lines = [l for l in table_md.strip().split("\n") if l.strip()]
-        if len(lines) < 2:
-            return ""
-        header_line = lines[0]
-        sep_line = lines[1] if len(lines) > 1 else ""
-        rows = lines[2:]
-
-        # Parse alignment from separator line: | :-- | :--: | --: |
-        alignments: list[str] = []
-        raw_cells = [c.strip() for c in header_line.strip("|").split("|")]
-        if len(lines) > 1:
-            sep_cells = [c.strip() for c in sep_line.strip("|").split("|")]
-            for cell in sep_cells:
-                if cell.startswith(":") and cell.endswith(":"):
-                    alignments.append("center")
-                elif cell.endswith(":"):
-                    alignments.append("right")
-                else:
-                    alignments.append("left")
-        else:
-            alignments = ["left"] * len(raw_cells)
-
-        def cell_markup(text: str, align: str, is_header: bool) -> str:
-            tag = "th" if is_header else "td"
-            style = f' style="text-align:{align}"' if align != "left" else ""
-            return f'<{tag}{style} data-block-id="">{text}</{tag}>'
-
-        def row_markup(cells: list[str], align: list[str], is_header: bool) -> str:
-            inner = "".join(cell_markup(c, a, is_header) for c, a in zip(cells, align))
-            return f'<tr data-block-id="">{inner}</tr>'
-
-        header_cells = [c.strip() for c in header_line.strip("|").split("|")]
-        header_row = row_markup(header_cells, alignments, is_header=True)
-
-        data_rows: list[str] = []
-        for data_line in rows:
-            if data_line.strip().startswith("|"):
-                cells = [c.strip() for c in data_line.strip("|").split("|")]
-                data_rows.append(row_markup(cells, alignments, is_header=False))
-
-        table_html = (
-            '<table data-block-id="" data-colwidth=" 0" data-type="table">'
-            + f"<thead data-block-id=\"\">{header_row}</thead>"
-            + "<tbody data-block-id=\"\">"
-            + "".join(data_rows)
-            + "</tbody>"
-            + "</table>"
-        )
-        return table_html
-
-    def _append_block(self, parent_id: str, block_type: str, content: str) -> str:
-        """Insert a block under parent_id using the block API. Returns the new block ID."""
-        if block_type == "table":
-            dom = self._table_to_dom(content)
-            if not dom:
-                # Fallback: insert as paragraph
-                result = self.post("/api/block/appendBlock", {
-                    "dataType": "markdown",
-                    "data": content,
-                    "parentID": parent_id,
-                })
-            else:
-                result = self.post("/api/block/appendBlock", {
-                    "dataType": "dom",
-                    "data": dom,
-                    "parentID": parent_id,
-                })
-        else:
-            # headings and paragraphs go as markdown
-            result = self.post("/api/block/appendBlock", {
-                "dataType": "markdown",
-                "data": content,
-                "parentID": parent_id,
-            })
-
-        if isinstance(result, list) and result:
-            op = result[0].get("doOperations", [{}])[0] if result[0].get("doOperations") else {}
-            return op.get("id", "")
-        return ""
-
-    def get_child_blocks(self, block_id: str) -> list[dict[str, Any]]:
-        data = self.post("/api/block/getChildBlocks", {"id": block_id})
-        return data if isinstance(data, list) else []
-
-    def delete_block(self, block_id: str) -> None:
-        self.post("/api/block/deleteBlock", {"id": block_id})
-
-    def write_document_blocks(self, doc_id: str, markdown: str) -> None:
-        """Replace all content in a document by parsing markdown into blocks and
-        inserting them via the block API (enables proper table rendering)."""
-        if not markdown.strip():
-            return
-
-        # Delete existing child blocks
-        children = self.get_child_blocks(doc_id)
-        for child in reversed(children):  # reverse to avoid shifting IDs during deletion
-            self.delete_block(child["id"])
-
-        # Split and insert new blocks
-        blocks = self._split_markdown_blocks(markdown)
-        for block_type, content in blocks:
-            self._append_block(doc_id, block_type, content)
-
     def upload_article_under_parent(self, article: Article, parent_doc_id: str) -> UploadResult:
+        return self.upload_markdown_under_parent(article.title, article.to_siyuan_markdown(), parent_doc_id)
+
+    def upload_markdown_under_parent(self, title: str, markdown: str, parent_doc_id: str) -> UploadResult:
         notebook_id, parent_hpath = self.parent_location(parent_doc_id)
         if parent_hpath:
-            child_hpath = parent_hpath.rstrip("/") + "/" + safe_hpath_title(article.title)
+            child_hpath = parent_hpath.rstrip("/") + "/" + safe_hpath_title(title)
         else:
-            child_hpath = "/" + safe_hpath_title(article.title)
-        markdown = article.to_siyuan_markdown()
+            child_hpath = "/" + safe_hpath_title(title)
+        normalized_markdown = markdown.strip() + "\n" if markdown.strip() else "\n"
 
         existing_ids = self.ids_by_hpath(notebook_id, child_hpath)
         if existing_ids:
             doc_id = existing_ids[0]
             created = False
+            self.update_block_markdown(doc_id, normalized_markdown)
         else:
-            doc_id = self.create_doc_with_md(notebook_id, child_hpath, "# " + article.title)
+            doc_id = self.create_doc_with_md(notebook_id, child_hpath, normalized_markdown)
             created = True
 
-        # Use block-level write for proper table rendering (P0)
-        self.write_document_blocks(doc_id, markdown)
-
         return UploadResult(doc_id=doc_id, notebook_id=notebook_id, hpath=child_hpath, created=created)
-
-
-def upload_report_record(article: Article, upload: UploadResult | None, error: str | None = None) -> dict[str, Any]:
-    return {
-        "ok": error is None,
-        "error": error,
-        "article": asdict(article),
-        "upload": asdict(upload) if upload else None,
-    }
-
-
-import re  # noqa: E402  (needed by _split_markdown_blocks)

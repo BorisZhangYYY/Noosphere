@@ -48,10 +48,12 @@ def clean_wechat_footer(markdown: str) -> str:
 async def extract(url: str) -> Article:
     page = await crawl_page(
         url,
-        css_selector=None,
+        css_selector="#js_content",
         wait_for="css:#js_content",
         page_timeout=60000,
         delay_before_return_html=1.2,
+        pruning_threshold=0.42,
+        word_count_threshold=5,
     )
     soup = BeautifulSoup(page.html or page.cleaned_html, "lxml")
 

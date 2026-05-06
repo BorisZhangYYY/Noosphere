@@ -1,28 +1,59 @@
 # Noosphere
 
-基于 `crawl4ai` 的单篇文章提取与思源导入工具，当前 P0 支持：
+Single-article extraction and SiYuan import tool based on `crawl4ai`.
 
-- 微信公众号文章
-- 知乎专栏文章
+Supported sources:
 
-## 输出
+- WeChat Official Account articles: `mp.weixin.qq.com/s/...`
+- Zhihu Zhuanlan articles: `zhuanlan.zhihu.com/p/...`
 
-抓取结果会先写到 `outputs/` 根目录，保留 Markdown 结构。
+## Workflow
 
-## 用法
-
-只提取并输出到本地：
+Extract one article into Markdown:
 
 ```bash
-python src/classifier.py --dry-run URL...
+python src/classifier.py extract URL
 ```
 
-提取并上传到思源：
+The extracted file is written to `outputs/`. It contains source metadata, a separator, and the first-round cleaned article body.
+
+Review and edit the Markdown file with an AI agent. The reviewed version should use this structure:
+
+```markdown
+# Article Title
+
+## AI 总结
+
+- ...
+
+---
+
+## Cleaned Article Section
+
+...
+```
+
+Upload the reviewed Markdown file to SiYuan:
 
 ```bash
-SIYUAN_TOKEN=... python src/classifier.py --upload URL...
+SIYUAN_TOKEN=... python src/classifier.py upload outputs/ARTICLE.md --parent-id TARGET_ID
 ```
 
-默认思源目标在 `config.json` 的 `siyuan.default_parent_id` 里配置。
+`--parent-id` can also be configured as `siyuan.default_parent_id` in `config.json`.
 
-如果要新建配置，先复制 `config.json.example` 再填入自己的真实值。
+To create a local config, copy `config.json.example` to `config.json` and fill in your own values.
+
+## Notes
+
+- Only one URL is processed per extraction command.
+- Upload reads the Markdown file directly and does not re-crawl the source URL.
+- Markdown tables are uploaded as Markdown via SiYuan's Markdown APIs; this project does not convert tables into hand-written DOM.
+- Images are kept as external Markdown image links. They are not uploaded as SiYuan assets.
+- The first `# H1` in the uploaded Markdown is used as the document title and is removed from the body before upload to avoid duplicate titles.
+
+## Future Extensions
+
+- Add more article platforms through new extractor modules.
+- Add optional batch orchestration after the single-article workflow remains stable.
+- Add asset mirroring for images that should be stored inside SiYuan.
+- Add a non-interactive review command if a dedicated LLM provider is introduced.

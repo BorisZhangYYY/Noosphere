@@ -108,9 +108,12 @@ async def extract(url: str) -> Article:
     page = await crawl_page(
         url,
         css_selector=".Post-RichTextContainer, .RichContent-inner, .RichText, article",
+        excluded_selector=".Comments-container, .Recommendations-Main, .ContentItem-actions, .Reward, .Post-SideActions",
         wait_for=None,
         page_timeout=60000,
         delay_before_return_html=1.0,
+        pruning_threshold=0.48,
+        word_count_threshold=5,
     )
     soup = BeautifulSoup(page.html or page.cleaned_html, "lxml")
 

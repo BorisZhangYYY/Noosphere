@@ -1,1 +1,1 @@
-"""Noosphere P0 article ingestion package."""
+"""Noosphere article ingestion package."""
