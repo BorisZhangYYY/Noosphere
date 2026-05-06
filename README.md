@@ -15,7 +15,7 @@ Extract one article into Markdown:
 python src/classifier.py extract URL
 ```
 
-The extracted file is written to `outputs/`. It contains source metadata, a separator, and the first-round cleaned article body.
+The extracted file is written to `outputs/`. It contains source metadata, a separator, and the first-round cleaned article body. Remote images referenced by the Markdown are downloaded to `outputs/assets/...`, and the Markdown image links are rewritten to local relative paths.
 
 Review and edit the Markdown file with an AI agent. The reviewed version should use this structure:
 
@@ -47,13 +47,13 @@ To create a local config, copy `config.json.example` to `config.json` and fill i
 
 - Only one URL is processed per extraction command.
 - Upload reads the Markdown file directly and does not re-crawl the source URL.
+- Local images referenced by the Markdown are uploaded to SiYuan assets before the document is written, and their Markdown links are replaced with the returned `assets/...` paths.
 - Markdown tables are uploaded as Markdown via SiYuan's Markdown APIs; this project does not convert tables into hand-written DOM.
-- Images are kept as external Markdown image links. They are not uploaded as SiYuan assets.
 - The first `# H1` in the uploaded Markdown is used as the document title and is removed from the body before upload to avoid duplicate titles.
 
 ## Future Extensions
 
 - Add more article platforms through new extractor modules.
 - Add optional batch orchestration after the single-article workflow remains stable.
-- Add asset mirroring for images that should be stored inside SiYuan.
+- Add richer asset deduplication and cleanup for unused downloaded images.
 - Add a non-interactive review command if a dedicated LLM provider is introduced.

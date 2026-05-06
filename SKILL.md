@@ -20,7 +20,7 @@ Use this skill when the user wants to extract one article from a supported platf
    python src/classifier.py extract URL
    ```
 
-2. Read the generated Markdown file in `outputs/`.
+2. Read the generated Markdown file in `outputs/`. Any remote images found in the Markdown are downloaded under `outputs/assets/...` and rewritten to local relative links.
 
 3. Review and rewrite the Markdown while preserving the main content:
    - Remove duplicated article sections.
@@ -28,6 +28,7 @@ Use this skill when the user wants to extract one article from a supported platf
    - Keep meaningful headings, paragraphs, blockquotes, lists, code blocks, tables, and images.
    - Improve heading hierarchy and spacing when the crawled format is poor.
    - Keep Markdown tables as Markdown tables.
+   - Keep meaningful local image links when the image supports the article; remove only decorative or duplicate images.
 
 4. Save the reviewed article with this structure:
 
@@ -61,8 +62,8 @@ Use this skill when the user wants to extract one article from a supported platf
 
 | Command | Description |
 |---------|-------------|
-| `extract URL` | Crawl one supported article URL, run first-round platform cleaning, and write Markdown to `outputs/`. |
-| `upload FILE` | Upload one reviewed Markdown file to SiYuan. Does not re-crawl. |
+| `extract URL` | Crawl one supported article URL, run first-round platform cleaning, write Markdown to `outputs/`, and download referenced remote images to local assets. |
+| `upload FILE` | Upload one reviewed Markdown file to SiYuan. Local images referenced by the Markdown are uploaded to SiYuan assets first. Does not re-crawl. |
 
 ## SiYuan Client Usage
 
@@ -78,6 +79,8 @@ result = client.upload_markdown_under_parent("Article Title", markdown, parent_d
 
 - Token: read from `SIYUAN_TOKEN` by default; never commit real tokens.
 - Local Markdown outputs: `outputs/*.md`
+- Local image outputs: `outputs/assets/...`
+- Upload rewrites local Markdown image links to the `assets/...` paths returned by SiYuan.
 - Upload uses Markdown APIs and does not convert Markdown tables into hand-written DOM.
 - Existing child documents with the same title are updated instead of duplicated.
 - SiYuan target can be a notebook ID or a parent document block ID.

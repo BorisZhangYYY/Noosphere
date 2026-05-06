@@ -12,6 +12,7 @@ from typing import Awaitable, Callable
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from src.common_func.assets import download_markdown_images, local_image_paths, replace_image_urls
 from src.common_func.article import Article
 from src.common_func.siyuan import SiyuanClient
 from src.wechat_mp import extractor as wechat_mp
@@ -97,7 +98,9 @@ async def extract_one(url: str, config: dict | None = None) -> Article:
 async def extract_to_output(url: str, output_dir: Path) -> Path:
     config = load_config()
     article = await extract_one(url, config)
-    return write_article_output(output_dir, article)
+    path = write_article_output(output_dir, article)
+    download_markdown_images(path)
+    return path
 
 
 def title_from_markdown(markdown: str, fallback: str) -> str:
@@ -149,6 +152,16 @@ def upload_markdown_file(
     token_env = sconfig.get("token_env", "SIYUAN_TOKEN")
     resolved_title, markdown = read_markdown_for_upload(path, title)
     client = SiyuanClient(api_base=resolved_api_base, token_env=token_env)
+    local_images = local_image_paths(markdown, path.parent)
+    if local_images:
+        unique_paths = list(dict.fromkeys(local_images.values()))
+        succ_map = client.upload_assets(unique_paths)
+        replacements = {
+            original_url: succ_map[local_path.name]
+            for original_url, local_path in local_images.items()
+            if local_path.name in succ_map
+        }
+        markdown = replace_image_urls(markdown, replacements)
     result = client.upload_markdown_under_parent(resolved_title, markdown, resolved_parent_id)
     return result.hpath
 

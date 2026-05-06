@@ -12,6 +12,7 @@ from src.classifier import (
     read_markdown_for_upload,
     safe_filename,
     title_from_markdown,
+    upload_markdown_file,
     write_article_output,
 )
 from src.common_func.siyuan import SiyuanClient
@@ -175,3 +176,38 @@ class TestSiyuanMarkdownUpload:
 
         assert result.created is False
         assert client.updated_payload == {"block_id": "existing-doc-id", "markdown": "Body\n"}
+
+
+class UploadingFakeSiyuanClient:
+    last_instance = None
+
+    def __init__(self, api_base: str, token_env: str):
+        self.api_base = api_base
+        self.token_env = token_env
+        self.uploaded_assets = []
+        self.uploaded_markdown = None
+        UploadingFakeSiyuanClient.last_instance = self
+
+    def upload_assets(self, files: list[Path]):
+        self.uploaded_assets = files
+        return {path.name: f"assets/{path.stem}-uploaded{path.suffix}" for path in files}
+
+    def upload_markdown_under_parent(self, title: str, markdown: str, parent_id: str):
+        self.uploaded_markdown = markdown
+        return type("Result", (), {"hpath": f"/{title}"})()
+
+
+def test_upload_markdown_file_uploads_local_assets(tmp_path, monkeypatch):
+    image = tmp_path / "assets" / "image.png"
+    image.parent.mkdir()
+    image.write_bytes(b"data")
+    markdown = tmp_path / "reviewed.md"
+    markdown.write_text("# Reviewed\n\n![alt](assets/image.png)\n", encoding="utf-8")
+    monkeypatch.setattr("src.classifier.SiyuanClient", UploadingFakeSiyuanClient)
+
+    hpath = upload_markdown_file(markdown, parent_id="parent-id", api_base="http://siyuan")
+
+    client = UploadingFakeSiyuanClient.last_instance
+    assert hpath == "/Reviewed"
+    assert client.uploaded_assets == [image.resolve()]
+    assert client.uploaded_markdown == "![alt](assets/image-uploaded.png)\n"

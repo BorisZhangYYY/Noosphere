@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import time
 import urllib.error
 import urllib.request
+import uuid
+from pathlib import Path
 from typing import Any
 
 from src.common_func.article import Article, UploadResult
@@ -62,6 +65,71 @@ class SiyuanClient:
         if data.get("code") != 0:
             raise SiyuanAPIError(f"{endpoint} failed: {data.get('msg') or data}")
         return data.get("data")
+
+    def upload_assets(self, files: list[Path], assets_dir_path: str = "/assets/") -> dict[str, str]:
+        if not files:
+            return {}
+        names = [path.name for path in files]
+        if len(names) != len(set(names)):
+            raise SiyuanAPIError("Asset filenames must be unique for one upload")
+
+        boundary = f"----NoosphereBoundary{uuid.uuid4().hex}"
+        body = self._multipart_asset_body(files, assets_dir_path, boundary)
+        request = urllib.request.Request(
+            f"{self.api_base}/api/asset/upload",
+            data=body,
+            headers={
+                "Authorization": self.headers["Authorization"],
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise SiyuanAPIError(f"/api/asset/upload HTTP {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise SiyuanAPIError(f"/api/asset/upload connection failed: {exc.reason}") from exc
+
+        data = json.loads(raw)
+        if data.get("code") != 0:
+            raise SiyuanAPIError(f"/api/asset/upload failed: {data.get('msg') or data}")
+        payload = data.get("data") or {}
+        err_files = payload.get("errFiles") or []
+        if err_files:
+            raise SiyuanAPIError(f"/api/asset/upload failed for files: {err_files}")
+        succ_map = payload.get("succMap") or {}
+        return {str(key): str(value) for key, value in succ_map.items()}
+
+    def _multipart_asset_body(self, files: list[Path], assets_dir_path: str, boundary: str) -> bytes:
+        parts: list[bytes] = []
+
+        def add_field(name: str, value: str) -> None:
+            parts.extend(
+                [
+                    f"--{boundary}\r\n".encode("utf-8"),
+                    f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
+                    value.encode("utf-8"),
+                    b"\r\n",
+                ]
+            )
+
+        add_field("assetsDirPath", assets_dir_path)
+        for path in files:
+            content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            parts.extend(
+                [
+                    f"--{boundary}\r\n".encode("utf-8"),
+                    f'Content-Disposition: form-data; name="file[]"; filename="{path.name}"\r\n'.encode("utf-8"),
+                    f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"),
+                    path.read_bytes(),
+                    b"\r\n",
+                ]
+            )
+        parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+        return b"".join(parts)
 
     def parent_location(self, parent_doc_id: str) -> tuple[str, str]:
         notebooks = self.notebook_ids()
