@@ -5,7 +5,9 @@ import asyncio
 import hashlib
 import json
 import re
+import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -31,6 +33,13 @@ EXTRACTORS: dict[str, tuple[Callable[[str], bool], Extractor]] = {
 }
 
 H1_RE = re.compile(r"^#\s+(.+?)\s*$")
+
+
+@dataclass(frozen=True)
+class ArticleOutputPaths:
+    raw_path: Path
+    reviewed_path: Path
+    asset_dir: Path
 
 
 def load_config(path: Path = DEFAULT_CONFIG) -> dict:
@@ -63,6 +72,16 @@ def article_output_path(output_dir: Path, article: Article) -> Path:
     digest = hashlib.sha1(article.url.encode("utf-8")).hexdigest()[:8]
     filename = f"{article.platform}_{title_part}_{digest}.md"
     return output_dir / filename
+
+
+def article_output_paths(output_dir: Path, article: Article) -> ArticleOutputPaths:
+    raw_path = article_output_path(output_dir / "raw", article)
+    reviewed_path = article_output_path(output_dir / "reviewed", article)
+    return ArticleOutputPaths(
+        raw_path=raw_path,
+        reviewed_path=reviewed_path,
+        asset_dir=output_dir / "assets" / raw_path.stem,
+    )
 
 
 def write_article_output(output_dir: Path, article: Article) -> Path:
@@ -98,9 +117,13 @@ async def extract_one(url: str, config: dict | None = None) -> Article:
 async def extract_to_output(url: str, output_dir: Path) -> Path:
     config = load_config()
     article = await extract_one(url, config)
-    path = write_article_output(output_dir, article)
-    download_markdown_images(path)
-    return path
+    paths = article_output_paths(output_dir, article)
+    paths.raw_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.reviewed_path.parent.mkdir(parents=True, exist_ok=True)
+    paths.raw_path.write_text(article.to_review_markdown(), encoding="utf-8")
+    download_markdown_images(paths.raw_path, assets_root=paths.asset_dir)
+    shutil.copyfile(paths.raw_path, paths.reviewed_path)
+    return paths.reviewed_path
 
 
 def title_from_markdown(markdown: str, fallback: str) -> str:
@@ -172,7 +195,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    extract_parser = subparsers.add_parser("extract", help="Extract one article URL into outputs/.")
+    extract_parser = subparsers.add_parser("extract", help="Extract one article URL into outputs/raw and outputs/reviewed.")
     extract_parser.add_argument("url", help="Article URL to extract.")
     extract_parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Directory for extracted Markdown.")
 
@@ -191,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "extract":
             path = asyncio.run(extract_to_output(args.url, args.output_dir))
-            print(f"Extracted: {path}")
+            print(f"Reviewed draft: {path}")
             print("Next: review and edit this Markdown file, then run `python src/classifier.py upload FILE`.")
             return 0
 

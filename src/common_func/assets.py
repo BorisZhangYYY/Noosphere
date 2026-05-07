@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import mimetypes
+import os
 import re
 import urllib.error
 import urllib.parse
@@ -100,7 +101,7 @@ def download_markdown_images(markdown_path: Path, assets_root: Path | None = Non
             result.failed[url] = str(exc)
             continue
 
-        rel_path = final_path.relative_to(markdown_path.parent).as_posix()
+        rel_path = Path(os.path.relpath(final_path, markdown_path.parent)).as_posix()
         replacements[url] = rel_path
         result.downloaded.append(DownloadedImage(source_url=url, local_path=final_path))
 

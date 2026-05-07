@@ -15,9 +15,9 @@ Extract one article into Markdown:
 python src/classifier.py extract URL
 ```
 
-The extracted file is written to `outputs/`. It contains source metadata, a separator, and the first-round cleaned article body. Remote images referenced by the Markdown are downloaded to `outputs/assets/...`, and the Markdown image links are rewritten to local relative paths.
+Extraction writes a raw copy to `outputs/raw/` and a review draft to `outputs/reviewed/`. Both files contain source metadata, a separator, and the first-round cleaned article body. Remote images referenced by the Markdown are downloaded to `outputs/assets/...`, and the Markdown image links are rewritten to local relative paths.
 
-Review and edit the Markdown file with an AI agent. The reviewed version should use this structure:
+Review and edit the Markdown file in `outputs/reviewed/` with an AI agent. Leave `outputs/raw/` unchanged so the original extraction can be compared or regenerated later. The reviewed version should use this structure:
 
 ```markdown
 # Article Title
@@ -36,7 +36,7 @@ Review and edit the Markdown file with an AI agent. The reviewed version should 
 Upload the reviewed Markdown file to SiYuan:
 
 ```bash
-SIYUAN_TOKEN=... python src/classifier.py upload outputs/ARTICLE.md --parent-id TARGET_ID
+SIYUAN_TOKEN=... python src/classifier.py upload outputs/reviewed/ARTICLE.md --parent-id TARGET_ID
 ```
 
 `--parent-id` can also be configured as `siyuan.default_parent_id` in `config.json`.
@@ -46,6 +46,7 @@ To create a local config, copy `config.json.example` to `config.json` and fill i
 ## Notes
 
 - Only one URL is processed per extraction command.
+- `outputs/raw/` is the first-round crawler output; `outputs/reviewed/` is the AI-edited version.
 - Upload reads the Markdown file directly and does not re-crawl the source URL.
 - Local images referenced by the Markdown are uploaded to SiYuan assets before the document is written, and their Markdown links are replaced with the returned `assets/...` paths.
 - Markdown tables are uploaded as Markdown via SiYuan's Markdown APIs; this project does not convert tables into hand-written DOM.

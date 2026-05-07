@@ -20,7 +20,7 @@ Use this skill when the user wants to extract one article from a supported platf
    python src/classifier.py extract URL
    ```
 
-2. Read the generated Markdown file in `outputs/`. Any remote images found in the Markdown are downloaded under `outputs/assets/...` and rewritten to local relative links.
+2. Read the generated Markdown file in `outputs/reviewed/`. The first-round crawler output is kept in `outputs/raw/` and should not be edited. Any remote images found in the Markdown are downloaded under `outputs/assets/...` and rewritten to local relative links.
 
 3. Review and rewrite the Markdown while preserving the main content:
    - Remove duplicated article sections.
@@ -35,7 +35,7 @@ Use this skill when the user wants to extract one article from a supported platf
    ```markdown
    # Article Title
 
-   ## AI 总结
+   ## AI Summary
 
    - ...
    - ...
@@ -55,14 +55,14 @@ Use this skill when the user wants to extract one article from a supported platf
 6. After confirmation, upload the reviewed Markdown:
 
    ```bash
-   SIYUAN_TOKEN=... python src/classifier.py upload outputs/ARTICLE.md --parent-id TARGET_ID
+   SIYUAN_TOKEN=... python src/classifier.py upload outputs/reviewed/ARTICLE.md --parent-id TARGET_ID
    ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `extract URL` | Crawl one supported article URL, run first-round platform cleaning, write Markdown to `outputs/`, and download referenced remote images to local assets. |
+| `extract URL` | Crawl one supported article URL, run first-round platform cleaning, write raw Markdown to `outputs/raw/`, copy a review draft to `outputs/reviewed/`, and download referenced remote images to local assets. |
 | `upload FILE` | Upload one reviewed Markdown file to SiYuan. Local images referenced by the Markdown are uploaded to SiYuan assets first. Does not re-crawl. |
 
 ## SiYuan Client Usage
@@ -78,7 +78,8 @@ result = client.upload_markdown_under_parent("Article Title", markdown, parent_d
 ## Notes
 
 - Token: read from `SIYUAN_TOKEN` by default; never commit real tokens.
-- Local Markdown outputs: `outputs/*.md`
+- Raw Markdown outputs: `outputs/raw/*.md`
+- Reviewed Markdown outputs: `outputs/reviewed/*.md`
 - Local image outputs: `outputs/assets/...`
 - Upload rewrites local Markdown image links to the `assets/...` paths returned by SiYuan.
 - Upload uses Markdown APIs and does not convert Markdown tables into hand-written DOM.

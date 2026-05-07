@@ -31,6 +31,19 @@ def test_download_markdown_images_rewrites_remote_links(tmp_path, monkeypatch):
     assert "https://example.com/image" not in markdown_path.read_text(encoding="utf-8")
 
 
+def test_download_markdown_images_can_write_sibling_asset_dir(tmp_path, monkeypatch):
+    markdown_dir = tmp_path / "raw"
+    markdown_dir.mkdir()
+    markdown_path = markdown_dir / "article.md"
+    markdown_path.write_text("![alt](https://example.com/image)", encoding="utf-8")
+    asset_dir = tmp_path / "assets" / "article"
+    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: FakeResponse())
+
+    download_markdown_images(markdown_path, assets_root=asset_dir)
+
+    assert markdown_path.read_text(encoding="utf-8").startswith("![alt](../assets/article/image_01_")
+
+
 def test_local_image_paths_finds_existing_relative_images(tmp_path):
     image = tmp_path / "assets" / "image.png"
     image.parent.mkdir()

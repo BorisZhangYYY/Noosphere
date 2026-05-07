@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from src.classifier import (
     article_output_path,
+    article_output_paths,
     classify_url,
+    extract_to_output,
     markdown_without_leading_h1,
     parse_args,
     read_markdown_for_upload,
@@ -72,6 +75,27 @@ class TestArticleOutput:
         assert "> 来源：" in text
         assert "---" in text
         assert "This is test content." in text
+
+    def test_article_output_paths_are_layered(self, sample_article):
+        paths = article_output_paths(Path("outputs"), sample_article)
+
+        assert paths.raw_path.parent == Path("outputs/raw")
+        assert paths.reviewed_path.parent == Path("outputs/reviewed")
+        assert paths.asset_dir.parent == Path("outputs/assets")
+
+    def test_extract_to_output_writes_raw_and_reviewed(self, tmp_path, sample_article, monkeypatch):
+        async def fake_extract_one(url: str, config: dict | None = None):
+            return sample_article
+
+        monkeypatch.setattr("src.classifier.extract_one", fake_extract_one)
+
+        reviewed_path = asyncio.run(extract_to_output("https://zhuanlan.zhihu.com/p/123", tmp_path))
+        raw_path = tmp_path / "raw" / reviewed_path.name
+
+        assert reviewed_path.parent == tmp_path / "reviewed"
+        assert raw_path.exists()
+        assert reviewed_path.exists()
+        assert raw_path.read_text(encoding="utf-8") == reviewed_path.read_text(encoding="utf-8")
 
 
 class TestMarkdownUploadParsing:
@@ -201,8 +225,10 @@ def test_upload_markdown_file_uploads_local_assets(tmp_path, monkeypatch):
     image = tmp_path / "assets" / "image.png"
     image.parent.mkdir()
     image.write_bytes(b"data")
-    markdown = tmp_path / "reviewed.md"
-    markdown.write_text("# Reviewed\n\n![alt](assets/image.png)\n", encoding="utf-8")
+    reviewed_dir = tmp_path / "reviewed"
+    reviewed_dir.mkdir()
+    markdown = reviewed_dir / "reviewed.md"
+    markdown.write_text("# Reviewed\n\n![alt](../assets/image.png)\n", encoding="utf-8")
     monkeypatch.setattr("src.classifier.SiyuanClient", UploadingFakeSiyuanClient)
 
     hpath = upload_markdown_file(markdown, parent_id="parent-id", api_base="http://siyuan")
