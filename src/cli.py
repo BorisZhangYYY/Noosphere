@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
 
             path = asyncio.run(extract_to_output(args.url, args.output_dir))
             print(f"Reviewed draft: {path}")
-            print("Next: review and edit this Markdown file, then run `python src/classifier.py upload FILE`.")
+            print("Next: review and edit this Markdown file, then run `python -m src.cli upload FILE`.")
             return 0
 
         if args.command == "upload":
@@ -54,3 +54,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Error: unsupported command: {args.command}")
     return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

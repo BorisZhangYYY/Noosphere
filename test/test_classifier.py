@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -165,6 +167,18 @@ class TestCliArgs:
         assert args.command == "upload"
         assert args.file == Path("outputs/reviewed.md")
         assert args.title == "Reviewed"
+
+    def test_cli_module_entrypoint_shows_help(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "src.cli", "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0
+        assert "extract" in result.stdout
+        assert "upload" in result.stdout
 
 
 class FakeSiyuanClient(SiyuanClient):

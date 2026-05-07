@@ -12,7 +12,7 @@ Supported sources:
 Extract one article into Markdown:
 
 ```bash
-python src/classifier.py extract URL
+python -m src.cli extract URL
 ```
 
 Extraction writes a raw copy to `outputs/raw/`, a review draft to `outputs/reviewed/`, and a structured manifest to `outputs/manifests/`. Both Markdown files contain source metadata, a separator, and the first-round cleaned article body. Remote images referenced by the Markdown are downloaded to `outputs/assets/...`, and the Markdown image links are rewritten to local relative paths.
@@ -36,7 +36,7 @@ Review and edit the Markdown file in `outputs/reviewed/` with an AI agent. Leave
 Upload the reviewed Markdown file to SiYuan:
 
 ```bash
-SIYUAN_TOKEN=... python src/classifier.py upload outputs/reviewed/ARTICLE.md --parent-id TARGET_ID
+SIYUAN_TOKEN=... python -m src.cli upload outputs/reviewed/ARTICLE.md --parent-id TARGET_ID
 ```
 
 `--parent-id` can also be configured as `siyuan.default_parent_id` in `config.json`.
@@ -50,7 +50,6 @@ To create a local config, copy `config.json.example` to `config.json` and fill i
 - `src/core/`: article data model, config loading, output paths, and Markdown helpers.
 - `src/integrations/`: crawl4ai, SiYuan, and local asset adapters.
 - `src/platforms/`: platform-specific extractors, cleaning flow, and rule constants.
-- `src/classifier.py`: compatibility entrypoint for `python src/classifier.py ...`.
 
 ## Notes
 

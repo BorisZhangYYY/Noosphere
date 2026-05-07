@@ -17,7 +17,7 @@ Use this skill when the user wants to extract one article from a supported platf
 1. Extract one URL:
 
    ```bash
-   python src/classifier.py extract URL
+   python -m src.cli extract URL
    ```
 
 2. Read the generated Markdown file in `outputs/reviewed/`. The first-round crawler output is kept in `outputs/raw/` and should not be edited. Each extraction also writes a manifest under `outputs/manifests/` with source metadata, output paths, crawl status, and image download results. Any remote images found in the Markdown are downloaded under `outputs/assets/...` and rewritten to local relative links.
@@ -55,7 +55,7 @@ Use this skill when the user wants to extract one article from a supported platf
 6. After confirmation, upload the reviewed Markdown:
 
    ```bash
-   SIYUAN_TOKEN=... python src/classifier.py upload outputs/reviewed/ARTICLE.md --parent-id TARGET_ID
+   SIYUAN_TOKEN=... python -m src.cli upload outputs/reviewed/ARTICLE.md --parent-id TARGET_ID
    ```
 
 ## Commands
