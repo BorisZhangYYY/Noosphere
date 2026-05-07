@@ -24,7 +24,7 @@ class WechatMpExtractor(BaseArticleExtractor):
 
     def crawl_options(self) -> dict[str, object]:
         return {
-            "css_selector": "#js_content",
+            "target_elements": ["#js_content"],
             "wait_for": "css:#js_content",
             "page_timeout": 60000,
             "delay_before_return_html": 1.2,
