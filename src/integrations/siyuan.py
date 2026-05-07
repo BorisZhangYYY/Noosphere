@@ -10,8 +10,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from src.common_func.article import Article, UploadResult
-from src.common_func.markdown import safe_hpath_title
+from src.core.article import Article, UploadResult
+from src.core.markdown import safe_hpath_title
 
 
 class SiyuanAPIError(RuntimeError):

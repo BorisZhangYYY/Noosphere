@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.common_func.assets import download_markdown_images, local_image_paths, replace_image_urls, split_image_target
+from src.integrations.assets import download_markdown_images, local_image_paths, replace_image_urls, split_image_target
 
 
 class FakeResponse:

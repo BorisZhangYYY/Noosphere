@@ -20,7 +20,7 @@ Use this skill when the user wants to extract one article from a supported platf
    python src/classifier.py extract URL
    ```
 
-2. Read the generated Markdown file in `outputs/reviewed/`. The first-round crawler output is kept in `outputs/raw/` and should not be edited. Any remote images found in the Markdown are downloaded under `outputs/assets/...` and rewritten to local relative links.
+2. Read the generated Markdown file in `outputs/reviewed/`. The first-round crawler output is kept in `outputs/raw/` and should not be edited. Each extraction also writes a manifest under `outputs/manifests/` with source metadata, output paths, crawl status, and image download results. Any remote images found in the Markdown are downloaded under `outputs/assets/...` and rewritten to local relative links.
 
 3. Review and rewrite the Markdown while preserving the main content:
    - Remove duplicated article sections.
@@ -68,7 +68,7 @@ Use this skill when the user wants to extract one article from a supported platf
 ## SiYuan Client Usage
 
 ```python
-from src.common_func.siyuan import SiyuanClient
+from src.integrations.siyuan import SiyuanClient
 
 client = SiyuanClient(api_base="http://127.0.0.1:6806", token="TOKEN")
 result = client.upload_markdown_under_parent("Article Title", markdown, parent_doc_id)
@@ -80,6 +80,7 @@ result = client.upload_markdown_under_parent("Article Title", markdown, parent_d
 - Token: read from `SIYUAN_TOKEN` by default; never commit real tokens.
 - Raw Markdown outputs: `outputs/raw/*.md`
 - Reviewed Markdown outputs: `outputs/reviewed/*.md`
+- Extraction manifests: `outputs/manifests/*.json`
 - Local image outputs: `outputs/assets/...`
 - Upload rewrites local Markdown image links to the `assets/...` paths returned by SiYuan.
 - Upload uses Markdown APIs and does not convert Markdown tables into hand-written DOM.

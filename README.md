@@ -15,7 +15,7 @@ Extract one article into Markdown:
 python src/classifier.py extract URL
 ```
 
-Extraction writes a raw copy to `outputs/raw/` and a review draft to `outputs/reviewed/`. Both files contain source metadata, a separator, and the first-round cleaned article body. Remote images referenced by the Markdown are downloaded to `outputs/assets/...`, and the Markdown image links are rewritten to local relative paths.
+Extraction writes a raw copy to `outputs/raw/`, a review draft to `outputs/reviewed/`, and a structured manifest to `outputs/manifests/`. Both Markdown files contain source metadata, a separator, and the first-round cleaned article body. Remote images referenced by the Markdown are downloaded to `outputs/assets/...`, and the Markdown image links are rewritten to local relative paths.
 
 Review and edit the Markdown file in `outputs/reviewed/` with an AI agent. Leave `outputs/raw/` unchanged so the original extraction can be compared or regenerated later. The reviewed version should use this structure:
 
@@ -43,10 +43,21 @@ SIYUAN_TOKEN=... python src/classifier.py upload outputs/reviewed/ARTICLE.md --p
 
 To create a local config, copy `config.json.example` to `config.json` and fill in your own values.
 
+## Project Layout
+
+- `src/cli.py`: command-line parsing and user-facing command output.
+- `src/pipelines/`: end-to-end extract and upload workflows.
+- `src/core/`: article data model, config loading, output paths, and Markdown helpers.
+- `src/integrations/`: crawl4ai, SiYuan, and local asset adapters.
+- `src/platforms/`: platform-specific extractors, cleaning flow, and rule constants.
+- `src/classifier.py`: compatibility entrypoint for `python src/classifier.py ...`.
+
 ## Notes
 
 - Only one URL is processed per extraction command.
 - `outputs/raw/` is the first-round crawler output; `outputs/reviewed/` is the AI-edited version.
+- `outputs/manifests/` records source metadata, output paths, crawl status, and image download results for each article.
+- Platform cleaning rules live under `src/platforms/<platform>/rules.py` and are applied before raw/reviewed files are written.
 - Upload reads the Markdown file directly and does not re-crawl the source URL.
 - Local images referenced by the Markdown are uploaded to SiYuan assets before the document is written, and their Markdown links are replaced with the returned `assets/...` paths.
 - Markdown tables are uploaded as Markdown via SiYuan's Markdown APIs; this project does not convert tables into hand-written DOM.

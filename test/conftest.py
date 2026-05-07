@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.common_func.article import Article
+from src.core.article import Article
 
 
 @pytest.fixture

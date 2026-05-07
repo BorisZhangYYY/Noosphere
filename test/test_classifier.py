@@ -1,24 +1,26 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
 
-from src.classifier import (
+from src.cli import parse_args
+from src.core.markdown_upload import (
+    markdown_without_leading_h1,
+    read_markdown_for_upload,
+    title_from_markdown,
+)
+from src.core.output_paths import (
     article_output_path,
     article_output_paths,
-    classify_url,
-    extract_to_output,
-    markdown_without_leading_h1,
-    parse_args,
-    read_markdown_for_upload,
     safe_filename,
-    title_from_markdown,
-    upload_markdown_file,
-    write_article_output,
 )
-from src.common_func.siyuan import SiyuanClient
+from src.extractor_registry import classify_url
+from src.integrations.siyuan import SiyuanClient
+from src.pipelines.extract import extract_to_output
+from src.pipelines.upload import upload_markdown_file
 
 
 class TestSafeFilename:
@@ -67,27 +69,19 @@ class TestArticleOutput:
         assert path.name.startswith("zhihu_zhuanlan_Test Article Title_")
         assert path.suffix == ".md"
 
-    def test_write_article_output_uses_review_markdown(self, tmp_path, sample_article):
-        path = write_article_output(tmp_path, sample_article)
-
-        text = path.read_text(encoding="utf-8")
-        assert text.startswith("# Test Article Title\n")
-        assert "> 来源：" in text
-        assert "---" in text
-        assert "This is test content." in text
-
     def test_article_output_paths_are_layered(self, sample_article):
         paths = article_output_paths(Path("outputs"), sample_article)
 
         assert paths.raw_path.parent == Path("outputs/raw")
         assert paths.reviewed_path.parent == Path("outputs/reviewed")
         assert paths.asset_dir.parent == Path("outputs/assets")
+        assert paths.manifest_path.parent == Path("outputs/manifests")
 
     def test_extract_to_output_writes_raw_and_reviewed(self, tmp_path, sample_article, monkeypatch):
         async def fake_extract_one(url: str, config: dict | None = None):
             return sample_article
 
-        monkeypatch.setattr("src.classifier.extract_one", fake_extract_one)
+        monkeypatch.setattr("src.pipelines.extract.extract_one", fake_extract_one)
 
         reviewed_path = asyncio.run(extract_to_output("https://zhuanlan.zhihu.com/p/123", tmp_path))
         raw_path = tmp_path / "raw" / reviewed_path.name
@@ -96,6 +90,25 @@ class TestArticleOutput:
         assert raw_path.exists()
         assert reviewed_path.exists()
         assert raw_path.read_text(encoding="utf-8") == reviewed_path.read_text(encoding="utf-8")
+
+    def test_extract_to_output_writes_manifest(self, tmp_path, sample_article, monkeypatch):
+        async def fake_extract_one(url: str, config: dict | None = None):
+            return sample_article
+
+        monkeypatch.setattr("src.pipelines.extract.extract_one", fake_extract_one)
+
+        reviewed_path = asyncio.run(extract_to_output("https://zhuanlan.zhihu.com/p/123", tmp_path))
+        manifest_path = tmp_path / "manifests" / f"{reviewed_path.stem}.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        assert manifest["schema_version"] == 1
+        assert manifest["article_id"] == reviewed_path.stem
+        assert manifest["article"]["url"] == sample_article.url
+        assert manifest["article"]["platform"] == "zhihu_zhuanlan"
+        assert manifest["paths"]["raw"] == f"raw/{reviewed_path.name}"
+        assert manifest["paths"]["reviewed"] == f"reviewed/{reviewed_path.name}"
+        assert manifest["paths"]["manifest"] == f"manifests/{reviewed_path.stem}.json"
+        assert manifest["assets"] == {"downloaded": [], "failed": {}}
 
 
 class TestMarkdownUploadParsing:
@@ -229,7 +242,7 @@ def test_upload_markdown_file_uploads_local_assets(tmp_path, monkeypatch):
     reviewed_dir.mkdir()
     markdown = reviewed_dir / "reviewed.md"
     markdown.write_text("# Reviewed\n\n![alt](../assets/image.png)\n", encoding="utf-8")
-    monkeypatch.setattr("src.classifier.SiyuanClient", UploadingFakeSiyuanClient)
+    monkeypatch.setattr("src.pipelines.upload.SiyuanClient", UploadingFakeSiyuanClient)
 
     hpath = upload_markdown_file(markdown, parent_id="parent-id", api_base="http://siyuan")
 

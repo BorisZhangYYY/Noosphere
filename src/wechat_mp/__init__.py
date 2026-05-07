@@ -1,3 +1,3 @@
-from src.wechat_mp.extractor import extract
+from src.platforms.wechat_mp import extract, handles
 
-__all__ = ["extract"]
+__all__ = ["extract", "handles"]

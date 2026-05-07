@@ -1,3 +1,3 @@
-from src.zhihu_zhuanlan.extractor import extract
+from src.platforms.zhihu_zhuanlan import extract, handles
 
-__all__ = ["extract"]
+__all__ = ["extract", "handles"]

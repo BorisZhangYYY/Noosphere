@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.common_func.crawler import _markdown_text
+from src.integrations.crawler import _markdown_text
 
 
 class MarkdownResult:
