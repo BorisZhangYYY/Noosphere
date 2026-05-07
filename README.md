@@ -33,6 +33,14 @@ Review and edit the Markdown file in `outputs/reviewed/` with an AI agent. Leave
 ...
 ```
 
+Create a structured review report for the reviewed Markdown:
+
+```bash
+python -m src.cli review-report outputs/reviewed/ARTICLE.md
+```
+
+The report is written to `outputs/reviews/ARTICLE.json` and is intended for recording review decisions and future cleaning-rule candidates.
+
 Upload the reviewed Markdown file to SiYuan:
 
 ```bash
@@ -56,6 +64,7 @@ To create a local config, copy `config.json.example` to `config.json` and fill i
 - Only one URL is processed per extraction command.
 - `outputs/raw/` is the first-round crawler output; `outputs/reviewed/` is the AI-edited version.
 - `outputs/manifests/` records source metadata, output paths, crawl status, and image download results for each article.
+- `outputs/reviews/` stores draft review reports linked to extraction manifests.
 - Platform cleaning rules live under `src/platforms/<platform>/rules.py` and are applied before raw/reviewed files are written.
 - Upload reads the Markdown file directly and does not re-crawl the source URL.
 - Local images referenced by the Markdown are uploaded to SiYuan assets before the document is written, and their Markdown links are replaced with the returned `assets/...` paths.
@@ -64,7 +73,4 @@ To create a local config, copy `config.json.example` to `config.json` and fill i
 
 ## Future Extensions
 
-- Add more article platforms through new extractor modules.
-- Add optional batch orchestration after the single-article workflow remains stable.
-- Add richer asset deduplication and cleanup for unused downloaded images.
-- Add a non-interactive review command if a dedicated LLM provider is introduced.
+Forward-looking development notes and progress tracking live in `UPDATE.md`.

@@ -23,6 +23,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     upload_parser.add_argument("--api-base", default="", help="SiYuan API base URL.")
     upload_parser.add_argument("--title", help="Override the document title inferred from the first H1 or filename.")
 
+    review_parser = subparsers.add_parser("review-report", help="Create one draft review report JSON for a reviewed Markdown file.")
+    review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to describe.")
+    review_parser.add_argument("--manifest", type=Path, help="Extraction manifest path. Defaults to outputs/manifests/ARTICLE.json.")
+    review_parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing review report.")
+
     return parser.parse_args(argv)
 
 
@@ -46,6 +51,13 @@ def main(argv: list[str] | None = None) -> int:
 
             hpath = upload_markdown_file(args.file, args.parent_id, args.api_base, args.title)
             print(f"Uploaded: {hpath}")
+            return 0
+
+        if args.command == "review-report":
+            from src.pipelines.review import create_review_report
+
+            path = create_review_report(args.file, manifest_path=args.manifest, overwrite=args.overwrite)
+            print(f"Review report: {path}")
             return 0
 
     except Exception as exc:  # noqa: BLE001 - CLI should show a concise error.

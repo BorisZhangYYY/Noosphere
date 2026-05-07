@@ -168,6 +168,13 @@ class TestCliArgs:
         assert args.file == Path("outputs/reviewed.md")
         assert args.title == "Reviewed"
 
+    def test_review_report_accepts_reviewed_file(self):
+        args = parse_args(["review-report", "outputs/reviewed/article.md", "--overwrite"])
+
+        assert args.command == "review-report"
+        assert args.file == Path("outputs/reviewed/article.md")
+        assert args.overwrite is True
+
     def test_cli_module_entrypoint_shows_help(self):
         result = subprocess.run(
             [sys.executable, "-m", "src.cli", "--help"],
@@ -179,6 +186,7 @@ class TestCliArgs:
         assert result.returncode == 0
         assert "extract" in result.stdout
         assert "upload" in result.stdout
+        assert "review-report" in result.stdout
 
 
 class FakeSiyuanClient(SiyuanClient):

@@ -52,7 +52,15 @@ Use this skill when the user wants to extract one article from a supported platf
    - Preserved content: list important sections that were kept.
    - Ask for confirmation before uploading.
 
-6. After confirmation, upload the reviewed Markdown:
+6. Create a structured review report after review:
+
+   ```bash
+   python -m src.cli review-report outputs/reviewed/ARTICLE.md
+   ```
+
+   Fill the generated `outputs/reviews/ARTICLE.json` with removed noise, preserved sections, formatting changes, image decisions, and suggested rule candidates when applicable.
+
+7. After confirmation, upload the reviewed Markdown:
 
    ```bash
    SIYUAN_TOKEN=... python -m src.cli upload outputs/reviewed/ARTICLE.md --parent-id TARGET_ID
@@ -62,7 +70,8 @@ Use this skill when the user wants to extract one article from a supported platf
 
 | Command | Description |
 |---------|-------------|
-| `extract URL` | Crawl one supported article URL, run first-round platform cleaning, write raw Markdown to `outputs/raw/`, copy a review draft to `outputs/reviewed/`, and download referenced remote images to local assets. |
+| `extract URL` | Crawl one supported article URL, run first-round platform cleaning, write raw Markdown to `outputs/raw/`, copy a review draft to `outputs/reviewed/`, download referenced remote images to local assets, and write an extraction manifest to `outputs/manifests/`. |
+| `review-report FILE` | Create a draft structured review report under `outputs/reviews/` for one reviewed Markdown file. |
 | `upload FILE` | Upload one reviewed Markdown file to SiYuan. Local images referenced by the Markdown are uploaded to SiYuan assets first. Does not re-crawl. |
 
 ## SiYuan Client Usage
@@ -81,6 +90,7 @@ result = client.upload_markdown_under_parent("Article Title", markdown, parent_d
 - Raw Markdown outputs: `outputs/raw/*.md`
 - Reviewed Markdown outputs: `outputs/reviewed/*.md`
 - Extraction manifests: `outputs/manifests/*.json`
+- Review reports: `outputs/reviews/*.json`
 - Local image outputs: `outputs/assets/...`
 - Upload rewrites local Markdown image links to the `assets/...` paths returned by SiYuan.
 - Upload uses Markdown APIs and does not convert Markdown tables into hand-written DOM.
