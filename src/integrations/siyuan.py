@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import mimetypes
-import os
 import time
 import urllib.error
 import urllib.request
@@ -23,11 +22,9 @@ class SiyuanClient:
         self,
         api_base: str = "http://127.0.0.1:6806",
         token: str | None = None,
-        token_env: str = "SIYUAN_TOKEN",
     ) -> None:
-        token = token or os.environ.get(token_env)
         if not token:
-            raise SiyuanAPIError(f"Missing {token_env} environment variable")
+            raise SiyuanAPIError("SiYuan token is required (set siyuan.token in config.json)")
         self.api_base = api_base.rstrip("/")
         self.headers = {
             "Authorization": f"Token {token}",

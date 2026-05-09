@@ -2,28 +2,35 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.core.config import load_config, siyuan_config
+from src.core.config import load_config, resolve_siyuan_token, siyuan_config
+from src.core.markdown_links import normalize_markdown_links
 from src.core.markdown_upload import read_markdown_for_upload
+from src.core.review_validation import format_validation_issues, validate_reviewed_markdown
 from src.integrations.assets import local_image_paths, replace_image_urls
 from src.integrations.siyuan import SiyuanClient
 
 
 def upload_markdown_file(
     path: Path,
-    parent_id: str | None,
-    api_base: str,
     title: str | None = None,
+    skip_validation: bool = False,
 ) -> str:
+    if not skip_validation:
+        validation = validate_reviewed_markdown(path)
+        if not validation.ok:
+            raise ValueError("Reviewed Markdown failed validation:\n" + format_validation_issues(validation.issues))
+
     config = load_config()
     sconfig = siyuan_config(config)
-    resolved_parent_id = parent_id or sconfig.get("default_parent_id") or None
+    resolved_parent_id = sconfig.get("default_parent_id") or None
     if not resolved_parent_id:
-        raise ValueError("--parent-id or siyuan.default_parent_id is required for upload")
+        raise ValueError("siyuan.default_parent_id is required for upload")
 
-    resolved_api_base = api_base or sconfig.get("api_base", "http://127.0.0.1:6806")
-    token_env = sconfig.get("token_env", "SIYUAN_TOKEN")
+    resolved_api_base = sconfig.get("api_base", "http://127.0.0.1:6806")
+    token = resolve_siyuan_token(config)
     resolved_title, markdown = read_markdown_for_upload(path, title)
-    client = SiyuanClient(api_base=resolved_api_base, token_env=token_env)
+    markdown = normalize_markdown_links(markdown)
+    client = SiyuanClient(api_base=resolved_api_base, token=token)
     local_images = local_image_paths(markdown, path.parent)
     if local_images:
         unique_paths = list(dict.fromkeys(local_images.values()))

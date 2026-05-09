@@ -4,7 +4,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from src.core.config import DEFAULT_OUTPUT_DIR
+from src.core.config import configured_output_dir, load_config
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -15,18 +15,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     extract_parser = subparsers.add_parser("extract", help="Extract one article URL into outputs/raw and outputs/reviewed.")
     extract_parser.add_argument("url", help="Article URL to extract.")
-    extract_parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Directory for extracted Markdown.")
 
     upload_parser = subparsers.add_parser("upload", help="Upload one reviewed Markdown file to SiYuan.")
     upload_parser.add_argument("file", type=Path, help="Reviewed Markdown file to upload.")
-    upload_parser.add_argument("--parent-id", help="SiYuan target notebook ID or parent document block ID.")
-    upload_parser.add_argument("--api-base", default="", help="SiYuan API base URL.")
-    upload_parser.add_argument("--title", help="Override the document title inferred from the first H1 or filename.")
 
     review_parser = subparsers.add_parser("review-report", help="Create one draft review report JSON for a reviewed Markdown file.")
     review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to describe.")
     review_parser.add_argument("--manifest", type=Path, help="Extraction manifest path. Defaults to outputs/manifests/ARTICLE.json.")
     review_parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing review report.")
+
+    validate_parser = subparsers.add_parser("validate", help="Validate one reviewed Markdown file before upload.")
+    validate_parser.add_argument("file", type=Path, help="Reviewed Markdown file to validate.")
+
+    ai_review_parser = subparsers.add_parser("review", help="Use the configured AI model to rewrite and verify one reviewed Markdown file.")
+    ai_review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to rewrite.")
+
+    verify_parser = subparsers.add_parser("verify-review", help="Run the configured AI pre-upload review for one Markdown file.")
+    verify_parser.add_argument("file", type=Path, help="Reviewed Markdown file to verify.")
+
+    run_parser = subparsers.add_parser("run", help="Extract one URL, AI-review it, then upload it to SiYuan.")
+    run_parser.add_argument("url", help="Article URL to extract.")
 
     return parser.parse_args(argv)
 
@@ -38,9 +46,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "extract":
             from src.pipelines.extract import extract_to_output
 
-            path = asyncio.run(extract_to_output(args.url, args.output_dir))
+            path = asyncio.run(extract_to_output(args.url, configured_output_dir(load_config())))
             print(f"Reviewed draft: {path}")
-            print("Next: review and edit this Markdown file, then run `python -m src.cli upload FILE`.")
+            print("Next: rewrite the reviewed Markdown, create and fill a review report, then validate before upload.")
             return 0
 
         if args.command == "upload":
@@ -49,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             from src.pipelines.upload import upload_markdown_file
 
-            hpath = upload_markdown_file(args.file, args.parent_id, args.api_base, args.title)
+            hpath = upload_markdown_file(args.file)
             print(f"Uploaded: {hpath}")
             return 0
 
@@ -58,6 +66,61 @@ def main(argv: list[str] | None = None) -> int:
 
             path = create_review_report(args.file, manifest_path=args.manifest, overwrite=args.overwrite)
             print(f"Review report: {path}")
+            return 0
+
+        if args.command == "validate":
+            from src.core.review_validation import format_validation_issues
+            from src.pipelines.validate import validate_reviewed_file
+
+            result = validate_reviewed_file(args.file)
+            if result.ok:
+                print(f"Valid: {args.file}")
+                return 0
+            print("Invalid reviewed Markdown:")
+            print(format_validation_issues(result.issues))
+            return 1
+
+        if args.command == "review":
+            from src.core.review_validation import format_validation_issues
+            from src.pipelines.ai_review import ai_review_file
+
+            result = ai_review_file(args.file)
+            if result.ok:
+                print(f"AI reviewed: {result.reviewed_path}")
+                return 0
+            print(f"AI review failed after {result.attempts} attempt(s).")
+            if not result.validation.ok:
+                print(format_validation_issues(result.validation.issues))
+            if result.verification and result.verification.summary:
+                print(result.verification.summary)
+            return 1
+
+        if args.command == "verify-review":
+            from src.pipelines.ai_review import verify_reviewed_file
+
+            result = verify_reviewed_file(args.file)
+            if result.passed:
+                print(f"AI verification passed: {args.file}")
+                return 0
+            print("AI verification failed:")
+            if result.summary:
+                print(result.summary)
+            for issue in result.issues:
+                print(f"- {issue.severity}: {issue.message} {issue.revision_instruction}".strip())
+            return 1
+
+        if args.command == "run":
+            from src.pipelines.ai_review import ai_review_file
+            from src.pipelines.extract import extract_to_output
+            from src.pipelines.upload import upload_markdown_file
+
+            reviewed_path = asyncio.run(extract_to_output(args.url, configured_output_dir(load_config())))
+            result = ai_review_file(reviewed_path)
+            if not result.ok:
+                print(f"AI review failed after {result.attempts} attempt(s): {reviewed_path}")
+                return 1
+            hpath = upload_markdown_file(reviewed_path)
+            print(f"Uploaded: {hpath}")
             return 0
 
     except Exception as exc:  # noqa: BLE001 - CLI should show a concise error.

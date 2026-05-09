@@ -15,3 +15,25 @@ FOOTER_MARKERS = (
     "已无更多数据",
     "暂无留言",
 )
+
+
+REVIEW_LONG_ARTICLE_MIN_CHARS = 2500
+REVIEW_MIN_LONG_ARTICLE_TOPIC_HEADINGS = 4
+REVIEW_MIN_HEADING_DELTA_FOR_LONG_ARTICLE = 2
+
+REVIEW_FOOTER_NOISE_MARKERS = (
+    "一键三连",
+    "欢迎在评论区",
+    "一键关注",
+    "点亮星标",
+    "报名参会",
+    "阅读原文",
+)
+
+REVIEW_NON_TOPIC_HEADINGS = {
+    "AI Summary",
+    "Main Article",
+    "参考链接",
+    "参考资料",
+    "References",
+}

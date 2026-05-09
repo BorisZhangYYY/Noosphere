@@ -1,4 +1,5 @@
 {
+  "output_dir": "outputs",
   "wechat_mp": {
     "label": "微信公众号",
     "url_patterns": [
@@ -13,7 +14,29 @@
   },
   "siyuan": {
     "api_base": "http://127.0.0.1:6806",
-    "default_parent_id": "",
-    "token_env": "SIYUAN_TOKEN"
+    "default_parent_id": "your-target-notebook-or-parent-document-id",
+    "token": "your-siyuan-token-here"
+  },
+  "ai": {
+    "provider": "anthropic",
+    "max_attempts": 2,
+    "rewrite_prompt_path": "prompts/rewrite_article.md",
+    "verify_prompt_path": "prompts/pre_upload_review.md"
+  },
+  "ai_providers": {
+    "openai": {
+      "model": "your-openai-model",
+      "api_base": "https://api.openai.com/v1",
+      "api_key": "your-openai-api-key-here",
+      "max_output_tokens": 12000,
+      "temperature": 0.2
+    },
+    "anthropic": {
+      "model": "your-anthropic-model",
+      "api_base": "https://api.anthropic.com",
+      "api_key": "your-anthropic-api-key-here",
+      "max_output_tokens": 12000,
+      "temperature": 0.2
+    }
   }
 }
