@@ -63,3 +63,12 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## 5. Noosphere Project Rules
+
+**Keep workflow behavior explicit and testable.**
+
+- Keep credentials, model settings, SiYuan targets, and prompt paths in local `config.json`; do not put tokens or API keys in command examples.
+- Preserve the pipeline boundary: extract to `outputs/raw`, review draft in `outputs/reviewed`, manifests in `outputs/manifests`, review reports in `outputs/reviews`, and local images in `outputs/assets`.
+- Put deterministic Markdown invariants in normalization and validation code, with tests. Examples include local image paths, Markdown links instead of bare URLs, required review sections, and completed review reports.
+- Put platform-specific noise removal in `src/platforms/<platform>/rules.py` only when it is general enough to survive multiple articles. Keep one-off observations in review reports or prompts until repeated.
