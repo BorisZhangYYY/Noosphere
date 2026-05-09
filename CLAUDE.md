@@ -1,74 +1,29 @@
 # CLAUDE.md
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+Noosphere is a single-article web extraction, AI review, and SiYuan upload tool.
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+## Project Rules
 
-## 1. Think Before Coding
+- Read `README.md`, `SKILL.md`, and `UPDATE.md` before changing workflow behavior.
+- Keep credentials, model settings, SiYuan targets, and prompt paths in local `config.json`; do not put tokens or API keys in command examples, tests, or committed files.
+- Preserve the output boundary: `outputs/raw`, `outputs/reviewed`, `outputs/assets`, `outputs/manifests`, and `outputs/reviews`.
+- Keep extraction single-URL first. Do not reintroduce batch behavior unless explicitly requested.
+- Keep AI workflow settings under `ai`; keep provider credentials and model parameters under `ai_providers`.
+- Keep long prompts in `prompts/`; keep `config.json.example` short and human-readable.
+- Do not make provider-specific code paths for one vendor when the API shape is already OpenAI or Anthropic.
+- Put deterministic Markdown invariants in normalization and validation code with tests. Examples: required review sections, local image paths, Markdown links instead of bare URLs, and completed review reports.
+- Put platform-specific noise removal in `src/platforms/<platform>/rules.py` only when it is general across articles. Keep one-off observations in review reports or prompts until repeated.
+- Upload should validate before writing to SiYuan and should preserve Markdown tables as Markdown.
+- Do not edit `outputs/raw` during review. Review and AI rewrite should work on `outputs/reviewed`.
+- Do not remove or rewrite user changes outside the requested scope.
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+## Verification
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+- Run focused tests for every behavior change.
+- Run `pytest -q`, `python -m compileall src`, `python -m json.tool config.json.example`, and `git diff --check` before committing broad workflow changes.
+- After upload workflow changes, test `python -m src.cli --help` and relevant subcommand help.
 
-## 2. Simplicity First
+## Git
 
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-## 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
----
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
-
-## 5. Noosphere Project Rules
-
-**Keep workflow behavior explicit and testable.**
-
-- Keep credentials, model settings, SiYuan targets, and prompt paths in local `config.json`; do not put tokens or API keys in command examples.
-- Preserve the pipeline boundary: extract to `outputs/raw`, review draft in `outputs/reviewed`, manifests in `outputs/manifests`, review reports in `outputs/reviews`, and local images in `outputs/assets`.
-- Put deterministic Markdown invariants in normalization and validation code, with tests. Examples include local image paths, Markdown links instead of bare URLs, required review sections, and completed review reports.
-- Put platform-specific noise removal in `src/platforms/<platform>/rules.py` only when it is general enough to survive multiple articles. Keep one-off observations in review reports or prompts until repeated.
+- Keep commits grouped by intent: implementation, docs, and small corrections separately.
+- Never commit `config.json`, `outputs/`, API keys, SiYuan tokens, or generated caches.
