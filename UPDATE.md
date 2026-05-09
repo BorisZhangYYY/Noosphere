@@ -4,7 +4,7 @@ This file tracks forward-looking development notes for Noosphere. Keep README fo
 
 ## Current Baseline
 
-As of 2026-05-08, the project has:
+As of 2026-05-09, the project has:
 
 - Single-article CLI workflow through `python -m src.cli`.
 - Supported sources: WeChat Official Account articles and Zhihu Zhuanlan articles.
@@ -96,7 +96,7 @@ Goal: keep local and SiYuan assets manageable.
 - Removed legacy `classifier.py` and legacy platform shim packages.
 - Added `review-report` for draft structured review reports linked to extraction manifests.
 
-### 2026-05-08
+### 2026-05-09
 
 - Added `validate` for reviewed Markdown readiness checks.
 - Made `upload` run review validation by default before writing to SiYuan.
