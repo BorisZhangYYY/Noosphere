@@ -84,12 +84,6 @@ class AIVerificationResult:
     raw: dict[str, Any]
 
 
-@dataclass(frozen=True)
-class AIRewriteResult:
-    markdown: str
-    review: dict[str, Any]
-
-
 def prepare_rewritten_markdown(text: str) -> str:
     return ensure_reviewed_markdown_structure(strip_markdown_fence(text), fallback_review_metadata())
 

@@ -26,6 +26,14 @@ from src.pipelines.ai_review import configured_prompt, run_ai_review
 
 
 class FakeAIClient:
+    """
+    Fake AI client for testing run_ai_review flow.
+
+    Call order for a single attempt:
+    - generate_text() call 1: rewrite markdown (Step 1)
+    - generate_structured_text() call 1: generate review metadata (Step 2)
+    - generate_structured_text() call 2: pre-upload verification (Step 3)
+    """
     def __init__(self):
         self.settings = AISettings(
             provider="openai",
@@ -92,7 +100,7 @@ class FakeAIClient:
         json_schema: dict,
     ) -> AITextResponse:
         self.structured_calls += 1
-        # Second structured call: review_metadata
+        # structured_calls == 1: review_metadata (Step 2)
         if self.structured_calls == 1:
             return AITextResponse(
                 provider="openai",
@@ -111,7 +119,7 @@ class FakeAIClient:
                     ensure_ascii=False,
                 ),
             )
-        # Third structured call: verification
+        # structured_calls == 2: verification (Step 3)
         return AITextResponse(
             provider="openai",
             model="test-model",
