@@ -21,6 +21,7 @@
     "provider": "anthropic",
     "max_attempts": 2,
     "rewrite_prompt_path": "prompts/rewrite_article.md",
+    "review_metadata_prompt_path": "prompts/review_metadata.md",
     "verify_prompt_path": "prompts/pre_upload_review.md"
   },
   "ai_providers": {

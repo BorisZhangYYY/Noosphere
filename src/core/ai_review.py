@@ -11,6 +11,64 @@ from src.core.review_report import build_review_report, inferred_manifest_path, 
 from src.core.review_validation import ValidationIssue, format_validation_issues
 
 
+# JSON Schema for review_metadata structured output
+REVIEW_METADATA_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "review": {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "removed_noise": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "preserved_sections": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "formatting_changes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "image_decisions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "suggested_rule_candidates": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+            "required": ["summary", "removed_noise", "preserved_sections", "formatting_changes"],
+        },
+    },
+    "required": ["review"],
+}
+
+# JSON Schema for verification structured output
+VERIFY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "passed": {"type": "boolean"},
+        "summary": {"type": "string"},
+        "issues": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "severity": {"type": "string"},
+                    "message": {"type": "string"},
+                    "revision_instruction": {"type": "string"},
+                },
+                "required": ["severity", "message"],
+            },
+        },
+    },
+    "required": ["passed", "summary", "issues"],
+}
+
+
 @dataclass(frozen=True)
 class AIVerificationIssue:
     severity: str
@@ -26,12 +84,71 @@ class AIVerificationResult:
     raw: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class AIRewriteResult:
+    markdown: str
+    review: dict[str, Any]
+
+
+def prepare_rewritten_markdown(text: str) -> str:
+    return ensure_reviewed_markdown_structure(strip_markdown_fence(text), fallback_review_metadata())
+
+
 def strip_markdown_fence(text: str) -> str:
     stripped = text.strip()
     match = re.fullmatch(r"```(?:markdown|md)?\s*(.*?)\s*```", stripped, flags=re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip() + "\n"
     return stripped + "\n"
+
+
+def parse_review_metadata_response(text: str) -> dict[str, Any]:
+    data = json.loads(extract_json_object(text))
+    if not isinstance(data, dict):
+        raise ValueError("AI review metadata response must be a JSON object")
+    return normalize_review_metadata(data.get("review", data))
+
+
+def ensure_reviewed_markdown_structure(markdown: str, review: dict[str, Any]) -> str:
+    return ensure_main_article_section(ensure_ai_summary_section(markdown, review))
+
+
+def ensure_ai_summary_section(markdown: str, review: dict[str, Any]) -> str:
+    if re.search(r"^##\s+AI Summary\s*$", markdown, flags=re.MULTILINE):
+        return markdown
+
+    lines = markdown.rstrip().splitlines()
+    separator_index = next((index for index, line in enumerate(lines) if line.strip() == "---"), None)
+    if separator_index is None:
+        return markdown
+
+    summary = str(review.get("summary") or "").strip() or "AI rewrite completed and structured for upload."
+    normalized = lines[: separator_index + 1] + ["", "## AI Summary", "", f"- {summary}", "", "---", ""] + lines[separator_index + 1 :]
+    return "\n".join(normalized).rstrip() + "\n"
+
+
+def ensure_main_article_section(markdown: str) -> str:
+    if re.search(r"^##\s+Main Article\s*$", markdown, flags=re.MULTILINE):
+        return markdown
+
+    lines = markdown.rstrip().splitlines()
+    summary_index = next((index for index, line in enumerate(lines) if line.strip() == "## AI Summary"), None)
+    if summary_index is None:
+        return markdown
+
+    separator_index = next(
+        (index for index in range(summary_index + 1, len(lines)) if lines[index].strip() == "---"),
+        None,
+    )
+    if separator_index is None:
+        return markdown
+
+    body_lines = [
+        ("### " + line[3:]) if line.startswith("## ") and line.strip() != "## Main Article" else line
+        for line in lines[separator_index + 1 :]
+    ]
+    normalized = lines[: separator_index + 1] + ["", "## Main Article", ""] + body_lines
+    return "\n".join(normalized).rstrip() + "\n"
 
 
 def parse_verification_json(text: str) -> AIVerificationResult:
@@ -78,19 +195,13 @@ def write_completed_review_report(
     model: str,
     provider: str,
     verification: AIVerificationResult | None = None,
+    review: dict[str, Any] | None = None,
 ) -> Path:
     resolved_manifest_path = manifest_path or inferred_manifest_path(reviewed_path)
     manifest = json.loads(resolved_manifest_path.read_text(encoding="utf-8"))
     report = build_review_report(reviewed_path, resolved_manifest_path, manifest)
     report["status"] = "reviewed"
-    report["review"] = {
-        "summary": "AI rewrite completed and structured for upload.",
-        "removed_noise": ["AI rewrite was instructed to remove platform noise, footer promotions, duplicated sections, and unrelated recommendations."],
-        "preserved_sections": ["AI rewrite was instructed to preserve the source article's main facts, arguments, images, tables, lists, code blocks, and references."],
-        "formatting_changes": ["AI rewrite normalized the article to H1, AI Summary, Main Article, and topic-oriented Markdown headings."],
-        "image_decisions": ["AI rewrite was instructed to keep meaningful local image links and place them near relevant content."],
-        "suggested_rule_candidates": [],
-    }
+    report["review"] = normalize_review_metadata(review)
     report["ai"] = {
         "rewrite_provider": provider,
         "rewrite_model": model,
@@ -103,6 +214,37 @@ def write_completed_review_report(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output_path
+
+
+def normalize_review_metadata(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return fallback_review_metadata()
+    summary = str(value.get("summary") or "").strip() or "AI rewrite completed and structured for upload."
+    return {
+        "summary": summary,
+        "removed_noise": string_list(value.get("removed_noise")) or ["Removed platform/navigation noise, duplicate separators, and unrelated footer content when present."],
+        "preserved_sections": string_list(value.get("preserved_sections")) or [f"Preserved the source article's main argument and key sections: {summary}"],
+        "formatting_changes": string_list(value.get("formatting_changes")) or ["Normalized the article into the required H1, AI Summary, Main Article, and topic-heading Markdown structure."],
+        "image_decisions": string_list(value.get("image_decisions")),
+        "suggested_rule_candidates": string_list(value.get("suggested_rule_candidates")),
+    }
+
+
+def string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def fallback_review_metadata() -> dict[str, Any]:
+    return {
+        "summary": "AI rewrite completed and structured for upload.",
+        "removed_noise": ["AI rewrite was instructed to remove platform noise, footer promotions, duplicated sections, and unrelated recommendations."],
+        "preserved_sections": ["AI rewrite was instructed to preserve the source article's main facts, arguments, images, tables, lists, code blocks, and references."],
+        "formatting_changes": ["AI rewrite normalized the article to H1, AI Summary, Main Article, and topic-oriented Markdown headings."],
+        "image_decisions": ["AI rewrite was instructed to keep meaningful local image links and place them near relevant content."],
+        "suggested_rule_candidates": [],
+    }
 
 
 def update_pre_upload_review(

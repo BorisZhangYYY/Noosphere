@@ -79,6 +79,20 @@ class AIClient:
             raise AIProviderError(f"Unsupported AI provider: {self.settings.provider}")
         return AITextResponse(text=text, model=self.settings.model, provider=self.settings.provider)
 
+    def generate_structured_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        json_schema: dict[str, Any],
+    ) -> AITextResponse:
+        if self.settings.provider == "openai":
+            text = self._openai_structured_response(system_prompt, user_prompt, json_schema)
+        elif self.settings.provider == ANTHROPIC_PROVIDER:
+            text = self._anthropic_structured_message(system_prompt, user_prompt, json_schema)
+        else:
+            raise AIProviderError(f"Unsupported AI provider: {self.settings.provider}")
+        return AITextResponse(text=text, model=self.settings.model, provider=self.settings.provider)
+
     def _api_key(self) -> str:
         return self.settings.api_key
 
@@ -113,6 +127,61 @@ class AIClient:
             "max_tokens": self.settings.max_output_tokens,
             "system": system_prompt,
             "messages": [{"role": "user", "content": [{"type": "text", "text": user_prompt}]}],
+        }
+        if self.settings.temperature is not None:
+            payload["temperature"] = self.settings.temperature
+
+        data = self._post_json(
+            endpoint,
+            payload,
+            {
+                "x-api-key": self._api_key(),
+                "anthropic-version": self.settings.anthropic_version,
+                "Content-Type": "application/json",
+            },
+        )
+        return text_from_anthropic_content(data)
+
+    def _openai_structured_response(
+        self, system_prompt: str, user_prompt: str, json_schema: dict[str, Any]
+    ) -> str:
+        endpoint = openai_responses_endpoint(self.settings.api_base)
+        payload: dict[str, Any] = {
+            "model": self.settings.model,
+            "instructions": system_prompt,
+            "input": user_prompt,
+            "max_output_tokens": self.settings.max_output_tokens,
+            "response_format": {
+                "type": "json_object",
+                "schema": json_schema,
+            },
+        }
+        if self.settings.temperature is not None:
+            payload["temperature"] = self.settings.temperature
+
+        data = self._post_json(
+            endpoint,
+            payload,
+            {
+                "Authorization": f"Bearer {self._api_key()}",
+                "Content-Type": "application/json",
+            },
+        )
+        text = data.get("output_text")
+        if isinstance(text, str) and text.strip():
+            return text
+        return text_from_openai_output(data)
+
+    def _anthropic_structured_message(
+        self, system_prompt: str, user_prompt: str, json_schema: dict[str, Any]
+    ) -> str:
+        endpoint = anthropic_messages_endpoint(self.settings.api_base)
+        payload: dict[str, Any] = {
+            "model": self.settings.model,
+            "max_tokens": self.settings.max_output_tokens,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": user_prompt}]}],
+            "input_schema": json_schema,
         }
         if self.settings.temperature is not None:
             payload["temperature"] = self.settings.temperature
