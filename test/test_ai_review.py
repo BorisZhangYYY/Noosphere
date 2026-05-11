@@ -15,7 +15,7 @@ from src.integrations.ai_client import (
     text_from_anthropic_content,
     text_from_openai_output,
 )
-from src.pipelines.ai_review import ai_review_file, configured_prompt
+from src.pipelines.ai_review import configured_prompt, run_ai_review
 
 
 class FakeAIClient:
@@ -192,7 +192,7 @@ def test_configured_prompt_reads_prompt_file(tmp_path):
     assert configured_prompt({"prompt_path": str(prompt)}, "prompt", "prompt_path") == "Prompt body"
 
 
-def test_ai_review_file_rewrites_validates_and_verifies(tmp_path, monkeypatch):
+def test_run_ai_review_rewrites_validates_and_verifies(tmp_path, monkeypatch):
     reviewed_path = write_wechat_fixture(tmp_path)
     monkeypatch.setattr(
         "src.pipelines.ai_review.load_config",
@@ -208,7 +208,7 @@ def test_ai_review_file_rewrites_validates_and_verifies(tmp_path, monkeypatch):
         },
     )
 
-    result = ai_review_file(reviewed_path, max_attempts=1, client=FakeAIClient())
+    result = run_ai_review(reviewed_path, max_attempts=1, client=FakeAIClient())
 
     assert result.ok is True
     assert "## Main Article" in reviewed_path.read_text(encoding="utf-8")

@@ -36,15 +36,15 @@ Review and edit the Markdown file in `outputs/reviewed/` with an AI agent. Leave
 Use the configured AI model to rewrite and run the pre-upload AI review loop:
 
 ```bash
-python -m src.cli review outputs/reviewed/ARTICLE.md
+python -m src.cli ai-review outputs/reviewed/ARTICLE.md
 ```
 
 Set `ai.provider` to `openai` or `anthropic`. Workflow settings such as retry count and prompt paths live under `ai`; provider settings such as model, API base, API key, token limit, and temperature live under `ai_providers`. The default prompts live in `prompts/rewrite_article.md` and `prompts/pre_upload_review.md`; point `ai.rewrite_prompt_path` and `ai.verify_prompt_path` at different files to customize them.
 
-If you review manually instead of using `review`, create a structured review report for the reviewed Markdown:
+If you review manually instead of using `ai-review`, create a structured review report for the reviewed Markdown:
 
 ```bash
-python -m src.cli review-report outputs/reviewed/ARTICLE.md
+python -m src.cli manual-review outputs/reviewed/ARTICLE.md
 ```
 
 The report is written to `outputs/reviews/ARTICLE.json` and is intended for recording review decisions and future cleaning-rule candidates. After AI review, fill the report and set `status` to `reviewed`.

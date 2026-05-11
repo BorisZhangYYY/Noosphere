@@ -9,9 +9,9 @@ As of 2026-05-09, the project has:
 - Single-article CLI workflow through `python -m src.cli`.
 - Supported sources: WeChat Official Account articles and Zhihu Zhuanlan articles.
 - Layered output directories: `outputs/raw/`, `outputs/reviewed/`, `outputs/assets/`, and `outputs/manifests/`.
-- Draft review reports through `python -m src.cli review-report`.
+- Draft review reports through `python -m src.cli manual-review`.
 - Review readiness checks through `python -m src.cli validate`.
-- AI review through `python -m src.cli review` with OpenAI or Anthropic endpoints.
+- AI review through `python -m src.cli ai-review` with OpenAI or Anthropic endpoints.
 - One-command extract, AI review, verification, and upload through `python -m src.cli run`.
 - Credentials, model settings, prompts, SiYuan API settings, and upload targets are read from local `config.json`; AI workflow settings and provider settings are stored separately.
 - Upload validation that blocks unreviewed Markdown before writing to SiYuan.
@@ -29,7 +29,7 @@ As of 2026-05-09, the project has:
 
 Goal: make AI review output structured and traceable instead of only editing Markdown.
 
-Status: foundation implemented. `review-report` creates `outputs/reviews/<article_id>.json` with fields for removed noise, preserved sections, formatting changes, image decisions, and suggested rule candidates. `review` now updates this report during AI rewrite and pre-upload verification.
+Status: foundation implemented. `manual-review` creates `outputs/reviews/<article_id>.json` with fields for removed noise, preserved sections, formatting changes, image decisions, and suggested rule candidates. `ai-review` now updates this report during AI rewrite and pre-upload verification.
 
 Next:
 
@@ -94,7 +94,7 @@ Goal: keep local and SiYuan assets manageable.
 - Refactored the codebase into CLI, pipelines, core domain helpers, integrations, and platform modules.
 - Moved platform cleaning into `src/platforms/<platform>/cleaning.py` and rule constants into `rules.py`.
 - Removed legacy `classifier.py` and legacy platform shim packages.
-- Added `review-report` for draft structured review reports linked to extraction manifests.
+- Added `manual-review` for draft structured review reports linked to extraction manifests.
 
 ### 2026-05-09
 
@@ -103,7 +103,7 @@ Goal: keep local and SiYuan assets manageable.
 - Added checks for required AI review sections, completed review reports, manifests, and local image paths.
 - Added WeChat long-article structure checks that compare raw and reviewed Markdown and require clearer topic headings before upload.
 - Added OpenAI and Anthropic AI provider configuration.
-- Added `review`, `verify-review`, and `run` commands for AI rewrite, pre-upload AI verification, revision loop, and one-command upload.
+- Added `ai-review`, `verify`, and `run` commands for AI rewrite, pre-upload AI verification, revision loop, and one-command upload.
 - Moved CLI execution toward config-only credentials and upload targets to reduce command-history leakage.
 - Split long review prompts into `prompts/` files and separated AI workflow config from provider credentials.
 - Added Markdown link normalization and validation so bare prose URLs do not reach SiYuan upload.

@@ -19,7 +19,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     upload_parser = subparsers.add_parser("upload", help="Upload one reviewed Markdown file to SiYuan.")
     upload_parser.add_argument("file", type=Path, help="Reviewed Markdown file to upload.")
 
-    review_parser = subparsers.add_parser("review-report", help="Create one draft review report JSON for a reviewed Markdown file.")
+    review_parser = subparsers.add_parser("manual-review", help="Create one draft review report JSON for a reviewed Markdown file.")
     review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to describe.")
     review_parser.add_argument("--manifest", type=Path, help="Extraction manifest path. Defaults to outputs/manifests/ARTICLE.json.")
     review_parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing review report.")
@@ -27,10 +27,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     validate_parser = subparsers.add_parser("validate", help="Validate one reviewed Markdown file before upload.")
     validate_parser.add_argument("file", type=Path, help="Reviewed Markdown file to validate.")
 
-    ai_review_parser = subparsers.add_parser("review", help="Use the configured AI model to rewrite and verify one reviewed Markdown file.")
+    ai_review_parser = subparsers.add_parser("ai-review", help="Use the configured AI model to rewrite and verify one reviewed Markdown file.")
     ai_review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to rewrite.")
 
-    verify_parser = subparsers.add_parser("verify-review", help="Run the configured AI pre-upload review for one Markdown file.")
+    verify_parser = subparsers.add_parser("verify", help="Run the configured AI pre-upload review for one Markdown file.")
     verify_parser.add_argument("file", type=Path, help="Reviewed Markdown file to verify.")
 
     run_parser = subparsers.add_parser("run", help="Extract one URL, AI-review it, then upload it to SiYuan.")
@@ -61,10 +61,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Uploaded: {hpath}")
             return 0
 
-        if args.command == "review-report":
-            from src.pipelines.review import create_review_report
+        if args.command == "manual-review":
+            from src.pipelines.manual_review import create_manual_review_report
 
-            path = create_review_report(args.file, manifest_path=args.manifest, overwrite=args.overwrite)
+            path = create_manual_review_report(args.file, manifest_path=args.manifest, overwrite=args.overwrite)
             print(f"Review report: {path}")
             return 0
 
@@ -80,11 +80,11 @@ def main(argv: list[str] | None = None) -> int:
             print(format_validation_issues(result.issues))
             return 1
 
-        if args.command == "review":
+        if args.command == "ai-review":
             from src.core.review_validation import format_validation_issues
-            from src.pipelines.ai_review import ai_review_file
+            from src.pipelines.ai_review import run_ai_review
 
-            result = ai_review_file(args.file)
+            result = run_ai_review(args.file)
             if result.ok:
                 print(f"AI reviewed: {result.reviewed_path}")
                 return 0
@@ -95,10 +95,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(result.verification.summary)
             return 1
 
-        if args.command == "verify-review":
-            from src.pipelines.ai_review import verify_reviewed_file
+        if args.command == "verify":
+            from src.pipelines.ai_review import verify_reviewed_article
 
-            result = verify_reviewed_file(args.file)
+            result = verify_reviewed_article(args.file)
             if result.passed:
                 print(f"AI verification passed: {args.file}")
                 return 0
@@ -110,12 +110,12 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         if args.command == "run":
-            from src.pipelines.ai_review import ai_review_file
+            from src.pipelines.ai_review import run_ai_review
             from src.pipelines.extract import extract_to_output
             from src.pipelines.upload import upload_markdown_file
 
             reviewed_path = asyncio.run(extract_to_output(args.url, configured_output_dir(load_config())))
-            result = ai_review_file(reviewed_path)
+            result = run_ai_review(reviewed_path)
             if not result.ok:
                 print(f"AI review failed after {result.attempts} attempt(s): {reviewed_path}")
                 return 1

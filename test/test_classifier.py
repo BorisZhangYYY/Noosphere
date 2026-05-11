@@ -167,10 +167,10 @@ class TestCliArgs:
         assert args.command == "upload"
         assert args.file == Path("outputs/reviewed.md")
 
-    def test_review_report_accepts_reviewed_file(self):
-        args = parse_args(["review-report", "outputs/reviewed/article.md", "--overwrite"])
+    def test_manual_review_accepts_reviewed_file(self):
+        args = parse_args(["manual-review", "outputs/reviewed/article.md", "--overwrite"])
 
-        assert args.command == "review-report"
+        assert args.command == "manual-review"
         assert args.file == Path("outputs/reviewed/article.md")
         assert args.overwrite is True
 
@@ -181,15 +181,15 @@ class TestCliArgs:
         assert args.file == Path("outputs/reviewed/article.md")
 
     def test_ai_review_accepts_reviewed_file(self):
-        args = parse_args(["review", "outputs/reviewed/article.md"])
+        args = parse_args(["ai-review", "outputs/reviewed/article.md"])
 
-        assert args.command == "review"
+        assert args.command == "ai-review"
         assert args.file == Path("outputs/reviewed/article.md")
 
-    def test_verify_review_accepts_reviewed_file(self):
-        args = parse_args(["verify-review", "outputs/reviewed/article.md"])
+    def test_verify_accepts_reviewed_file(self):
+        args = parse_args(["verify", "outputs/reviewed/article.md"])
 
-        assert args.command == "verify-review"
+        assert args.command == "verify"
         assert args.file == Path("outputs/reviewed/article.md")
 
     def test_run_accepts_url(self):
@@ -209,9 +209,10 @@ class TestCliArgs:
         assert result.returncode == 0
         assert "extract" in result.stdout
         assert "upload" in result.stdout
-        assert "review-report" in result.stdout
+        assert "manual-review" in result.stdout
         assert "validate" in result.stdout
-        assert "verify-review" in result.stdout
+        assert "ai-review" in result.stdout
+        assert "verify" in result.stdout
 
 
 class FakeSiyuanClient(SiyuanClient):

@@ -40,7 +40,7 @@ class AIReviewRunResult:
         return self.validation.ok and self.verification is not None and self.verification.passed
 
 
-def ai_review_file(path: Path, max_attempts: int | None = None, client: TextGenerator | None = None) -> AIReviewRunResult:
+def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGenerator | None = None) -> AIReviewRunResult:
     config = load_config()
     settings = client.settings if client else resolve_ai_settings(config)
     generator = client or AIClient(settings)
@@ -68,7 +68,7 @@ def ai_review_file(path: Path, max_attempts: int | None = None, client: TextGene
             verification = None
             continue
 
-        verification = verify_reviewed_file(path, client=generator)
+        verification = verify_reviewed_article(path, client=generator)
         if verification.passed:
             return AIReviewRunResult(path, validation, verification, attempt)
         feedback = feedback_from_ai_verification(verification)
@@ -76,7 +76,7 @@ def ai_review_file(path: Path, max_attempts: int | None = None, client: TextGene
     return AIReviewRunResult(path, validation, verification, attempts)
 
 
-def verify_reviewed_file(path: Path, client: TextGenerator | None = None) -> AIVerificationResult:
+def verify_reviewed_article(path: Path, client: TextGenerator | None = None) -> AIVerificationResult:
     config = load_config()
     settings = client.settings if client else resolve_ai_settings(config)
     generator = client or AIClient(settings)
