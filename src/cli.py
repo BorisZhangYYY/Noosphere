@@ -13,7 +13,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    extract_parser = subparsers.add_parser("extract", help="Extract one article URL into outputs/raw and outputs/reviewed.")
+    extract_parser = subparsers.add_parser("extract", help="Extract one article URL into outputs/ARTICLE_ID/.")
     extract_parser.add_argument("url", help="Article URL to extract.")
 
     upload_parser = subparsers.add_parser("upload", help="Upload one reviewed Markdown file to SiYuan.")
@@ -21,7 +21,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     review_parser = subparsers.add_parser("manual-review", help="Create one draft review report JSON for a reviewed Markdown file.")
     review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to describe.")
-    review_parser.add_argument("--manifest", type=Path, help="Extraction manifest path. Defaults to outputs/manifests/ARTICLE.json.")
+    review_parser.add_argument("--manifest", type=Path, help="Extraction manifest path. Defaults to the article manifest beside reviewed.md.")
     review_parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing review report.")
 
     validate_parser = subparsers.add_parser("validate", help="Validate one reviewed Markdown file before upload.")

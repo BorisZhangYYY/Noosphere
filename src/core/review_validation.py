@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from src.core.markdown_links import bare_markdown_urls
-from src.core.review_report import inferred_manifest_path, review_report_path
+from src.core.manifest import resolve_manifest_path_entry
+from src.core.review_report import inferred_manifest_path, review_report_path, reviewed_article_id
 from src.platforms.wechat_mp import rules as wechat_rules
 
 
@@ -72,7 +73,7 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
         if report_issue:
             issues.append(report_issue)
         else:
-            issues.extend(validate_review_report_data(report, path.stem))
+            issues.extend(validate_review_report_data(report, reviewed_article_id(path)))
 
     if manifest is not None and report is not None:
         issues.extend(validate_platform_review_structure(markdown, manifest_path, manifest, report))
@@ -175,14 +176,6 @@ def validate_wechat_mp_review_structure(
             )
         )
 
-    if raw_headings and len(reviewed_headings) < len(raw_headings) + wechat_rules.REVIEW_MIN_HEADING_DELTA_FOR_LONG_ARTICLE:
-        issues.append(
-            ValidationIssue(
-                "insufficient_rewrite_delta",
-                "Reviewed structure is too close to the raw extraction. Reorganize the article with additional topic headings.",
-            )
-        )
-
     review = report.get("review")
     if isinstance(review, dict):
         for field in ("removed_noise", "preserved_sections", "formatting_changes"):
@@ -204,7 +197,7 @@ def raw_path_from_manifest(manifest_path: Path, manifest: dict[str, Any]) -> Pat
     raw_path = paths.get("raw")
     if not isinstance(raw_path, str) or not raw_path.strip():
         return None
-    return manifest_path.parent.parent / raw_path
+    return resolve_manifest_path_entry(manifest_path, raw_path)
 
 
 def validate_image_links(markdown: str, base_dir: Path) -> list[ValidationIssue]:

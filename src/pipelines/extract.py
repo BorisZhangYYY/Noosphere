@@ -19,5 +19,5 @@ async def extract_to_output(url: str, output_dir: Path) -> Path:
     paths.raw_path.write_text(article.to_review_markdown(), encoding="utf-8")
     image_result = download_markdown_images(paths.raw_path, assets_root=paths.asset_dir)
     shutil.copyfile(paths.raw_path, paths.reviewed_path)
-    write_article_manifest(article, paths, output_dir, image_result)
+    write_article_manifest(article, paths, image_result)
     return paths.reviewed_path

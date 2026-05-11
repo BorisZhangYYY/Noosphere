@@ -15,6 +15,12 @@ class ArticleOutputPaths:
     manifest_path: Path
 
 
+def article_output_id(article: Article) -> str:
+    title_part = safe_filename(article.title, fallback=article.platform)
+    digest = hashlib.sha1(article.url.encode("utf-8")).hexdigest()[:8]
+    return f"{article.platform}_{title_part}_{digest}"
+
+
 def safe_filename(text: str, fallback: str = "item", max_len: int = 80) -> str:
     cleaned = text.strip()
     for char in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
@@ -29,18 +35,14 @@ def safe_filename(text: str, fallback: str = "item", max_len: int = 80) -> str:
 
 
 def article_output_path(output_dir: Path, article: Article) -> Path:
-    title_part = safe_filename(article.title, fallback=article.platform)
-    digest = hashlib.sha1(article.url.encode("utf-8")).hexdigest()[:8]
-    filename = f"{article.platform}_{title_part}_{digest}.md"
-    return output_dir / filename
+    return output_dir / article_output_id(article)
 
 
 def article_output_paths(output_dir: Path, article: Article) -> ArticleOutputPaths:
-    raw_path = article_output_path(output_dir / "raw", article)
-    reviewed_path = article_output_path(output_dir / "reviewed", article)
+    article_dir = article_output_path(output_dir, article)
     return ArticleOutputPaths(
-        raw_path=raw_path,
-        reviewed_path=reviewed_path,
-        asset_dir=output_dir / "assets" / raw_path.stem,
-        manifest_path=output_dir / "manifests" / f"{raw_path.stem}.json",
+        raw_path=article_dir / "raw.md",
+        reviewed_path=article_dir / "reviewed.md",
+        asset_dir=article_dir / "assets",
+        manifest_path=article_dir / "manifest.json",
     )

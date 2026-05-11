@@ -11,11 +11,15 @@ SCHEMA_VERSION = 1
 
 
 def inferred_manifest_path(reviewed_path: Path) -> Path:
-    return reviewed_path.parent.parent / "manifests" / f"{reviewed_path.stem}.json"
+    return reviewed_path.with_name("manifest.json")
 
 
 def review_report_path(reviewed_path: Path) -> Path:
-    return reviewed_path.parent.parent / "reviews" / f"{reviewed_path.stem}.json"
+    return reviewed_path.with_name("review.json")
+
+
+def reviewed_article_id(reviewed_path: Path) -> str:
+    return reviewed_path.parent.name
 
 
 def build_review_report(
@@ -24,15 +28,14 @@ def build_review_report(
     manifest: dict[str, Any],
     created_at: str | None = None,
 ) -> dict[str, Any]:
-    article_id = str(manifest.get("article_id") or reviewed_path.stem)
-    output_dir = reviewed_path.parent.parent
+    article_id = str(manifest.get("article_id") or reviewed_article_id(reviewed_path))
     return {
         "schema_version": SCHEMA_VERSION,
         "article_id": article_id,
         "status": "draft",
         "created_at": created_at or datetime.now().astimezone().isoformat(timespec="seconds"),
-        "manifest_path": relative_to(manifest_path, output_dir),
-        "reviewed_path": relative_to(reviewed_path, output_dir),
+        "manifest_path": relative_to(manifest_path, reviewed_path.parent),
+        "reviewed_path": relative_to(reviewed_path, reviewed_path.parent),
         "article": {
             "title": (manifest.get("article") or {}).get("title"),
             "url": (manifest.get("article") or {}).get("url"),
