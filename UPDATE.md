@@ -8,7 +8,7 @@ As of 2026-05-09, the project has:
 
 - Single-article CLI workflow through `python -m src.cli`.
 - Supported sources: WeChat Official Account articles and Zhihu Zhuanlan articles.
-- Layered output directories: `outputs/raw/`, `outputs/reviewed/`, `outputs/assets/`, and `outputs/manifests/`.
+- Article workspaces under `outputs/<article_id>/` containing `raw.md`, `reviewed.md`, `manifest.json`, `review.json`, and `assets/`.
 - Draft review reports through `python -m src.cli manual-review`.
 - Review readiness checks through `python -m src.cli validate`.
 - AI review through `python -m src.cli ai-review` with OpenAI or Anthropic endpoints.
@@ -29,11 +29,10 @@ As of 2026-05-09, the project has:
 
 Goal: make AI review output structured and traceable instead of only editing Markdown.
 
-Status: foundation implemented. `manual-review` creates `outputs/reviews/<article_id>.json` with fields for removed noise, preserved sections, formatting changes, image decisions, and suggested rule candidates. `ai-review` now updates this report during AI rewrite and pre-upload verification.
+Status: implemented. `manual-review` creates `outputs/<article_id>/review.json` with fields for removed noise, preserved sections, formatting changes, image decisions, and suggested rule candidates. `ai-review` now expects structured rewrite JSON, writes the returned Markdown to `reviewed.md`, and writes only article-specific review metadata to `review.json`.
 
 Next:
 
-- Let the AI rewrite response fill more detailed review report fields after the prompt format stabilizes.
 - Use completed review reports as input for rule candidate generation.
 
 ### 2. Validate Command
@@ -64,7 +63,6 @@ Status: first implementation added for OpenAI and Anthropic endpoints through HT
 Next:
 
 - Add provider-specific integration tests with recorded local fixtures if needed.
-- Expand review report details using structured AI output after the prompt format stabilizes.
 - Add CLI ergonomics for dry-run review and upload preview.
 - Keep deterministic validation as the final upload gate even after AI verification is available.
 
@@ -107,6 +105,11 @@ Goal: keep local and SiYuan assets manageable.
 - Moved CLI execution toward config-only credentials and upload targets to reduce command-history leakage.
 - Split long review prompts into `prompts/` files and separated AI workflow config from provider credentials.
 - Added Markdown link normalization and validation so bare prose URLs do not reach SiYuan upload.
+
+### 2026-05-11
+
+- Grouped extraction outputs into per-article workspaces under `outputs/<article_id>/`.
+- Changed AI rewrite output to structured JSON with separate `markdown` and `review` fields so `review.json` records actual article-specific review decisions without embedding the Markdown body.
 
 ## Progress Entry Template
 

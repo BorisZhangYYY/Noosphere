@@ -20,7 +20,7 @@ Use this skill when the user wants to extract one article from a supported platf
    python -m src.cli extract URL
    ```
 
-2. Read the generated Markdown file in `outputs/reviewed/`. The first-round crawler output is kept in `outputs/raw/` and should not be edited. Each extraction also writes a manifest under `outputs/manifests/` with source metadata, output paths, crawl status, and image download results. Any remote images found in the Markdown are downloaded under `outputs/assets/...` and rewritten to local relative links.
+2. Read the generated Markdown file at `outputs/ARTICLE_ID/reviewed.md`. The first-round crawler output is kept as `raw.md` in the same article directory and should not be edited. Each extraction also writes `manifest.json` with source metadata, output paths, crawl status, and image download results. Any remote images found in the Markdown are downloaded under the article `assets/` directory and rewritten to local relative links.
 
 3. Let the CLI AI review workflow handle Markdown rewrite decisions. The external agent's default job is to invoke the CLI, inspect command results, and report failures rather than directly editing article content. The internal AI review should preserve the main content while handling cleanup details such as:
    - Removing duplicated article sections and platform noise.
@@ -48,23 +48,23 @@ Use this skill when the user wants to extract one article from a supported platf
 5. Run the AI review workflow when model credentials are configured:
 
    ```bash
-   python -m src.cli ai-review outputs/reviewed/ARTICLE.md
+   python -m src.cli ai-review outputs/ARTICLE_ID/reviewed.md
    ```
 
-   This command rewrites the Markdown, updates `outputs/reviews/ARTICLE.json`, runs deterministic validation, runs a pre-upload AI verification, and retries when verification feedback requires revision.
+   This command rewrites the Markdown, writes article-specific review metadata to `outputs/ARTICLE_ID/review.json`, runs deterministic validation, runs a pre-upload AI verification, and retries when verification feedback requires revision. The AI rewrite response uses JSON with separate `markdown` and `review` fields; only `review` metadata is stored in `review.json`.
 
    If reviewing manually instead, create and fill a structured review report:
 
    ```bash
-   python -m src.cli manual-review outputs/reviewed/ARTICLE.md
+   python -m src.cli manual-review outputs/ARTICLE_ID/reviewed.md
    ```
 
-   Fill the generated `outputs/reviews/ARTICLE.json` with removed noise, preserved sections, formatting changes, image decisions, and suggested rule candidates when applicable. Set `status` to `reviewed` and fill `review.summary` after the Markdown has actually been rewritten.
+   Fill the generated `outputs/ARTICLE_ID/review.json` with removed noise, preserved sections, formatting changes, image decisions, and suggested rule candidates when applicable. Set `status` to `reviewed` and fill `review.summary` after the Markdown has actually been rewritten.
 
 6. Validate that the reviewed Markdown is ready for upload:
 
    ```bash
-   python -m src.cli validate outputs/reviewed/ARTICLE.md
+   python -m src.cli validate outputs/ARTICLE_ID/reviewed.md
    ```
 
    Do not upload if validation fails. Fix the Markdown or review report first. Validation rejects missing review structure, remote or missing local images, bare URLs, incomplete review reports, and weak long-article WeChat structure.
@@ -78,7 +78,7 @@ Use this skill when the user wants to extract one article from a supported platf
 8. After confirmation, upload the reviewed Markdown:
 
    ```bash
-   python -m src.cli upload outputs/reviewed/ARTICLE.md
+   python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
    ```
 
 ## Commands
