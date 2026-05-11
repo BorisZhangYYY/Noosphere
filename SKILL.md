@@ -1,8 +1,3 @@
----
-name: web-article-to-siyuan
-description: Extract one article from a supported platform, review the Markdown with an AI agent, and upload the reviewed Markdown to SiYuan.
----
-
 # Web Article To SiYuan
 
 Use this skill when the user wants to extract one article from a supported platform, clean it into a structured Markdown article, and upload it under a specific SiYuan parent document ID.
