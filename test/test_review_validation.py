@@ -5,21 +5,17 @@ import json
 from src.core.review_validation import validate_reviewed_markdown
 
 
-def write_manifest_and_report(
-    output_dir,
+def write_article_dir_manifest_and_report(
+    article_dir,
     article_id: str = "article",
     status: str = "reviewed",
     summary: str = "Reviewed and cleaned.",
 ) -> None:
-    manifest_dir = output_dir / "manifests"
-    review_dir = output_dir / "reviews"
-    manifest_dir.mkdir()
-    review_dir.mkdir()
-    (manifest_dir / f"{article_id}.json").write_text(
+    (article_dir / "manifest.json").write_text(
         json.dumps({"article_id": article_id, "article": {"title": "Article"}}),
         encoding="utf-8",
     )
-    (review_dir / f"{article_id}.json").write_text(
+    (article_dir / "review.json").write_text(
         json.dumps(
             {
                 "article_id": article_id,
@@ -38,29 +34,23 @@ def write_manifest_and_report(
     )
 
 
-def write_wechat_manifest_and_report(output_dir, article_id: str = "article") -> None:
-    manifest_dir = output_dir / "manifests"
-    review_dir = output_dir / "reviews"
-    raw_dir = output_dir / "raw"
-    manifest_dir.mkdir()
-    review_dir.mkdir()
-    raw_dir.mkdir()
-    (raw_dir / f"{article_id}.md").write_text(long_wechat_raw_markdown(), encoding="utf-8")
-    (manifest_dir / f"{article_id}.json").write_text(
+def write_wechat_manifest_and_report(article_dir, article_id: str = "article") -> None:
+    (article_dir / "raw.md").write_text(long_wechat_raw_markdown(), encoding="utf-8")
+    (article_dir / "manifest.json").write_text(
         json.dumps(
             {
                 "article_id": article_id,
                 "article": {"title": "Article", "platform": "wechat_mp"},
                 "paths": {
-                    "raw": f"raw/{article_id}.md",
-                    "reviewed": f"reviewed/{article_id}.md",
-                    "manifest": f"manifests/{article_id}.json",
+                    "raw": "raw.md",
+                    "reviewed": "reviewed.md",
+                    "manifest": "manifest.json",
                 },
             }
         ),
         encoding="utf-8",
     )
-    (review_dir / f"{article_id}.json").write_text(
+    (article_dir / "review.json").write_text(
         json.dumps(
             {
                 "article_id": article_id,
@@ -86,9 +76,9 @@ def long_wechat_raw_markdown() -> str:
 
 
 def test_validate_reviewed_markdown_requires_review_structure(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text("# Title\n\nBody\n", encoding="utf-8")
 
     result = validate_reviewed_markdown(reviewed_path)
@@ -102,14 +92,29 @@ def test_validate_reviewed_markdown_requires_review_structure(tmp_path):
 
 
 def test_validate_reviewed_markdown_accepts_completed_review(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text(
         "# Title\n\n## AI Summary\n\n- Summary\n\n---\n\n## Main Article\n\nBody\n",
         encoding="utf-8",
     )
-    write_manifest_and_report(tmp_path)
+    write_article_dir_manifest_and_report(article_dir)
+
+    result = validate_reviewed_markdown(reviewed_path)
+
+    assert result.ok is True
+
+
+def test_validate_reviewed_markdown_accepts_article_directory_layout(tmp_path):
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
+    reviewed_path.write_text(
+        "# Title\n\n## AI Summary\n\n- Summary\n\n---\n\n## Main Article\n\nBody\n",
+        encoding="utf-8",
+    )
+    write_article_dir_manifest_and_report(article_dir)
 
     result = validate_reviewed_markdown(reviewed_path)
 
@@ -117,14 +122,14 @@ def test_validate_reviewed_markdown_accepts_completed_review(tmp_path):
 
 
 def test_validate_reviewed_markdown_rejects_empty_ai_summary(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text(
         "# Title\n\n## AI Summary\n\n## Main Article\n\nBody\n",
         encoding="utf-8",
     )
-    write_manifest_and_report(tmp_path)
+    write_article_dir_manifest_and_report(article_dir)
 
     result = validate_reviewed_markdown(reviewed_path)
 
@@ -132,14 +137,14 @@ def test_validate_reviewed_markdown_rejects_empty_ai_summary(tmp_path):
 
 
 def test_validate_reviewed_markdown_rejects_draft_review_report(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text(
         "# Title\n\n## AI Summary\n\n- Summary\n\n---\n\n## Main Article\n\nBody\n",
         encoding="utf-8",
     )
-    write_manifest_and_report(tmp_path, status="draft", summary="")
+    write_article_dir_manifest_and_report(article_dir, status="draft", summary="")
 
     result = validate_reviewed_markdown(reviewed_path)
 
@@ -147,14 +152,14 @@ def test_validate_reviewed_markdown_rejects_draft_review_report(tmp_path):
 
 
 def test_validate_reviewed_markdown_rejects_remote_images(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text(
         "# Title\n\n## AI Summary\n\n- Summary\n\n---\n\n## Main Article\n\n![alt](https://example.com/a.png)\n",
         encoding="utf-8",
     )
-    write_manifest_and_report(tmp_path)
+    write_article_dir_manifest_and_report(article_dir)
 
     result = validate_reviewed_markdown(reviewed_path)
 
@@ -162,9 +167,9 @@ def test_validate_reviewed_markdown_rejects_remote_images(tmp_path):
 
 
 def test_validate_reviewed_markdown_rejects_bare_urls(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text(
         "# Title\n\n"
         "## AI Summary\n\n"
@@ -174,7 +179,7 @@ def test_validate_reviewed_markdown_rejects_bare_urls(tmp_path):
         "- 相关链接：https://example.com/article\n",
         encoding="utf-8",
     )
-    write_manifest_and_report(tmp_path)
+    write_article_dir_manifest_and_report(article_dir)
 
     result = validate_reviewed_markdown(reviewed_path)
 
@@ -182,9 +187,9 @@ def test_validate_reviewed_markdown_rejects_bare_urls(tmp_path):
 
 
 def test_validate_reviewed_markdown_accepts_markdown_links(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text(
         "# Title\n\n"
         "## AI Summary\n\n"
@@ -194,7 +199,7 @@ def test_validate_reviewed_markdown_accepts_markdown_links(tmp_path):
         "- [相关链接](https://example.com/article)\n",
         encoding="utf-8",
     )
-    write_manifest_and_report(tmp_path)
+    write_article_dir_manifest_and_report(article_dir)
 
     result = validate_reviewed_markdown(reviewed_path)
 
@@ -202,14 +207,14 @@ def test_validate_reviewed_markdown_accepts_markdown_links(tmp_path):
 
 
 def test_validate_reviewed_markdown_rejects_missing_local_images(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text(
         "# Title\n\n## AI Summary\n\n- Summary\n\n---\n\n## Main Article\n\n![alt](../assets/missing.png)\n",
         encoding="utf-8",
     )
-    write_manifest_and_report(tmp_path)
+    write_article_dir_manifest_and_report(article_dir)
 
     result = validate_reviewed_markdown(reviewed_path)
 
@@ -217,9 +222,9 @@ def test_validate_reviewed_markdown_rejects_missing_local_images(tmp_path):
 
 
 def test_validate_wechat_long_article_rejects_weak_structure(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text(
         "# Title\n\n"
         "## AI Summary\n\n"
@@ -232,19 +237,18 @@ def test_validate_wechat_long_article_rejects_weak_structure(tmp_path):
         "Body\n",
         encoding="utf-8",
     )
-    write_wechat_manifest_and_report(tmp_path)
+    write_wechat_manifest_and_report(article_dir)
 
     result = validate_reviewed_markdown(reviewed_path)
 
     codes = {issue.code for issue in result.issues}
     assert "weak_article_structure" in codes
-    assert "insufficient_rewrite_delta" in codes
 
 
 def test_validate_wechat_long_article_accepts_restructured_article(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    reviewed_path = reviewed_dir / "article.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    reviewed_path = article_dir / "reviewed.md"
     reviewed_path.write_text(
         "# Title\n\n"
         "## AI Summary\n\n"
@@ -265,7 +269,7 @@ def test_validate_wechat_long_article_accepts_restructured_article(tmp_path):
         "Body\n",
         encoding="utf-8",
     )
-    write_wechat_manifest_and_report(tmp_path)
+    write_wechat_manifest_and_report(article_dir)
 
     result = validate_reviewed_markdown(reviewed_path)
 

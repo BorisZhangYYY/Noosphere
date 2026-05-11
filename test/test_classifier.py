@@ -14,11 +14,7 @@ from src.core.markdown_upload import (
     read_markdown_for_upload,
     title_from_markdown,
 )
-from src.core.output_paths import (
-    article_output_path,
-    article_output_paths,
-    safe_filename,
-)
+from src.core.output_paths import article_output_id, article_output_path, article_output_paths, safe_filename
 from src.extractor_registry import classify_url
 from src.integrations.siyuan import SiyuanClient
 from src.pipelines.extract import extract_to_output
@@ -65,19 +61,26 @@ class TestClassifyUrl:
 
 
 class TestArticleOutput:
-    def test_output_path_is_single_article_filename(self, sample_article):
+    def test_output_id_is_single_article_identifier(self, sample_article):
+        article_id = article_output_id(sample_article)
+
+        assert article_id.startswith("zhihu_zhuanlan_Test Article Title_")
+        assert "." not in article_id
+
+    def test_output_path_is_single_article_directory(self, sample_article):
         path = article_output_path(Path("outputs"), sample_article)
 
+        assert path.parent == Path("outputs")
         assert path.name.startswith("zhihu_zhuanlan_Test Article Title_")
-        assert path.suffix == ".md"
 
-    def test_article_output_paths_are_layered(self, sample_article):
+    def test_article_output_paths_are_grouped_by_article(self, sample_article):
         paths = article_output_paths(Path("outputs"), sample_article)
 
-        assert paths.raw_path.parent == Path("outputs/raw")
-        assert paths.reviewed_path.parent == Path("outputs/reviewed")
-        assert paths.asset_dir.parent == Path("outputs/assets")
-        assert paths.manifest_path.parent == Path("outputs/manifests")
+        assert paths.raw_path.parent.parent == Path("outputs")
+        assert paths.raw_path.name == "raw.md"
+        assert paths.reviewed_path == paths.raw_path.with_name("reviewed.md")
+        assert paths.asset_dir == paths.raw_path.parent / "assets"
+        assert paths.manifest_path == paths.raw_path.parent / "manifest.json"
 
     def test_extract_to_output_writes_raw_and_reviewed(self, tmp_path, sample_article, monkeypatch):
         async def fake_extract_one(url: str, config: dict | None = None):
@@ -86,9 +89,9 @@ class TestArticleOutput:
         monkeypatch.setattr("src.pipelines.extract.extract_one", fake_extract_one)
 
         reviewed_path = asyncio.run(extract_to_output("https://zhuanlan.zhihu.com/p/123", tmp_path))
-        raw_path = tmp_path / "raw" / reviewed_path.name
+        raw_path = reviewed_path.with_name("raw.md")
 
-        assert reviewed_path.parent == tmp_path / "reviewed"
+        assert reviewed_path.parent.parent == tmp_path
         assert raw_path.exists()
         assert reviewed_path.exists()
         assert raw_path.read_text(encoding="utf-8") == reviewed_path.read_text(encoding="utf-8")
@@ -100,16 +103,17 @@ class TestArticleOutput:
         monkeypatch.setattr("src.pipelines.extract.extract_one", fake_extract_one)
 
         reviewed_path = asyncio.run(extract_to_output("https://zhuanlan.zhihu.com/p/123", tmp_path))
-        manifest_path = tmp_path / "manifests" / f"{reviewed_path.stem}.json"
+        manifest_path = reviewed_path.with_name("manifest.json")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         assert manifest["schema_version"] == 1
-        assert manifest["article_id"] == reviewed_path.stem
+        assert manifest["article_id"] == reviewed_path.parent.name
         assert manifest["article"]["url"] == sample_article.url
         assert manifest["article"]["platform"] == "zhihu_zhuanlan"
-        assert manifest["paths"]["raw"] == f"raw/{reviewed_path.name}"
-        assert manifest["paths"]["reviewed"] == f"reviewed/{reviewed_path.name}"
-        assert manifest["paths"]["manifest"] == f"manifests/{reviewed_path.stem}.json"
+        assert manifest["paths"]["raw"] == "raw.md"
+        assert manifest["paths"]["reviewed"] == "reviewed.md"
+        assert manifest["paths"]["assets"] == "assets"
+        assert manifest["paths"]["manifest"] == "manifest.json"
         assert manifest["assets"] == {"downloaded": [], "failed": {}}
 
 
@@ -162,35 +166,35 @@ class TestCliArgs:
             parse_args(["extract", "https://one.example", "https://two.example"])
 
     def test_upload_accepts_single_file(self):
-        args = parse_args(["upload", "outputs/reviewed.md"])
+        args = parse_args(["upload", "outputs/article/reviewed.md"])
 
         assert args.command == "upload"
-        assert args.file == Path("outputs/reviewed.md")
+        assert args.file == Path("outputs/article/reviewed.md")
 
     def test_manual_review_accepts_reviewed_file(self):
-        args = parse_args(["manual-review", "outputs/reviewed/article.md", "--overwrite"])
+        args = parse_args(["manual-review", "outputs/article/reviewed.md", "--overwrite"])
 
         assert args.command == "manual-review"
-        assert args.file == Path("outputs/reviewed/article.md")
+        assert args.file == Path("outputs/article/reviewed.md")
         assert args.overwrite is True
 
     def test_validate_accepts_reviewed_file(self):
-        args = parse_args(["validate", "outputs/reviewed/article.md"])
+        args = parse_args(["validate", "outputs/article/reviewed.md"])
 
         assert args.command == "validate"
-        assert args.file == Path("outputs/reviewed/article.md")
+        assert args.file == Path("outputs/article/reviewed.md")
 
     def test_ai_review_accepts_reviewed_file(self):
-        args = parse_args(["ai-review", "outputs/reviewed/article.md"])
+        args = parse_args(["ai-review", "outputs/article/reviewed.md"])
 
         assert args.command == "ai-review"
-        assert args.file == Path("outputs/reviewed/article.md")
+        assert args.file == Path("outputs/article/reviewed.md")
 
     def test_verify_accepts_reviewed_file(self):
-        args = parse_args(["verify", "outputs/reviewed/article.md"])
+        args = parse_args(["verify", "outputs/article/reviewed.md"])
 
         assert args.command == "verify"
-        assert args.file == Path("outputs/reviewed/article.md")
+        assert args.file == Path("outputs/article/reviewed.md")
 
     def test_run_accepts_url(self):
         args = parse_args(["run", "https://mp.weixin.qq.com/s/abc"])
@@ -285,23 +289,19 @@ class UploadingFakeSiyuanClient:
 
 
 def test_upload_markdown_file_uploads_local_assets(tmp_path, monkeypatch):
-    image = tmp_path / "assets" / "image.png"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    image = article_dir / "assets" / "image.png"
     image.parent.mkdir()
     image.write_bytes(b"data")
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    manifest_dir = tmp_path / "manifests"
-    manifest_dir.mkdir()
-    reviews_dir = tmp_path / "reviews"
-    reviews_dir.mkdir()
-    markdown = reviewed_dir / "reviewed.md"
+    markdown = article_dir / "reviewed.md"
     markdown.write_text(
-        "# Reviewed\n\n## AI Summary\n\n- Summary\n\n---\n\n## Main Article\n\n![alt](../assets/image.png)\n",
+        "# Reviewed\n\n## AI Summary\n\n- Summary\n\n---\n\n## Main Article\n\n![alt](assets/image.png)\n",
         encoding="utf-8",
     )
-    (manifest_dir / "reviewed.json").write_text('{"article_id": "reviewed", "article": {}}', encoding="utf-8")
-    (reviews_dir / "reviewed.json").write_text(
-        '{"article_id": "reviewed", "status": "reviewed", "review": {"summary": "Reviewed."}}',
+    (article_dir / "manifest.json").write_text('{"article_id": "article", "article": {}}', encoding="utf-8")
+    (article_dir / "review.json").write_text(
+        '{"article_id": "article", "status": "reviewed", "review": {"summary": "Reviewed."}}',
         encoding="utf-8",
     )
     monkeypatch.setattr("src.pipelines.upload.SiyuanClient", UploadingFakeSiyuanClient)
@@ -329,9 +329,9 @@ def test_upload_markdown_file_uploads_local_assets(tmp_path, monkeypatch):
 
 
 def test_upload_markdown_file_rejects_unreviewed_markdown(tmp_path):
-    reviewed_dir = tmp_path / "reviewed"
-    reviewed_dir.mkdir()
-    markdown = reviewed_dir / "reviewed.md"
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    markdown = article_dir / "reviewed.md"
     markdown.write_text("# Reviewed\n\nBody\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Reviewed Markdown failed validation"):
