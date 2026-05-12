@@ -19,11 +19,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file to SiYuan.")
     upload_parser.add_argument("file", type=Path, help="Markdown file to upload.")
 
-    review_parser = subparsers.add_parser("manual-review", help="Create one draft review report JSON for a reviewed Markdown file.")
-    review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to describe.")
-    review_parser.add_argument("--manifest", type=Path, help="Extraction manifest path. Defaults to the article manifest beside reviewed.md.")
-    review_parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing review report.")
-
     validate_parser = subparsers.add_parser("validate", help="Run system review checks for one reviewed Markdown file.")
     validate_parser.add_argument("file", type=Path, help="Reviewed Markdown file to validate.")
 
@@ -60,13 +55,6 @@ def main(argv: list[str] | None = None) -> int:
 
             hpath = upload_markdown_file(args.file)
             print(f"Uploaded: {hpath}")
-            return 0
-
-        if args.command == "manual-review":
-            from src.pipelines.manual_review import create_manual_review_report
-
-            path = create_manual_review_report(args.file, manifest_path=args.manifest, overwrite=args.overwrite)
-            print(f"Review report: {path}")
             return 0
 
         if args.command == "validate":

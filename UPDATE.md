@@ -8,9 +8,8 @@ As of 2026-05-12, the project has:
 
 - Single-article CLI workflow through `python -m src.cli`.
 - Supported sources: WeChat Official Account articles and Zhihu Zhuanlan articles.
-- Article workspaces under `outputs/<article_id>/` containing `raw.md`, `reviewed.md`, `manifest.json`, `noise_hints.json`, and `assets/`; `review.json` is written by manual or AI review.
+- Article workspaces under `outputs/<article_id>/` containing `raw.md`, `reviewed.md`, `manifest.json`, `noise_hints.json`, and `assets/`; `review.json` is written by AI review.
 - Manual extraction and upload endpoints through `python -m src.cli extract` and `python -m src.cli upload`; these remain available as unrestricted fallback operations.
-- Draft review reports through `python -m src.cli manual-review`.
 - System review checks through `python -m src.cli validate`; common checks run for all platforms, with platform-specific checks where implemented.
 - AI review through `python -m src.cli ai-review` with OpenAI or Anthropic endpoints, including internal validation and AI verification.
 - One-command extract, AI review, and upload through `python -m src.cli run`.
@@ -38,7 +37,6 @@ As of 2026-05-12, the project has:
 - Refactored the codebase into CLI, pipelines, core domain helpers, integrations, and platform modules.
 - Moved platform cleaning into `src/platforms/<platform>/cleaning.py` and rule constants into `rules.py`.
 - Removed legacy `classifier.py` and legacy platform shim packages.
-- Added `manual-review` for draft structured review reports linked to extraction manifests.
 
 ### 2026-05-09
 

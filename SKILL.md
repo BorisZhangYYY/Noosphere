@@ -58,14 +58,6 @@ Use this skill when the user wants to extract one article from a supported platf
 
    This command rewrites the Markdown, writes article-specific review metadata to `outputs/ARTICLE_ID/review.json`, runs deterministic validation, runs a pre-upload AI verification, and retries when verification feedback requires revision. The AI rewrite response uses JSON with separate `markdown` and `review` fields; only `review` metadata is stored in `review.json`.
 
-   If reviewing manually instead, create and fill a structured review report:
-
-   ```bash
-   python -m src.cli manual-review outputs/ARTICLE_ID/reviewed.md
-   ```
-
-   Fill the generated `outputs/ARTICLE_ID/review.json` with removed noise, preserved sections, formatting changes, image decisions, platform noise actions, and suggested platform markers when applicable. Set `status` to `reviewed` and fill `review.summary` after the Markdown has actually been rewritten.
-
 6. Run system review checks when you need a deterministic audit:
 
    ```bash
@@ -74,14 +66,14 @@ Use this skill when the user wants to extract one article from a supported platf
 
    `validate` checks common Markdown/report readiness rules for all platforms and dispatches platform-specific checks from `src/platforms/<platform>/` when implemented. It is useful after AI review or after manual editing, but `upload` does not require it.
 
-7. Report the review result to the user:
+6. Report the review result to the user:
    - Modified content: list important deletions, rewrites, and structure changes.
    - Preserved content: list important sections that were kept.
    - System review: report whether `validate` passed when it was used.
    - AI review: report whether `ai-review` passed when it was used.
    - Ask for confirmation before uploading.
 
-8. After confirmation, upload the Markdown:
+7. After confirmation, upload the Markdown:
 
    ```bash
    python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
@@ -95,7 +87,6 @@ Use this skill when the user wants to extract one article from a supported platf
 |---------|--------|-------------|
 | `extract URL` | CLI/crawl4ai | Crawl one article and save raw, reviewed, asset, and manifest files. |
 | `ai-review FILE` | AI | Use the configured AI to review and rewrite the article. |
-| `manual-review FILE` | Manual | Create a report template for manual review notes. |
 | `validate FILE` | CLI | Run deterministic system review checks for the reviewed article. |
 | `rules-review PLATFORM` | CLI | Review local platform marker rules and optionally apply safe cleanup with `--apply`. |
 | `upload FILE` | CLI | Upload the provided Markdown file to SiYuan without review gating. |

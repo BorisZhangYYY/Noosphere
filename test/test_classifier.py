@@ -174,13 +174,6 @@ class TestCliArgs:
         assert args.command == "upload"
         assert args.file == Path("outputs/article/reviewed.md")
 
-    def test_manual_review_accepts_reviewed_file(self):
-        args = parse_args(["manual-review", "outputs/article/reviewed.md", "--overwrite"])
-
-        assert args.command == "manual-review"
-        assert args.file == Path("outputs/article/reviewed.md")
-        assert args.overwrite is True
-
     def test_ai_review_accepts_reviewed_file(self):
         args = parse_args(["ai-review", "outputs/article/reviewed.md"])
 
@@ -221,7 +214,6 @@ class TestCliArgs:
         assert result.returncode == 0
         assert "extract" in result.stdout
         assert "upload" in result.stdout
-        assert "manual-review" in result.stdout
         assert "validate" in result.stdout
         assert "ai-review" in result.stdout
         assert "verify" not in result.stdout

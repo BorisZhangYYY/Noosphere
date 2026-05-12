@@ -1,6 +1,6 @@
 # Noosphere
 
-[Development notes](https://github.com/BorisZhangYYY/Noosphere/blob/main/UPDATE.md)
+[Agent Skill](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md)
 
 Single-article extraction, AI review, and SiYuan import tool.
 
@@ -59,4 +59,4 @@ Copy `config.json.example` to `config.json` and configure:
 
 ## Future Extensions
 
-See UPDATE.md for development notes and progress tracking.
+See [UPDATE.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/UPDATE.md) for development notes and progress tracking.
