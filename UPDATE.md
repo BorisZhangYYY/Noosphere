@@ -4,7 +4,7 @@ This file tracks forward-looking development notes for Noosphere. Keep README fo
 
 ## Current Baseline
 
-As of 2026-05-11, the project has:
+As of 2026-05-12, the project has:
 
 - Single-article CLI workflow through `python -m src.cli`.
 - Supported sources: WeChat Official Account articles and Zhihu Zhuanlan articles.
@@ -19,11 +19,12 @@ As of 2026-05-11, the project has:
 - crawl4ai-backed first-round extraction with platform-specific cleaning rules.
 - Local image downloading during extraction and SiYuan asset upload during import.
 - Markdown-first SiYuan upload that preserves Markdown tables.
+- Platform marker rules with tracked examples in `platform_rules.example/` and local, gitignored runtime growth in `platform_rules/`.
 - Modular architecture: `core`, `integrations`, `pipelines`, and `platforms`.
 
 ## Future Developments
 
-- **Rule Candidate Loop**: Let repeated AI review findings become platform cleaning improvements.
+- **Rule Promotion**: Review and refine platform marker categories as the external `platform_rules/` files grow.
 
 
 ## Development Log
@@ -54,3 +55,7 @@ As of 2026-05-11, the project has:
 
 - Grouped extraction outputs into per-article workspaces under `outputs/<article_id>/`.
 - Changed AI rewrite output to structured JSON with separate `markdown` and `review` fields so `review.json` records actual article-specific review decisions without embedding the Markdown body.
+
+### 2026-05-12
+
+- Replaced destructive platform cleaning and rule candidate aggregation with external marker rule files, per-article `noise_hints.json`, AI prompt injection for matched markers, and AI-driven suggested marker persistence. Runtime rules live in gitignored `platform_rules/`; the repository tracks starter examples in `platform_rules.example/`.

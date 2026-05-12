@@ -34,7 +34,11 @@ python -m src.cli run URL
 2. **Metadata**: AI generates review metadata (summary, removed noise, preserved sections)
 3. **Verify**: AI pre-upload verification
 
-Output: `outputs/ARTICLE_ID/` contains `raw.md`, `reviewed.md`, `manifest.json`, `assets/`, and `review.json`.
+Output: `outputs/ARTICLE_ID/` contains `raw.md`, `reviewed.md`, `manifest.json`, `noise_hints.json`, `assets/`, and `review.json`.
+
+## Platform Rules
+
+`platform_rules.example/` contains starter marker rules. Runtime rules live in local `platform_rules/` and are gitignored; AI review can append suggested markers there after successful verification.
 
 ## Configuration
 

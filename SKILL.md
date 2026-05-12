@@ -15,13 +15,15 @@ Use this skill when the user wants to extract one article from a supported platf
    python -m src.cli extract URL
    ```
 
-2. Read the generated Markdown file at `outputs/ARTICLE_ID/reviewed.md`. The first-round crawler output is kept as `raw.md` in the same article directory and should not be edited. Each extraction also writes `manifest.json` with source metadata, output paths, crawl status, and image download results. Any remote images found in the Markdown are downloaded under the article `assets/` directory and rewritten to local relative links.
+2. Read the generated Markdown file at `outputs/ARTICLE_ID/reviewed.md`. The first-round crawler output is kept as `raw.md` in the same article directory and should not be edited. Each extraction also writes `manifest.json` with source metadata, output paths, crawl status, image download results, and a `noise_hints.json` sidecar with platform marker hits for AI review context. Any remote images found in the Markdown are downloaded under the article `assets/` directory and rewritten to local relative links.
 
 3. Let the CLI AI review workflow handle Markdown rewrite decisions. The external agent's default job is to invoke the CLI, inspect command results, and report failures rather than directly editing article content. The internal AI review should preserve the main content while handling cleanup details such as:
    - Removing duplicated article sections and platform noise.
    - Keeping meaningful headings, paragraphs, blockquotes, lists, code blocks, tables, images, and Markdown links.
    - Improving heading hierarchy, spacing, and long WeChat article structure when needed.
    - Keeping meaningful local image links and removing only decorative or duplicate images.
+
+   Platform marker rules are loaded from local `platform_rules/` when present, otherwise from `platform_rules.example/`. Local `platform_rules/` is intentionally gitignored because AI review can append suggested markers over time.
 
 4. The reviewed article produced by the AI review workflow should use this structure:
 
@@ -54,7 +56,7 @@ Use this skill when the user wants to extract one article from a supported platf
    python -m src.cli manual-review outputs/ARTICLE_ID/reviewed.md
    ```
 
-   Fill the generated `outputs/ARTICLE_ID/review.json` with removed noise, preserved sections, formatting changes, image decisions, and suggested rule candidates when applicable. Set `status` to `reviewed` and fill `review.summary` after the Markdown has actually been rewritten.
+   Fill the generated `outputs/ARTICLE_ID/review.json` with removed noise, preserved sections, formatting changes, image decisions, platform noise actions, and suggested platform markers when applicable. Set `status` to `reviewed` and fill `review.summary` after the Markdown has actually been rewritten.
 
 6. Validate that the reviewed Markdown is ready for upload:
 
