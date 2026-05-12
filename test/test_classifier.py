@@ -181,23 +181,28 @@ class TestCliArgs:
         assert args.file == Path("outputs/article/reviewed.md")
         assert args.overwrite is True
 
-    def test_validate_accepts_reviewed_file(self):
-        args = parse_args(["validate", "outputs/article/reviewed.md"])
-
-        assert args.command == "validate"
-        assert args.file == Path("outputs/article/reviewed.md")
-
     def test_ai_review_accepts_reviewed_file(self):
         args = parse_args(["ai-review", "outputs/article/reviewed.md"])
 
         assert args.command == "ai-review"
         assert args.file == Path("outputs/article/reviewed.md")
 
-    def test_verify_accepts_reviewed_file(self):
-        args = parse_args(["verify", "outputs/article/reviewed.md"])
+    def test_validate_accepts_reviewed_file(self):
+        args = parse_args(["validate", "outputs/article/reviewed.md"])
 
-        assert args.command == "verify"
+        assert args.command == "validate"
         assert args.file == Path("outputs/article/reviewed.md")
+
+    def test_verify_is_not_a_public_command(self):
+        with pytest.raises(SystemExit):
+            parse_args(["verify", "outputs/article/reviewed.md"])
+
+    def test_rules_review_accepts_platform_and_apply_flag(self):
+        args = parse_args(["rules-review", "wechat_mp", "--apply"])
+
+        assert args.command == "rules-review"
+        assert args.platform == "wechat_mp"
+        assert args.apply is True
 
     def test_run_accepts_url(self):
         args = parse_args(["run", "https://mp.weixin.qq.com/s/abc"])
@@ -219,7 +224,8 @@ class TestCliArgs:
         assert "manual-review" in result.stdout
         assert "validate" in result.stdout
         assert "ai-review" in result.stdout
-        assert "verify" in result.stdout
+        assert "verify" not in result.stdout
+        assert "rules-review" in result.stdout
 
 
 class FakeSiyuanClient(SiyuanClient):
@@ -302,11 +308,6 @@ def test_upload_markdown_file_uploads_local_assets(tmp_path, monkeypatch):
         "# Reviewed\n\n## AI Summary\n\n- Summary\n\n---\n\n## Main Article\n\n![alt](assets/image.png)\n",
         encoding="utf-8",
     )
-    (article_dir / "manifest.json").write_text('{"article_id": "article", "article": {}}', encoding="utf-8")
-    (article_dir / "review.json").write_text(
-        '{"article_id": "article", "status": "reviewed", "review": {"summary": "Reviewed."}}',
-        encoding="utf-8",
-    )
     monkeypatch.setattr("src.pipelines.upload.SiyuanClient", UploadingFakeSiyuanClient)
     monkeypatch.setattr(
         "src.pipelines.upload.load_config",
@@ -331,11 +332,25 @@ def test_upload_markdown_file_uploads_local_assets(tmp_path, monkeypatch):
     assert "![alt](assets/image-uploaded.png)" in client.uploaded_markdown
 
 
-def test_upload_markdown_file_rejects_unreviewed_markdown(tmp_path):
+def test_upload_markdown_file_allows_manual_markdown_without_review_report(tmp_path, monkeypatch):
     article_dir = tmp_path / "article"
     article_dir.mkdir()
     markdown = article_dir / "reviewed.md"
-    markdown.write_text("# Reviewed\n\nBody\n", encoding="utf-8")
+    markdown.write_text("# Reviewed\n\nBody with https://example.com/raw-url\n", encoding="utf-8")
+    monkeypatch.setattr("src.pipelines.upload.SiyuanClient", UploadingFakeSiyuanClient)
+    monkeypatch.setattr(
+        "src.pipelines.upload.load_config",
+        lambda: {
+            "siyuan": {
+                "api_base": "http://siyuan",
+                "default_parent_id": "parent-id",
+                "token": "test-token",
+            }
+        },
+    )
 
-    with pytest.raises(ValueError, match="Reviewed Markdown failed validation"):
-        upload_markdown_file(markdown)
+    hpath = upload_markdown_file(markdown)
+
+    client = UploadingFakeSiyuanClient.last_instance
+    assert hpath == "/Reviewed"
+    assert client.uploaded_markdown == "Body with https://example.com/raw-url\n"

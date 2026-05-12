@@ -9,29 +9,30 @@ from src.core.config import configured_output_dir, load_config
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Extract one supported article into Markdown, then upload a reviewed Markdown file to SiYuan."
+        description="Extract articles, optionally AI-review them, and upload Markdown to SiYuan."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     extract_parser = subparsers.add_parser("extract", help="Extract one article URL into outputs/ARTICLE_ID/.")
     extract_parser.add_argument("url", help="Article URL to extract.")
 
-    upload_parser = subparsers.add_parser("upload", help="Upload one reviewed Markdown file to SiYuan.")
-    upload_parser.add_argument("file", type=Path, help="Reviewed Markdown file to upload.")
+    upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file to SiYuan.")
+    upload_parser.add_argument("file", type=Path, help="Markdown file to upload.")
 
     review_parser = subparsers.add_parser("manual-review", help="Create one draft review report JSON for a reviewed Markdown file.")
     review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to describe.")
     review_parser.add_argument("--manifest", type=Path, help="Extraction manifest path. Defaults to the article manifest beside reviewed.md.")
     review_parser.add_argument("--overwrite", action="store_true", help="Overwrite an existing review report.")
 
-    validate_parser = subparsers.add_parser("validate", help="Validate one reviewed Markdown file before upload.")
+    validate_parser = subparsers.add_parser("validate", help="Run system review checks for one reviewed Markdown file.")
     validate_parser.add_argument("file", type=Path, help="Reviewed Markdown file to validate.")
 
-    ai_review_parser = subparsers.add_parser("ai-review", help="Use the configured AI model to rewrite and verify one reviewed Markdown file.")
+    ai_review_parser = subparsers.add_parser("ai-review", help="Use the configured AI model to rewrite and check one reviewed Markdown file.")
     ai_review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to rewrite.")
 
-    verify_parser = subparsers.add_parser("verify", help="Run the configured AI pre-upload review for one Markdown file.")
-    verify_parser.add_argument("file", type=Path, help="Reviewed Markdown file to verify.")
+    rules_review_parser = subparsers.add_parser("rules-review", help="Review local platform marker rules.")
+    rules_review_parser.add_argument("platform", help="Platform name, for example wechat_mp or zhihu_zhuanlan.")
+    rules_review_parser.add_argument("--apply", action="store_true", help="Apply safe rule cleanups to local platform_rules/.")
 
     run_parser = subparsers.add_parser("run", help="Extract one URL, AI-review it, then upload it to SiYuan.")
     run_parser.add_argument("url", help="Article URL to extract.")
@@ -48,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
 
             path = asyncio.run(extract_to_output(args.url, configured_output_dir(load_config())))
             print(f"Reviewed draft: {path}")
-            print("Next: rewrite the reviewed Markdown, create and fill a review report, then validate before upload.")
+            print(f"Next: edit manually and upload, or run: python -m src.cli ai-review {path}")
             return 0
 
         if args.command == "upload":
@@ -95,19 +96,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(result.verification.summary)
             return 1
 
-        if args.command == "verify":
-            from src.pipelines.ai_review import verify_reviewed_article
+        if args.command == "rules-review":
+            from src.core.rules_review import format_rules_review, review_platform_rules
 
-            result = verify_reviewed_article(args.file)
-            if result.passed:
-                print(f"AI verification passed: {args.file}")
-                return 0
-            print("AI verification failed:")
-            if result.summary:
-                print(result.summary)
-            for issue in result.issues:
-                print(f"- {issue.severity}: {issue.message} {issue.revision_instruction}".strip())
-            return 1
+            result = review_platform_rules(args.platform, apply=args.apply)
+            print(format_rules_review(result))
+            return 0
 
         if args.command == "run":
             from src.pipelines.ai_review import run_ai_review

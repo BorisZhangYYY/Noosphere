@@ -418,6 +418,14 @@ def test_configured_prompt_reads_prompt_file(tmp_path):
 
 def test_run_ai_review_rewrites_validates_and_verifies(tmp_path, monkeypatch):
     reviewed_path = write_wechat_fixture(tmp_path)
+    validation_calls = []
+
+    from src.core.review_validation import validate_reviewed_markdown as real_validate_reviewed_markdown
+
+    def counting_validate(path):
+        validation_calls.append(path)
+        return real_validate_reviewed_markdown(path)
+
     monkeypatch.setattr(
         "src.pipelines.ai_review.load_config",
         lambda: {
@@ -431,10 +439,12 @@ def test_run_ai_review_rewrites_validates_and_verifies(tmp_path, monkeypatch):
             },
         },
     )
+    monkeypatch.setattr("src.pipelines.ai_review.validate_reviewed_markdown", counting_validate)
 
     result = run_ai_review(reviewed_path, max_attempts=1, client=FakeAIClient())
 
     assert result.ok is True
+    assert validation_calls == [reviewed_path]
     assert "## Main Article" in reviewed_path.read_text(encoding="utf-8")
     report = json.loads((tmp_path / "article" / "review.json").read_text(encoding="utf-8"))
     assert report["status"] == "reviewed"

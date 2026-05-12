@@ -8,23 +8,24 @@ As of 2026-05-12, the project has:
 
 - Single-article CLI workflow through `python -m src.cli`.
 - Supported sources: WeChat Official Account articles and Zhihu Zhuanlan articles.
-- Article workspaces under `outputs/<article_id>/` containing `raw.md`, `reviewed.md`, `manifest.json`, `review.json`, and `assets/`.
+- Article workspaces under `outputs/<article_id>/` containing `raw.md`, `reviewed.md`, `manifest.json`, `noise_hints.json`, and `assets/`; `review.json` is written by manual or AI review.
+- Manual extraction and upload endpoints through `python -m src.cli extract` and `python -m src.cli upload`; these remain available as unrestricted fallback operations.
 - Draft review reports through `python -m src.cli manual-review`.
-- Review readiness checks through `python -m src.cli validate`.
-- AI review through `python -m src.cli ai-review` with OpenAI or Anthropic endpoints.
-- One-command extract, AI review, verification, and upload through `python -m src.cli run`.
+- System review checks through `python -m src.cli validate`; common checks run for all platforms, with platform-specific checks where implemented.
+- AI review through `python -m src.cli ai-review` with OpenAI or Anthropic endpoints, including internal validation and AI verification.
+- One-command extract, AI review, and upload through `python -m src.cli run`.
 - Credentials, model settings, prompts, SiYuan API settings, and upload targets are read from local `config.json`; AI workflow settings and provider settings are stored separately.
-- Upload validation that blocks unreviewed Markdown before writing to SiYuan.
-- Markdown normalization for bare prose URLs before AI-reviewed content is uploaded.
+- Markdown normalization for bare prose URLs during AI review.
 - crawl4ai-backed first-round extraction with platform-specific cleaning rules.
 - Local image downloading during extraction and SiYuan asset upload during import.
 - Markdown-first SiYuan upload that preserves Markdown tables.
 - Platform marker rules with tracked examples in `platform_rules.example/` and local, gitignored runtime growth in `platform_rules/`.
+- Local marker rule hygiene checks through `python -m src.cli rules-review PLATFORM`.
 - Modular architecture: `core`, `integrations`, `pipelines`, and `platforms`.
 
 ## Future Developments
 
-- **Rule Promotion**: Review and refine platform marker categories as the external `platform_rules/` files grow.
+- **Rule Promotion**: Review and refine platform marker granularity as local `platform_rules/` files grow.
 
 
 ## Development Log
@@ -59,3 +60,8 @@ As of 2026-05-12, the project has:
 ### 2026-05-12
 
 - Replaced destructive platform cleaning and rule candidate aggregation with external marker rule files, per-article `noise_hints.json`, AI prompt injection for matched markers, and AI-driven suggested marker persistence. Runtime rules live in gitignored `platform_rules/`; the repository tracks starter examples in `platform_rules.example/`.
+- Added `rules-review` for deterministic local marker rule hygiene reports and safe cleanup of empty, duplicate, and invalid-category marker entries.
+- Removed the public `verify` CLI command, keeping AI verification as an internal `ai-review` quality gate.
+- Reused the system validation result during `ai-review` verification so one successful review attempt does not run deterministic validation twice.
+- Changed `upload` into a manual endpoint that does not require `review.json` or local review validation before sending Markdown to SiYuan.
+- Moved WeChat-specific system validation out of `src/core/review_validation.py` into `src/platforms/wechat_mp/review_validation.py`.

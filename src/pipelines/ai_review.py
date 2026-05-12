@@ -80,7 +80,7 @@ def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGener
 
     feedback = ""
     verification: AIVerificationResult | None = None
-    validation = validate_reviewed_markdown(path)
+    validation = ValidationResult(path, [])
     resolved_rewrite_prompt = rewrite_prompt.replace("{model}", generator.settings.model)
     for attempt in range(1, attempts + 1):
         # Step 1: Rewrite markdown (first AI call)
@@ -125,7 +125,7 @@ def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGener
             continue
 
         # Step 3: AI pre-upload verification (third AI call)
-        verification = verify_reviewed_article(path, client=generator)
+        verification = verify_reviewed_article(path, client=generator, validation=validation)
         if verification.passed:
             append_suggested_platform_markers(
                 platform,
@@ -166,14 +166,18 @@ def generate_review_metadata(
         return fallback_review_metadata()
 
 
-def verify_reviewed_article(path: Path, client: TextGenerator | None = None) -> AIVerificationResult:
+def verify_reviewed_article(
+    path: Path,
+    client: TextGenerator | None = None,
+    validation: ValidationResult | None = None,
+) -> AIVerificationResult:
     config = load_config()
     settings = client.settings if client else resolve_ai_settings(config)
     generator = client or AIClient(settings)
     manifest_path = inferred_manifest_path(path)
     raw_markdown = raw_markdown_from_manifest(manifest_path)
     reviewed_markdown = path.read_text(encoding="utf-8")
-    validation = validate_reviewed_markdown(path)
+    validation = validation or validate_reviewed_markdown(path)
     ai_settings = ai_config(config)
     verify_prompt = configured_prompt(ai_settings, "verify_prompt", "verify_prompt_path")
     response = generator.generate_structured_text(
