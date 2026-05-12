@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from src.core.platform_rules import normalize_platform_noise_actions, normalize_suggested_platform_markers
 from src.core.review_report import build_review_report, inferred_manifest_path, review_report_path
 from src.core.review_validation import ValidationIssue, format_validation_issues
 
@@ -35,9 +36,30 @@ REVIEW_METADATA_SCHEMA: dict[str, Any] = {
                     "type": "array",
                     "items": {"type": "string"},
                 },
-                "suggested_rule_candidates": {
+                "platform_noise_actions": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "hint_id": {"type": "string"},
+                            "marker": {"type": "string"},
+                            "decision": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["hint_id", "marker", "decision", "reason"],
+                    },
+                },
+                "suggested_platform_markers": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string"},
+                            "category": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["text", "category", "reason"],
+                    },
                 },
             },
             "required": ["summary", "removed_noise", "preserved_sections", "formatting_changes"],
@@ -104,7 +126,7 @@ def parse_review_metadata_response(text: str) -> dict[str, Any]:
 
 
 def ensure_reviewed_markdown_structure(markdown: str, review: dict[str, Any]) -> str:
-    return ensure_main_article_section(ensure_ai_summary_section(markdown, review))
+    return remove_empty_generic_body_headings(ensure_main_article_section(ensure_ai_summary_section(markdown, review)))
 
 
 def ensure_ai_summary_section(markdown: str, review: dict[str, Any]) -> str:
@@ -143,6 +165,33 @@ def ensure_main_article_section(markdown: str) -> str:
     ]
     normalized = lines[: separator_index + 1] + ["", "## Main Article", ""] + body_lines
     return "\n".join(normalized).rstrip() + "\n"
+
+
+def remove_empty_generic_body_headings(markdown: str) -> str:
+    lines = markdown.rstrip().splitlines()
+    result: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        match = re.match(r"^(#{2,6})\s+(.+?)\s*$", line)
+        if match and normalize_generic_heading(match.group(2)) in {"正文"}:
+            next_index = index + 1
+            while next_index < len(lines) and not lines[next_index].strip():
+                next_index += 1
+            if next_index < len(lines) and re.match(r"^#{2,6}\s+", lines[next_index]):
+                index = next_index
+                while result and not result[-1].strip():
+                    result.pop()
+                if result:
+                    result.append("")
+                continue
+        result.append(line)
+        index += 1
+    return "\n".join(result).rstrip() + "\n"
+
+
+def normalize_generic_heading(text: str) -> str:
+    return re.sub(r"\s+", "", text.strip().strip("#"))
 
 
 def parse_verification_json(text: str) -> AIVerificationResult:
@@ -220,7 +269,8 @@ def normalize_review_metadata(value: Any) -> dict[str, Any]:
         "preserved_sections": string_list(value.get("preserved_sections")) or [f"Preserved the source article's main argument and key sections: {summary}"],
         "formatting_changes": string_list(value.get("formatting_changes")) or ["Normalized the article into the required H1, AI Summary, Main Article, and topic-heading Markdown structure."],
         "image_decisions": string_list(value.get("image_decisions")),
-        "suggested_rule_candidates": string_list(value.get("suggested_rule_candidates")),
+        "platform_noise_actions": normalize_platform_noise_actions(value.get("platform_noise_actions")),
+        "suggested_platform_markers": normalize_suggested_platform_markers(value.get("suggested_platform_markers")),
     }
 
 
@@ -237,7 +287,8 @@ def fallback_review_metadata() -> dict[str, Any]:
         "preserved_sections": ["AI rewrite was instructed to preserve the source article's main facts, arguments, images, tables, lists, code blocks, and references."],
         "formatting_changes": ["AI rewrite normalized the article to H1, AI Summary, Main Article, and topic-oriented Markdown headings."],
         "image_decisions": ["AI rewrite was instructed to keep meaningful local image links and place them near relevant content."],
-        "suggested_rule_candidates": [],
+        "platform_noise_actions": [],
+        "suggested_platform_markers": [],
     }
 
 

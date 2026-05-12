@@ -53,7 +53,8 @@ def test_write_review_report_creates_draft_schema(tmp_path):
         "preserved_sections": [],
         "formatting_changes": [],
         "image_decisions": [],
-        "suggested_rule_candidates": [],
+        "platform_noise_actions": [],
+        "suggested_platform_markers": [],
     }
 
 

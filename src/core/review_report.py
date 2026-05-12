@@ -47,7 +47,8 @@ def build_review_report(
             "preserved_sections": [],
             "formatting_changes": [],
             "image_decisions": [],
-            "suggested_rule_candidates": [],
+            "platform_noise_actions": [],
+            "suggested_platform_markers": [],
         },
     }
 

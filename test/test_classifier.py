@@ -80,6 +80,7 @@ class TestArticleOutput:
         assert paths.raw_path.name == "raw.md"
         assert paths.reviewed_path == paths.raw_path.with_name("reviewed.md")
         assert paths.asset_dir == paths.raw_path.parent / "assets"
+        assert paths.noise_hints_path == paths.raw_path.parent / "noise_hints.json"
         assert paths.manifest_path == paths.raw_path.parent / "manifest.json"
 
     def test_extract_to_output_writes_raw_and_reviewed(self, tmp_path, sample_article, monkeypatch):
@@ -94,6 +95,7 @@ class TestArticleOutput:
         assert reviewed_path.parent.parent == tmp_path
         assert raw_path.exists()
         assert reviewed_path.exists()
+        assert reviewed_path.with_name("noise_hints.json").exists()
         assert raw_path.read_text(encoding="utf-8") == reviewed_path.read_text(encoding="utf-8")
 
     def test_extract_to_output_writes_manifest(self, tmp_path, sample_article, monkeypatch):
@@ -113,6 +115,7 @@ class TestArticleOutput:
         assert manifest["paths"]["raw"] == "raw.md"
         assert manifest["paths"]["reviewed"] == "reviewed.md"
         assert manifest["paths"]["assets"] == "assets"
+        assert manifest["paths"]["noise_hints"] == "noise_hints.json"
         assert manifest["paths"]["manifest"] == "manifest.json"
         assert manifest["assets"] == {"downloaded": [], "failed": {}}
 

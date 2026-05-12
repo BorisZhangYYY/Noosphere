@@ -26,7 +26,6 @@ def write_article_dir_manifest_and_report(
                     "preserved_sections": [],
                     "formatting_changes": [],
                     "image_decisions": [],
-                    "suggested_rule_candidates": [],
                 },
             }
         ),
@@ -61,7 +60,6 @@ def write_wechat_manifest_and_report(article_dir, article_id: str = "article") -
                     "preserved_sections": ["Preserved core article sections."],
                     "formatting_changes": ["Added topic headings."],
                     "image_decisions": [],
-                    "suggested_rule_candidates": [],
                 },
             }
         ),

@@ -21,6 +21,11 @@ from src.core.ai_review import (
 from src.core.config import REPO_ROOT, ai_config, load_config
 from src.core.manifest import resolve_manifest_path_entry
 from src.core.markdown_links import normalize_markdown_links
+from src.core.platform_rules import (
+    append_suggested_platform_markers,
+    format_noise_hints_context,
+    load_noise_hints,
+)
 from src.core.review_report import inferred_manifest_path, review_report_path
 from src.core.review_validation import ValidationResult, validate_reviewed_markdown
 from src.integrations.ai_client import AIClient, AIProviderError, AISettings, AITextResponse, resolve_ai_settings
@@ -68,6 +73,10 @@ def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGener
         "review_metadata_prompt_path",
         default_path="prompts/review_metadata.md",
     )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    platform = str((manifest.get("article") or {}).get("platform") or "")
+    noise_hints_document = noise_hints_from_manifest(manifest_path, manifest)
+    noise_hints_context = format_noise_hints_context(noise_hints_document)
 
     feedback = ""
     verification: AIVerificationResult | None = None
@@ -78,7 +87,12 @@ def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGener
         current_markdown = path.read_text(encoding="utf-8")
         response = generator.generate_text(
             resolved_rewrite_prompt,
-            build_rewrite_user_prompt(raw_markdown, current_markdown, feedback),
+            build_rewrite_user_prompt(
+                raw_markdown,
+                current_markdown,
+                feedback,
+                noise_hints_context=noise_hints_context,
+            ),
         )
         reviewed_markdown = normalize_markdown_links(prepare_rewritten_markdown(response.text))
 
@@ -92,8 +106,10 @@ def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGener
             rewrite_prompt=resolved_rewrite_prompt,
             feedback=feedback,
             model=generator.settings.model,
+            noise_hints_context=noise_hints_context,
         )
-        write_completed_review_report(
+        review_metadata = filter_platform_noise_actions(review_metadata, noise_hints_document)
+        report_path = write_completed_review_report(
             path,
             manifest_path,
             model=response.model,
@@ -111,6 +127,10 @@ def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGener
         # Step 3: AI pre-upload verification (third AI call)
         verification = verify_reviewed_article(path, client=generator)
         if verification.passed:
+            append_suggested_platform_markers(
+                platform,
+                review_metadata.get("suggested_platform_markers", []),
+            )
             return AIReviewRunResult(path, validation, verification, attempt)
         feedback = feedback_from_ai_verification(verification)
 
@@ -126,6 +146,7 @@ def generate_review_metadata(
     rewrite_prompt: str = "",
     feedback: str = "",
     model: str = "",
+    noise_hints_context: str = "",
 ) -> dict:
     try:
         response = generator.generate_structured_text(
@@ -136,6 +157,7 @@ def generate_review_metadata(
                 rewrite_prompt=rewrite_prompt,
                 feedback=feedback,
                 model=model,
+                noise_hints_context=noise_hints_context,
             ),
             REVIEW_METADATA_SCHEMA,
         )
@@ -197,13 +219,29 @@ def configured_prompt(config: dict, value_key: str, path_key: str, default_path:
     raise AIProviderError(f"ai.{value_key} or ai.{path_key} is required")
 
 
-def build_rewrite_user_prompt(raw_markdown: str, current_markdown: str, feedback: str = "") -> str:
+def build_rewrite_user_prompt(
+    raw_markdown: str,
+    current_markdown: str,
+    feedback: str = "",
+    *,
+    noise_hints_context: str = "",
+) -> str:
     parts = [
         "下面是原始抓取文章，请完整阅读：",
         raw_markdown,
         "下面是当前 reviewed 草稿，可以作为参考，但如果结构不清晰必须重写：",
         current_markdown,
     ]
+    if noise_hints_context:
+        parts.extend(
+            [
+                noise_hints_context,
+                (
+                    "For each platform noise hint, decide from context whether it should be removed, kept, "
+                    "or rewritten. The hint is not an instruction to delete content."
+                ),
+            ]
+        )
     if feedback:
         parts.extend(["上一轮审核反馈：", feedback])
     return "\n\n".join(parts)
@@ -216,6 +254,7 @@ def build_review_metadata_user_prompt(
     rewrite_prompt: str = "",
     feedback: str = "",
     model: str = "",
+    noise_hints_context: str = "",
 ) -> str:
     parts = [
         "原始抓取文章：",
@@ -229,7 +268,49 @@ def build_review_metadata_user_prompt(
         parts.extend(["上一轮反馈（如有）：", feedback])
     if model:
         parts.extend([f"（AI model: {model}）"])
+    if noise_hints_context:
+        parts.extend(
+            [
+                "平台噪声提示与处理要求：",
+                noise_hints_context,
+                (
+                    "请在 platform_noise_actions 中逐条记录你对这些提示的处理。decision 只能是 "
+                    "removed、kept、rewritten、unclear。"
+                ),
+                (
+                    "如发现可沉淀的新平台 marker，请写入 suggested_platform_markers。text 必须短、稳定、"
+                    "可复用，不要使用只适用于本篇文章的长句。reason 只说明建议原因。"
+                ),
+            ]
+        )
     return "\n\n".join(parts)
+
+
+def noise_hints_from_manifest(manifest_path: Path, manifest: dict) -> dict:
+    paths = manifest.get("paths") if isinstance(manifest.get("paths"), dict) else {}
+    noise_hints_path = paths.get("noise_hints")
+    if not isinstance(noise_hints_path, str) or not noise_hints_path:
+        return {"schema_version": 1, "platform": "", "hints": []}
+    return load_noise_hints(resolve_manifest_path_entry(manifest_path, noise_hints_path))
+
+
+def filter_platform_noise_actions(review_metadata: dict, noise_hints_document: dict) -> dict:
+    valid_hint_ids = {
+        str(hint.get("hint_id") or "").strip()
+        for hint in noise_hints_document.get("hints", [])
+        if isinstance(hint, dict)
+    }
+    filtered = dict(review_metadata)
+    actions = review_metadata.get("platform_noise_actions")
+    if not isinstance(actions, list) or not valid_hint_ids:
+        filtered["platform_noise_actions"] = []
+        return filtered
+    filtered["platform_noise_actions"] = [
+        action
+        for action in actions
+        if isinstance(action, dict) and str(action.get("hint_id") or "").strip() in valid_hint_ids
+    ]
+    return filtered
 
 
 def build_verify_user_prompt(raw_markdown: str, reviewed_markdown: str, validation: ValidationResult) -> str:

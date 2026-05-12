@@ -1,6 +1,7 @@
 # environment
 .venv/
 config.json
+platform_rules/
 
 # AI
 .claude/

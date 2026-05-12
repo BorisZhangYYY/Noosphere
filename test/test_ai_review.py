@@ -81,7 +81,6 @@ class FakeAIClient:
                             "preserved_sections": ["保留核心事实和论证链条。"],
                             "formatting_changes": ["补充信息型小标题。"],
                             "image_decisions": ["未发现需要移动的图片。"],
-                            "suggested_rule_candidates": [],
                         }
                     },
                     ensure_ascii=False,
@@ -113,7 +112,6 @@ class FakeAIClient:
                             "preserved_sections": ["保留核心事实和论证链条。"],
                             "formatting_changes": ["补充信息型小标题。"],
                             "image_decisions": ["未发现需要移动的图片。"],
-                            "suggested_rule_candidates": [],
                         }
                     },
                     ensure_ascii=False,
@@ -137,12 +135,16 @@ def write_wechat_fixture(tmp_path):
         f"# Title\n\n> 平台：微信公众号\n\n---\n\n## 原始标题\n\n{body}\n\n## 另一节\n\n{body}\n",
         encoding="utf-8",
     )
+    (article_dir / "noise_hints.json").write_text(
+        json.dumps({"schema_version": 1, "platform": "wechat_mp", "hints": []}, ensure_ascii=False),
+        encoding="utf-8",
+    )
     (article_dir / "manifest.json").write_text(
         json.dumps(
             {
                 "article_id": "article",
                 "article": {"platform": "wechat_mp"},
-                "paths": {"raw": "raw.md", "reviewed": "reviewed.md"},
+                "paths": {"raw": "raw.md", "reviewed": "reviewed.md", "noise_hints": "noise_hints.json"},
             }
         ),
         encoding="utf-8",
@@ -171,7 +173,6 @@ def test_parse_review_metadata_response_accepts_nested_review_json():
                     "preserved_sections": ["保留主要观点。"],
                     "formatting_changes": ["调整标题层级。"],
                     "image_decisions": ["保留配图。"],
-                    "suggested_rule_candidates": ["尾部二维码提示可作为清洗规则。"],
                 },
             },
             ensure_ascii=False,
@@ -180,6 +181,53 @@ def test_parse_review_metadata_response_accepts_nested_review_json():
 
     assert result["summary"] == "完成实际改写。"
     assert result["removed_noise"] == ["删除重复段落。"]
+
+
+def test_parse_review_metadata_response_accepts_platform_noise_fields():
+    result = parse_review_metadata_response(
+        json.dumps(
+            {
+                "review": {
+                    "summary": "完成实际改写。",
+                    "removed_noise": ["删除关注引导。"],
+                    "preserved_sections": ["保留正文。"],
+                    "formatting_changes": ["调整结构。"],
+                    "platform_noise_actions": [
+                        {
+                            "hint_id": "wechat_mp.platform_footer.follow_account",
+                            "marker": "关注该公众号",
+                            "decision": "removed",
+                            "reason": "位于文末关注引导。",
+                        },
+                        {
+                            "hint_id": "wechat_mp.platform_ui.wechat_scan",
+                            "marker": "微信扫一扫",
+                            "decision": "unknown",
+                            "reason": "模型无法确认。",
+                        },
+                    ],
+                    "suggested_platform_markers": [
+                        {
+                            "text": "顺手关注一下",
+                            "category": "interaction_prompt",
+                            "reason": "常见文末关注提示。",
+                        }
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    assert result["platform_noise_actions"][0]["decision"] == "removed"
+    assert result["platform_noise_actions"][1]["decision"] == "unclear"
+    assert result["suggested_platform_markers"] == [
+        {
+            "text": "顺手关注一下",
+            "category": "interaction_prompt",
+            "reason": "常见文末关注提示。",
+        }
+    ]
 
 
 def test_parse_review_metadata_response_accepts_top_level_review_json():
@@ -191,7 +239,6 @@ def test_parse_review_metadata_response_accepts_top_level_review_json():
                 "preserved_sections": ["保留主要观点。"],
                 "formatting_changes": ["调整标题层级。"],
                 "image_decisions": ["保留配图。"],
-                "suggested_rule_candidates": [],
             },
             ensure_ascii=False,
         )
@@ -226,6 +273,22 @@ def test_ensure_main_article_section_wraps_article_body():
     assert "## Main Article" in result
     assert "### 第一节" in result
     assert "### 第二节" in result
+
+
+def test_prepare_rewritten_markdown_removes_empty_generic_body_heading():
+    result = prepare_rewritten_markdown(
+        "# Title\n\n"
+        "## AI Summary\n\n"
+        "- Summary\n\n"
+        "---\n\n"
+        "## Main Article\n\n"
+        "### 正文\n\n"
+        "### Vibe Coding 的定义与本质\n\n"
+        "Body\n"
+    )
+
+    assert "### 正文" not in result
+    assert "### Vibe Coding 的定义与本质" in result
 
 
 def test_ensure_ai_summary_section_uses_review_summary():
@@ -381,6 +444,126 @@ def test_run_ai_review_rewrites_validates_and_verifies(tmp_path, monkeypatch):
     assert report["pre_upload_review"]["passed"] is True
 
 
+def test_run_ai_review_injects_noise_hints_and_appends_suggested_markers(tmp_path, monkeypatch):
+    reviewed_path = write_wechat_fixture(tmp_path)
+    reviewed_path.with_name("noise_hints.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "platform": "wechat_mp",
+                "hints": [
+                    {
+                        "hint_id": "wechat_mp.platform_footer.follow_account",
+                        "marker": "关注该公众号",
+                        "category": "platform_footer",
+                        "line": 42,
+                        "snippet": "关注该公众号",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "src.pipelines.ai_review.load_config",
+        lambda: {
+            "ai": {
+                "provider": "openai",
+                "rewrite_prompt": "Rewrite the article.",
+                "verify_prompt": '{"passed": true, "summary": "OK", "issues": []}',
+            },
+            "ai_providers": {
+                "openai": {"model": "test-model", "api_base": "https://api.openai.com/v1", "api_key": "fake-api-key"}
+            },
+        },
+    )
+    appended = []
+    monkeypatch.setattr(
+        "src.pipelines.ai_review.append_suggested_platform_markers",
+        lambda platform, markers: appended.append({"platform": platform, "markers": markers}) or [],
+    )
+
+    class NoiseHintFakeAIClient(FakeAIClient):
+        def __init__(self):
+            super().__init__()
+            self.rewrite_prompts = []
+            self.metadata_prompts = []
+
+        def generate_text(self, system_prompt: str, user_prompt: str) -> AITextResponse:
+            self.rewrite_prompts.append(user_prompt)
+            return super().generate_text(system_prompt, user_prompt)
+
+        def generate_structured_text(
+            self,
+            system_prompt: str,
+            user_prompt: str,
+            json_schema: dict,
+        ) -> AITextResponse:
+            self.structured_calls += 1
+            if self.structured_calls == 1:
+                self.metadata_prompts.append(user_prompt)
+                return AITextResponse(
+                    provider="openai",
+                    model="test-model",
+                    text=json.dumps(
+                        {
+                            "review": {
+                                "summary": "实际完成结构化改写。",
+                                "removed_noise": ["删除尾部关注引导。"],
+                                "preserved_sections": ["保留核心事实和论证链条。"],
+                                "formatting_changes": ["补充信息型小标题。"],
+                                "image_decisions": ["未发现需要移动的图片。"],
+                                "platform_noise_actions": [
+                                    {
+                                        "hint_id": "wechat_mp.platform_footer.follow_account",
+                                        "marker": "关注该公众号",
+                                        "decision": "removed",
+                                        "reason": "位于文末关注引导。",
+                                    }
+                                ],
+                                "suggested_platform_markers": [
+                                    {
+                                        "text": "顺手关注一下",
+                                        "category": "interaction_prompt",
+                                        "reason": "常见文末关注提示。",
+                                    }
+                                ],
+                            }
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            return AITextResponse(
+                provider="openai",
+                model="test-model",
+                text='{"passed": true, "summary": "OK", "issues": []}',
+            )
+
+    client = NoiseHintFakeAIClient()
+    result = run_ai_review(reviewed_path, max_attempts=1, client=client)
+
+    assert result.ok is True
+    assert "Platform noise hints:" in client.rewrite_prompts[0]
+    assert "[wechat_mp.platform_footer.follow_account] line 42 hit marker" in client.rewrite_prompts[0]
+    assert "Platform noise hints:" in client.metadata_prompts[0]
+
+    report = json.loads(reviewed_path.with_name("review.json").read_text(encoding="utf-8"))
+    assert report["review"]["platform_noise_actions"][0]["decision"] == "removed"
+    assert appended == [
+        {
+            "platform": "wechat_mp",
+            "markers": [
+                {
+                    "text": "顺手关注一下",
+                    "category": "interaction_prompt",
+                    "reason": "常见文末关注提示。",
+                }
+            ],
+        }
+    ]
+
+
 def test_build_review_metadata_user_prompt_includes_context(tmp_path):
     from src.pipelines.ai_review import build_review_metadata_user_prompt
 
@@ -390,12 +573,20 @@ def test_build_review_metadata_user_prompt_includes_context(tmp_path):
         rewrite_prompt="重写指令：简洁",
         feedback="上一轮反馈：标题不清",
         model="claude-3-5",
+        noise_hints_context=(
+            "Platform noise hints:\n"
+            "- [wechat_mp.platform_footer.follow_account] line 42 hit marker \"关注该公众号\" "
+            "(category: platform_footer); possible platform noise, needs review. Snippet: 关注该公众号"
+        ),
     )
     assert "原始内容" in prompt
     assert "改写后内容" in prompt
     assert "重写指令：简洁" in prompt
     assert "上一轮反馈：标题不清" in prompt
     assert "claude-3-5" in prompt
+    assert "平台噪声提示与处理要求" in prompt
+    assert "关注该公众号" in prompt
+    assert "platform_noise_actions" in prompt
 
 
 def test_build_review_metadata_user_prompt_without_optional_context(tmp_path):
@@ -406,6 +597,7 @@ def test_build_review_metadata_user_prompt_without_optional_context(tmp_path):
     assert "改写" in prompt
     assert "重写指令" not in prompt
     assert "上一轮反馈" not in prompt
+    assert "平台噪声提示" not in prompt
 
 
 def test_generate_review_metadata_uses_context_parameters(tmp_path):
@@ -438,7 +630,6 @@ def test_generate_review_metadata_uses_context_parameters(tmp_path):
                             "preserved_sections": ["事实"],
                             "formatting_changes": ["格式"],
                             "image_decisions": [],
-                            "suggested_rule_candidates": [],
                         }
                     },
                     ensure_ascii=False,
@@ -454,6 +645,11 @@ def test_generate_review_metadata_uses_context_parameters(tmp_path):
         rewrite_prompt="重写指令",
         feedback="反馈内容",
         model="test-model-2",
+        noise_hints_context=(
+            "Platform noise hints:\n"
+            "- [wechat_mp.platform_footer.follow_account] line 42 hit marker \"关注该公众号\" "
+            "(category: platform_footer); possible platform noise, needs review. Snippet: 关注该公众号"
+        ),
     )
 
     assert result["summary"] == "测试摘要"
@@ -464,6 +660,7 @@ def test_generate_review_metadata_uses_context_parameters(tmp_path):
     assert "重写指令" in call["user"]
     assert "反馈内容" in call["user"]
     assert "test-model-2" in call["user"]
+    assert "关注该公众号" in call["user"]
     assert call["schema"]["type"] == "object"
 
 
@@ -497,3 +694,57 @@ def test_generate_review_metadata_fallback_on_error(tmp_path):
 
     assert result["summary"] == "AI rewrite completed and structured for upload."
 
+
+def test_filter_platform_noise_actions_keeps_only_real_hints():
+    from src.pipelines.ai_review import filter_platform_noise_actions
+
+    result = filter_platform_noise_actions(
+        {
+            "summary": "测试摘要",
+            "platform_noise_actions": [
+                {
+                    "hint_id": "known",
+                    "marker": "关注该公众号",
+                    "decision": "removed",
+                    "reason": "命中真实提示。",
+                },
+                {
+                    "hint_id": "invented",
+                    "marker": "新号",
+                    "decision": "removed",
+                    "reason": "模型自行生成。",
+                },
+            ],
+        },
+        {"hints": [{"hint_id": "known"}]},
+    )
+
+    assert result["platform_noise_actions"] == [
+        {
+            "hint_id": "known",
+            "marker": "关注该公众号",
+            "decision": "removed",
+            "reason": "命中真实提示。",
+        }
+    ]
+
+
+def test_filter_platform_noise_actions_clears_actions_without_hints():
+    from src.pipelines.ai_review import filter_platform_noise_actions
+
+    result = filter_platform_noise_actions(
+        {
+            "summary": "测试摘要",
+            "platform_noise_actions": [
+                {
+                    "hint_id": "invented",
+                    "marker": "新号",
+                    "decision": "removed",
+                    "reason": "模型自行生成。",
+                }
+            ],
+        },
+        {"hints": []},
+    )
+
+    assert result["platform_noise_actions"] == []

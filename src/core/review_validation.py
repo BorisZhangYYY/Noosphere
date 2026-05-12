@@ -9,6 +9,7 @@ from typing import Any
 
 from src.core.markdown_links import bare_markdown_urls
 from src.core.manifest import resolve_manifest_path_entry
+from src.core.platform_rules import non_topic_headings
 from src.core.review_report import inferred_manifest_path, review_report_path, reviewed_article_id
 from src.platforms.wechat_mp import rules as wechat_rules
 
@@ -156,12 +157,6 @@ def validate_wechat_mp_review_structure(
     cleaned_body = section_body(reviewed_markdown, 2, "Main Article")
     raw_body = article_body_after_metadata(raw_markdown)
 
-    for marker in wechat_rules.REVIEW_FOOTER_NOISE_MARKERS:
-        if marker in cleaned_body:
-            issues.append(
-                ValidationIssue("wechat_footer_noise", f"WeChat footer or promotion marker still exists: {marker}")
-            )
-
     if visible_text_length(raw_body) < wechat_rules.REVIEW_LONG_ARTICLE_MIN_CHARS:
         return issues
 
@@ -246,13 +241,14 @@ def visible_text_length(markdown: str) -> int:
 
 
 def topic_headings(markdown: str) -> list[str]:
+    non_topics = non_topic_headings("wechat_mp")
     result: list[str] = []
     for prefix, heading in HEADING_RE.findall(markdown):
         level = len(prefix)
         normalized = normalize_heading(heading)
         if level < 2 or level > 4:
             continue
-        if normalized in wechat_rules.REVIEW_NON_TOPIC_HEADINGS:
+        if normalized in non_topics:
             continue
         if "发自" in normalized:
             continue

@@ -12,6 +12,7 @@ class ArticleOutputPaths:
     raw_path: Path
     reviewed_path: Path
     asset_dir: Path
+    noise_hints_path: Path
     manifest_path: Path
 
 
@@ -44,5 +45,6 @@ def article_output_paths(output_dir: Path, article: Article) -> ArticleOutputPat
         raw_path=article_dir / "raw.md",
         reviewed_path=article_dir / "reviewed.md",
         asset_dir=article_dir / "assets",
+        noise_hints_path=article_dir / "noise_hints.json",
         manifest_path=article_dir / "manifest.json",
     )
