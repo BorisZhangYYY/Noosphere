@@ -1,8 +1,6 @@
 # Noosphere
 
-[Agent Skill](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md)
-
-Single-article extraction, AI review, and SiYuan import tool.
+Single-article extraction, AI review, and SiYuan import tool. See [SKILL.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md) for agent usage.
 
 ## Supported Sources
 
