@@ -15,6 +15,7 @@ H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]*)\)")
 IMAGE_TARGET_RE = re.compile(r"^(.+?)\s+([\"'][^\"']*[\"'])$")
+HORIZONTAL_RULE_RE = re.compile(r"^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$")
 
 
 @dataclass(frozen=True)
@@ -43,8 +44,10 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
         issues.append(ValidationIssue("missing_h1", "Reviewed Markdown must start with or contain one H1 title."))
     if not has_heading(markdown, 2, "AI Summary"):
         issues.append(ValidationIssue("missing_ai_summary", "Reviewed Markdown must contain `## AI Summary`."))
-    elif not section_body(markdown, 2, "AI Summary").strip():
-        issues.append(ValidationIssue("empty_ai_summary", "`## AI Summary` must contain the AI summary."))
+    else:
+        issues.extend(validate_content_before_ai_summary(markdown))
+        if not section_body(markdown, 2, "AI Summary").strip():
+            issues.append(ValidationIssue("empty_ai_summary", "`## AI Summary` must contain the AI summary."))
     if not has_heading(markdown, 2, "Main Article"):
         issues.append(ValidationIssue("missing_main_article", "Reviewed Markdown must contain `## Main Article`."))
     elif not section_body(markdown, 2, "Main Article").strip():
@@ -85,6 +88,28 @@ def validate_bare_urls(markdown: str) -> list[ValidationIssue]:
         ValidationIssue("bare_url", f"Plain URL must be converted to a Markdown link before upload: {url}")
         for url in bare_markdown_urls(markdown)
     ]
+
+
+def validate_content_before_ai_summary(markdown: str) -> list[ValidationIssue]:
+    lines = markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    summary_index = next((index for index, line in enumerate(lines) if line.strip() == "## AI Summary"), None)
+    if summary_index is None:
+        return []
+
+    for line in lines[:summary_index]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# ") or stripped.startswith(">") or HORIZONTAL_RULE_RE.match(stripped):
+            continue
+        return [
+            ValidationIssue(
+                "content_before_ai_summary",
+                "Reviewed Markdown must not contain article body before `## AI Summary`; "
+                "move all body content into `## Main Article`.",
+            )
+        ]
+    return []
 
 
 def read_json_document(path: Path, label: str) -> tuple[dict[str, Any] | None, ValidationIssue | None]:

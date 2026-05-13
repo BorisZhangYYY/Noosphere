@@ -63,3 +63,7 @@ As of 2026-05-12, the project has:
 - Reused the system validation result during `ai-review` verification so one successful review attempt does not run deterministic validation twice.
 - Changed `upload` into a manual endpoint that does not require `review.json` or local review validation before sending Markdown to SiYuan.
 - Moved WeChat-specific system validation out of `src/core/review_validation.py` into `src/platforms/wechat_mp/review_validation.py`.
+
+### 2026-05-13
+
+- Added system validation to reject article body content before `## AI Summary`, while still allowing the title, source metadata block, and separator before the summary section.
