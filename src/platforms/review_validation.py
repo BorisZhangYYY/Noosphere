@@ -15,7 +15,7 @@ def validate_platform_review_structure(
     article = manifest.get("article") if isinstance(manifest.get("article"), dict) else {}
     platform = str(article.get("platform") or "").strip()
     if platform == "wechat_mp":
-        from src.platforms.wechat_mp.review_validation import validate_review_structure
+        from src.platforms.wechat_mp.wp_review_validation import validate_review_structure
 
         return validate_review_structure(reviewed_markdown, manifest_path, manifest, report)
     return []

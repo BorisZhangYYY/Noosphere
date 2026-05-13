@@ -6,8 +6,6 @@ from src.core.article import Article
 from src.core.base_extractor import BaseArticleExtractor
 from src.core.markdown import first_text, meta_content
 from src.integrations.crawler import CrawledPage
-from src.platforms.zhihu_zhuanlan.cleaning import clean
-
 
 PLATFORM = "zhihu_zhuanlan"
 PLATFORM_LABEL = "知乎专栏"
@@ -60,9 +58,6 @@ class ZhihuZhuanlanExtractor(BaseArticleExtractor):
 
     def content_node(self, soup: BeautifulSoup) -> Tag | None:
         return soup.select_one(".Post-RichTextContainer, .RichContent-inner, .RichText, article")
-
-    def clean_body(self, markdown: str, title: str) -> str:
-        return clean(markdown, title)
 
     def too_short_message(self, page: CrawledPage) -> str:
         return f"Zhihu article body is too short; status={page.status_code}, crawl error={page.error!r}"

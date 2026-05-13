@@ -6,8 +6,6 @@ from src.core.article import Article
 from src.core.base_extractor import BaseArticleExtractor
 from src.core.markdown import first_text, meta_content
 from src.integrations.crawler import CrawledPage
-from src.platforms.wechat_mp.cleaning import clean
-
 
 PLATFORM = "wechat_mp"
 PLATFORM_LABEL = "微信公众号"
@@ -46,9 +44,6 @@ class WechatMpExtractor(BaseArticleExtractor):
 
     def content_node(self, soup: BeautifulSoup) -> Tag | None:
         return soup.select_one("#js_content")
-
-    def clean_body(self, markdown: str, title: str) -> str:
-        return clean(markdown, title)
 
     def too_short_message(self, page: CrawledPage) -> str:
         return f"WeChat article body is too short; crawl error={page.error!r}"

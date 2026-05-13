@@ -9,8 +9,6 @@ from src.core.article import Article
 from src.core.base_extractor import BaseArticleExtractor
 from src.core.markdown import clean_markdown, first_text, html_to_text_markdown, meta_content
 from src.integrations.crawler import CrawledPage, crawl_page
-from src.platforms.xiaoheihe.cleaning import clean
-
 
 PLATFORM = "xiaoheihe"
 PLATFORM_LABEL = "小黑盒"
@@ -50,9 +48,6 @@ class XiaoheiheExtractor(BaseArticleExtractor):
 
     def content_node(self, soup: BeautifulSoup) -> Tag | None:
         return soup.select_one(".image-text__content")
-
-    def clean_body(self, markdown: str, title: str) -> str:
-        return clean(markdown, title)
 
     async def extract(self, url: str) -> Article:
         page = await crawl_page(url, **self.crawl_options())
