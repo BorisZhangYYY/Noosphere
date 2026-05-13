@@ -6,6 +6,7 @@ Single-article extraction, AI review, and SiYuan import tool. See [SKILL.md](htt
 
 - WeChat Official Account: `mp.weixin.qq.com/s/...`
 - Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
+- Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
 
 ## Commands
 

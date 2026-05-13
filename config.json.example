@@ -12,6 +12,12 @@
       "zhuanlan.zhihu.com/p/"
     ]
   },
+  "xiaoheihe": {
+    "label": "小黑盒",
+    "url_patterns": [
+      "xiaoheihe.cn/bbs/post_share"
+    ]
+  },
   "siyuan": {
     "api_base": "http://127.0.0.1:6806",
     "default_parent_id": "your-target-notebook-or-parent-document-id",

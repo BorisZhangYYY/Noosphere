@@ -6,6 +6,7 @@ Use this skill when the user wants to extract one article from a supported platf
 
 - WeChat Official Account: `mp.weixin.qq.com/s/...`
 - Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
+- Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
 
 ## Workflow
 

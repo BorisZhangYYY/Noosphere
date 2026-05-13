@@ -67,3 +67,4 @@ As of 2026-05-12, the project has:
 ### 2026-05-13
 
 - Added system validation to reject article body content before `## AI Summary`, while still allowing the title, source metadata block, and separator before the summary section.
+- Added Xiaoheihe post extraction support for `xiaoheihe.cn/bbs/post_share` links.

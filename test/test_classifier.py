@@ -46,14 +46,17 @@ class TestClassifyUrl:
     def test_uses_known_platform_patterns(self):
         assert classify_url("https://zhuanlan.zhihu.com/p/123", {}) == "zhihu_zhuanlan"
         assert classify_url("https://mp.weixin.qq.com/s/abc", {}) == "wechat_mp"
+        assert classify_url("https://www.xiaoheihe.cn/bbs/post_share?link_id=abc", {}) == "xiaoheihe"
 
     def test_ignores_siyuan_config(self):
         config = {
             "siyuan": {"url_patterns": ["example.com"]},
+            "xiaoheihe": {"url_patterns": ["custom.heihe/post"]},
             "zhihu_zhuanlan": {"url_patterns": ["custom.example/article"]},
         }
 
         assert classify_url("https://custom.example/article/1", config) == "zhihu_zhuanlan"
+        assert classify_url("https://custom.heihe/post/1", config) == "xiaoheihe"
 
     def test_rejects_unsupported_url(self):
         with pytest.raises(ValueError, match="Unsupported URL"):
