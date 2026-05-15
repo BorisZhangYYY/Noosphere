@@ -152,10 +152,8 @@ def main(argv: list[str] | None = None) -> int:
             header_note = f'<p style="margin-bottom: 1em; color: #666; font-size: 0.9em;">[Noosphere 用户 {smtp_config["sender_name"]} 向你分享]</p>'
             html_body = header_note + html_body
 
-            # Collect inline images if assets exist
-            attachments = None
-            if assets_dir.exists():
-                attachments = list(assets_dir.glob("*"))
+            # Images are already embedded as base64 in HTML by MarkdownToEmailRenderer,
+            # so no separate attachments needed.
 
             # Build subject
             subject = f"[Noosphere 用户 {smtp_config['sender_name']} 向你分享] {article_title}"
@@ -174,7 +172,6 @@ def main(argv: list[str] | None = None) -> int:
                 recipient=args.to,
                 html_body=html_body,
                 subject=subject,
-                attachments=attachments,
             )
 
             # Write report

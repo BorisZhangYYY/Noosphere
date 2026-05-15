@@ -70,15 +70,16 @@ class MarkdownToEmailRenderer:
         assets_path = Path(assets_dir) if assets_dir else Path()
 
         def replace_image(match: re.Match) -> str:
-            src = match.group(1)
-            alt = match.group(2) or ""
-            title = match.group(3) or ""
+            # Groups: 1=alt(before src), 2=title(before src), 3=src, 4=alt(after src), 5=title(after src)
+            src = match.group(3)
+            alt = match.group(1) or match.group(4) or ""
+            title = match.group(2) or match.group(5) or ""
 
             # Skip external URLs and data URIs
             if src.startswith(("http://", "https://", "data:", "file://")):
                 return match.group(0)
 
-            image_path = assets_path / src if assets_path else Path(src)
+            image_path = assets_path.parent / src if assets_path else Path(src)
 
             if image_path.exists() and image_path.is_file():
                 try:
@@ -92,7 +93,7 @@ class MarkdownToEmailRenderer:
             file_uri = image_path.resolve().as_uri()
             return f'<img src="{file_uri}" alt="{alt}"{self._title_attr(title)}>'
 
-        return re.sub(r'<img\s+src="([^"]+)"(?:\s+alt="([^"]*)")?(?:\s+title="([^"]*)")?\s*/?>', replace_image, html)
+        return re.sub(r'<img(?:\s+alt="([^"]*)")?(?:\s+title="([^"]*)")?\s+src="([^"]+)"(?:\s+alt="([^"]*)")?(?:\s+title="([^"]*)")?\s*/?>', replace_image, html)
 
     @staticmethod
     def _guess_mime_type(src: str) -> tuple[str, str]:
