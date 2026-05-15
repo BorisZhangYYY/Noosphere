@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
-from email.generator import Generator
-from io import StringIO
 from pathlib import Path
 
 
@@ -53,7 +51,8 @@ class EmailAdapter:
             )
 
         # Build MIME message
-        msg = self._build_message(recipient, subject, html_body, plain_body)
+        plain = plain_body or self._strip_html(html_body)
+        msg = self._build_message(recipient, subject, html_body, plain)
 
         # Attach inline images if provided
         if attachments:
@@ -61,8 +60,11 @@ class EmailAdapter:
 
         # Send via SMTP
         try:
-            server = smtplib.SMTP(self.host, self.port)
-            server.starttls()
+            server = smtplib.SMTP(self.host, self.port, timeout=30)
+            try:
+                server.starttls()
+            except smtplib.SMTPNotSupportedError:
+                pass  # Server doesn't support STARTTLS, continue without it
             server.login(self.user, self.password)
 
             from_addr = f"{self.sender_name} <{self.user}>"

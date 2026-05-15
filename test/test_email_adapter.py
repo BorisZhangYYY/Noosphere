@@ -1,10 +1,14 @@
 from __future__ import annotations
 import smtplib
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 from src.integrations.email_adapter import EmailAdapter, EmailResult
 
 
-def test_validate_recipient_whitelist():
+@patch("smtplib.SMTP")
+def test_validate_recipient_whitelist(mock_smtp):
+    mock_instance = MagicMock()
+    mock_smtp.return_value = mock_instance
+
     adapter = EmailAdapter(
         host="smtp.example.com",
         port=587,
@@ -19,9 +23,8 @@ def test_validate_recipient_whitelist():
         html_body="<p>Test</p>",
         subject="Test",
     )
-    # This will fail at SMTP level but whitelist check passes first
-    # We mock SMTP to avoid actual network call
-    assert result.success is True or "not allowed" not in result.message
+    assert result.success is True
+    assert "not allowed" not in result.message
 
 
 def test_reject_recipient_not_in_whitelist():
