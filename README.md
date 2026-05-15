@@ -1,12 +1,26 @@
 # Noosphere
 
-Single-article extraction, AI review, and SiYuan import tool. See [SKILL.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md) for agent usage.
+Noosphere is an article extraction, AI review, and note-import tool designed for long-form reading, content collection, knowledge organization, and sharing.
+
+Do you often come across long articles worth saving on platforms such as WeChat, Zhihu, and others, only to find them difficult to understand quickly because they are too long, poorly structured, or cluttered with ads and noise? Do you often want to share an article with friends, but they lack the necessary context, making the sharing ineffective? Or are you a heavy content collector who wants to save valuable articles in a complete, clean, and structured form into your own knowledge base?
+
+Noosphere is designed for exactly this purpose. Based on `crawl4ai`, it extracts the main content of articles, then uses large language models to perform structured rewriting, summary generation, noise cleanup, and pre-upload validation. The final Markdown content can then be imported into your note-taking tool.
+
+In one sentence: Noosphere turns scattered, lengthy, and hard-to-read articles on the internet into clean, structured, understandable, saveable, and shareable knowledge content.
+
+See [SKILL.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md) for agent usage.
 
 ## Supported Sources
 
-- WeChat Official Account: `mp.weixin.qq.com/s/...`
+### Article Platforms
+
+- WeChat public account articles: `mp.weixin.qq.com/s/...`
 - Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
 - Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
+
+### Note-taking Platforms
+
+- SiYuan
 
 ## Commands
 
@@ -32,10 +46,10 @@ python -m src.cli run URL
 
 ## AI Review Flow
 
-1. **Rewrite**: AI rewrites raw markdown into structured format
-2. **Metadata**: AI generates review metadata (summary, removed noise, preserved sections)
+1. **Rewrite**: AI rewrites raw markdown into a structured format
+2. **Metadata**: AI generates review metadata, including summary, removed noise, and preserved sections
 3. **Validate**: system review checks Markdown structure, report metadata, links, images, and platform-specific rules
-4. **Verify**: AI pre-upload verification
+4. **Verify**: AI performs pre-upload verification
 
 Output: `outputs/ARTICLE_ID/` contains `raw.md`, `reviewed.md`, `manifest.json`, `noise_hints.json`, `assets/`, and `review.json`.
 
@@ -52,9 +66,15 @@ Use `python -m src.cli rules-review PLATFORM` to report duplicates, overlapping 
 ## Configuration
 
 Copy `config.json.example` to `config.json` and configure:
+
 - `siyuan`: API base, parent ID, token
-- `ai`: provider (openai/anthropic), retry count, prompt paths
+- `ai`: provider, retry count, prompt paths
 - `ai_providers`: model, API base, API key, token limit, temperature
+
+Supported AI providers currently include:
+
+- `openai`
+- `anthropic`
 
 ## Future Extensions
 

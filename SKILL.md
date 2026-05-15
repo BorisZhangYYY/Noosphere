@@ -1,12 +1,21 @@
-# Web Article To SiYuan
+# Web Article To Notes
 
-Use this skill when the user wants to extract one article from a supported platform, clean it into a structured Markdown article, and upload it under a specific SiYuan parent document ID.
+Use this skill when the user wants to extract one article from a supported platform, clean it into a structured Markdown article, and import or upload it into a configured note-taking or knowledge-management platform.
+
+This workflow is designed to be platform-extensible. The current implementation may support specific note targets such as SiYuan, but the overall design should not be tied to a single destination. Future note platforms can be added through dedicated upload adapters, platform-specific configuration, and validation rules.
 
 ## Supported Sources
 
-- WeChat Official Account: `mp.weixin.qq.com/s/...`
+### Article Platforms
+
+- WeChat public account articles: `mp.weixin.qq.com/s/...`
 - Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
 - Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
+
+### Note-taking Platforms
+
+- SiYuan
+- More platforms may be added in the future
 
 ## Workflow
 
@@ -16,15 +25,29 @@ Use this skill when the user wants to extract one article from a supported platf
    python -m src.cli extract URL
    ```
 
-2. Read the generated Markdown file at `outputs/ARTICLE_ID/reviewed.md`. The first-round crawler output is kept as `raw.md` in the same article directory and should not be edited. Each extraction also writes `manifest.json` with source metadata, output paths, crawl status, image download results, and a `noise_hints.json` sidecar with platform marker hits for AI review context. Any remote images found in the Markdown are downloaded under the article `assets/` directory and rewritten to local relative links.
+2. Read the generated Markdown file at `outputs/ARTICLE_ID/reviewed.md`.
 
-3. Either edit `reviewed.md` manually, or let the CLI AI review workflow handle Markdown rewrite decisions. The external agent's default job is to invoke the CLI, inspect command results, and report failures rather than directly editing article content. The internal AI review should preserve the main content while handling cleanup details such as:
+   The first-round crawler output is kept as `raw.md` in the same article directory and should not be edited. Each extraction also writes `manifest.json` with source metadata, output paths, crawl status, image download results, and platform information.
+
+   A `noise_hints.json` sidecar is also generated with platform marker hits for AI review context.
+
+   Any remote images found in the Markdown are downloaded under the article `assets/` directory and rewritten to local relative links.
+
+3. Either edit `reviewed.md` manually, or let the CLI AI review workflow handle Markdown rewrite decisions.
+
+   The external agent's default job is to invoke the CLI, inspect command results, and report failures rather than directly editing article content.
+
+   The internal AI review should preserve the main content while handling cleanup details such as:
+
    - Removing duplicated article sections and platform noise.
    - Keeping meaningful headings, paragraphs, blockquotes, lists, code blocks, tables, images, and Markdown links.
-   - Improving heading hierarchy, spacing, and long WeChat article structure when needed.
+   - Improving heading hierarchy, spacing, and long article structure when needed.
    - Keeping meaningful local image links and removing only decorative or duplicate images.
+   - Producing clean Markdown suitable for later import into different note-taking platforms.
 
-   Platform marker rules are loaded from local `platform_rules/` when present, otherwise from `platform_rules.example/`. Local `platform_rules/` is intentionally gitignored because AI review can append suggested markers over time.
+   Platform marker rules are loaded from local `platform_rules/` when present, otherwise from `platform_rules.example/`.
+
+   Local `platform_rules/` is intentionally gitignored because AI review can append suggested markers over time.
 
    Review accumulated local markers when needed:
 
@@ -57,7 +80,9 @@ Use this skill when the user wants to extract one article from a supported platf
    python -m src.cli ai-review outputs/ARTICLE_ID/reviewed.md
    ```
 
-   This command rewrites the Markdown, writes article-specific review metadata to `outputs/ARTICLE_ID/review.json`, runs deterministic validation, runs a pre-upload AI verification, and retries when verification feedback requires revision. The AI rewrite response uses JSON with separate `markdown` and `review` fields; only `review` metadata is stored in `review.json`.
+   This command rewrites the Markdown, writes article-specific review metadata to `outputs/ARTICLE_ID/review.json`, runs deterministic validation, runs a pre-upload AI verification, and retries when verification feedback requires revision.
+
+   The AI rewrite response uses JSON with separate `markdown` and `review` fields. Only `review` metadata is stored in `review.json`.
 
 6. Run system review checks when you need a deterministic audit:
 
@@ -65,30 +90,36 @@ Use this skill when the user wants to extract one article from a supported platf
    python -m src.cli validate outputs/ARTICLE_ID/reviewed.md
    ```
 
-   `validate` checks common Markdown/report readiness rules for all platforms and dispatches platform-specific checks from `src/platforms/<platform>/` when implemented. It is useful after AI review or after manual editing, but `upload` does not require it.
+   `validate` checks common Markdown/report readiness rules for all platforms and dispatches source-platform-specific checks from `src/platforms/<platform>/` when implemented.
 
-6. Report the review result to the user:
+   It is useful after AI review or after manual editing, but `upload` does not require it.
+
+7. Report the review result to the user:
+
    - Modified content: list important deletions, rewrites, and structure changes.
    - Preserved content: list important sections that were kept.
    - System review: report whether `validate` passed when it was used.
    - AI review: report whether `ai-review` passed when it was used.
+   - Target platform: report which note-taking platform or upload adapter will be used.
    - Ask for confirmation before uploading.
 
-7. After confirmation, upload the Markdown:
+8. After confirmation, upload or import the Markdown:
 
    ```bash
    python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
    ```
 
-   `upload` is a manual endpoint: it does not require AI review, `review.json`, or deterministic validation to pass. It reads the Markdown file, uploads local assets when referenced, and sends the document to SiYuan.
+   `upload` is a manual endpoint. It does not require AI review, `review.json`, or deterministic validation to pass.
+
+   It reads the Markdown file, uploads or resolves local assets when referenced, and sends the document to the configured note-taking platform through the active upload adapter.
 
 ## Commands
 
 | Command | Driver | Description |
 |---------|--------|-------------|
-| `extract URL` | CLI/crawl4ai | Crawl one article and save raw, reviewed, asset, and manifest files. |
-| `ai-review FILE` | AI | Use the configured AI to review and rewrite the article. |
+| `extract URL` | CLI/crawl4ai | Crawl one article and save raw, reviewed, asset, manifest, and review-context files. |
+| `ai-review FILE` | AI | Use the configured AI provider to review and rewrite the article. |
 | `validate FILE` | CLI | Run deterministic system review checks for the reviewed article. |
 | `rules-review PLATFORM` | CLI | Review local platform marker rules and optionally apply safe cleanup with `--apply`. |
-| `upload FILE` | CLI | Upload the provided Markdown file to SiYuan without review gating. |
-| `run URL` | Mixed | Run the full workflow from extraction through final upload. |
+| `upload FILE` | CLI/platform adapter | Upload or import the provided Markdown file to the configured note-taking platform without review gating. |
+| `run URL` | Mixed | Run the full workflow from extraction through review and final upload/import. |
