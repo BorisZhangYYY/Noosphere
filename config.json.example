@@ -45,5 +45,13 @@
       "max_output_tokens": 12000,
       "temperature": 0.2
     }
+  },
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 587,
+    "user": "sender@example.com",
+    "password": "your-smtp-password",
+    "sender_name": "你的称呼",
+    "allowed_recipients": ["friend@example.com"]
   }
 }

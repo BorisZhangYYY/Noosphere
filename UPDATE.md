@@ -165,3 +165,16 @@ Planned directions:
 
 - Added system validation to reject article body content before `## AI Summary`, while still allowing the title, source metadata block, and separator before the summary section.
 - Added Xiaoheihe post extraction support for `xiaoheihe.cn/bbs/post_share` links.
+
+### 2026-05-15
+
+- Added `email` CLI command: `python -m src.cli email <article_id> --to recipient@example.com`
+- Added `src/integrations/email_adapter.py` with `EmailAdapter` class: SMTP send with whitelist validation, multipart/alternative MIME messages, inline image embedding, starttls support.
+- Added `src/integrations/markdown_to_email.py` with `MarkdownToEmailRenderer` class: converts Markdown to email-safe HTML with inline styles, embedded base64 images, and subject-title deduplication.
+- Added `src/core/email_report.py` with `EmailReport` dataclass and `write_report` helper for persisting per-article email send records.
+- Added `test/test_email_adapter.py` covering whitelist validation, MIME building.
+- Added `test/test_markdown_to_email.py` covering h2 rendering, title stripping, HR preservation, inline style application.
+- `config.json.example` extended with `smtp` block: host, port, user, password, sender_name, allowed_recipients.
+- Email subject format: `[Noosphere 用户 {sender_name} 向你分享] {article_title}`.
+- Article title not repeated in body when already in subject.
+- Report written to `outputs/<article_id>/email_report.json`.
