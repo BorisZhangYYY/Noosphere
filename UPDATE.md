@@ -178,3 +178,4 @@ Planned directions:
 - Email subject format: `[Noosphere 用户 {sender_name} 向你分享] {article_title}`.
 - Article title not repeated in body when already in subject.
 - Report written to `outputs/<article_id>/email_report.json`.
+- Fixed email image display: img tag regex handles alt before src, path resolution uses parent directory, images embedded as base64 data URIs.

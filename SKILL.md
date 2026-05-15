@@ -122,4 +122,5 @@ This workflow is designed to be platform-extensible. The current implementation 
 | `validate FILE` | CLI | Run deterministic system review checks for the reviewed article. |
 | `rules-review PLATFORM` | CLI | Review local platform marker rules and optionally apply safe cleanup with `--apply`. |
 | `upload FILE` | CLI/platform adapter | Upload or import the provided Markdown file to the configured note-taking platform without review gating. |
+| `email ARTICLE_ID --to RECIPIENT` | CLI/SMTP | Send the reviewed article as an HTML email to the specified recipient (must be in allowed_recipients). |
 | `run URL` | Mixed | Run the full workflow from extraction through review and final upload/import. |

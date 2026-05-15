@@ -40,6 +40,9 @@ python -m src.cli rules-review wechat_mp
 # Manual endpoint: upload the Markdown you provide
 python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
 
+# Send reviewed article as HTML email (requires SMTP config in config.json)
+python -m src.cli email ARTICLE_ID --to recipient@example.com
+
 # One-command: extract → ai-review → upload
 python -m src.cli run URL
 ```
