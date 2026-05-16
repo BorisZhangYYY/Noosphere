@@ -52,6 +52,25 @@ class MarkdownToEmailRenderer:
 
     def _markdown_to_html(self, text: str) -> str:
         """Convert Markdown to HTML with full element support."""
+        # Insert blank lines between inline text and block-level structures
+        # (tables and lists) so the markdown parser treats them as separate blocks.
+        lines = text.split("\n")
+        processed: list[str] = []
+        for i, line in enumerate(lines):
+            processed.append(line)
+            if i < len(lines) - 1:
+                next_line = lines[i + 1].strip()
+                # Strip trailing markdown bold markers to check real ending
+                stripped = line.rstrip()
+                while stripped.endswith("*"):
+                    stripped = stripped[:-1]
+                ends_with_block_trigger = stripped.endswith("：") or stripped.endswith(":") or stripped.endswith("。") or stripped.endswith(",")
+                if ends_with_block_trigger:
+                    if next_line.startswith(("|", "-", "*", "+")) or re.match(r'\|', next_line):
+                        processed.append("")
+
+        text = "\n".join(processed)
+
         return markdown.markdown(
             text,
             extensions=[
