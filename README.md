@@ -68,16 +68,34 @@ Use `python -m src.cli rules-review PLATFORM` to report duplicates, overlapping 
 
 ## Configuration
 
-Copy `config.json.example` to `config.json` and configure:
+### Quick Start
+
+```bash
+# 1. Clone and enter
+cd /path/to/Noosphere
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Copy and edit config
+cp config.json.example config.json
+# Edit config.json with your API keys and endpoints
+
+# 4. Verify
+python -m src.cli --help
+```
+
+### Config Fields
 
 - `siyuan`: API base, parent ID, token
-- `ai`: provider, retry count, prompt paths
+- `ai`: provider (`openai` or `anthropic`), retry count, prompt paths
 - `ai_providers`: model, API base, API key, token limit, temperature
 
 Supported AI providers currently include:
 
 - `openai`
 - `anthropic`
+- `compatible`
 
 ## Future Extensions
 

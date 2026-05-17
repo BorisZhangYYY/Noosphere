@@ -4,6 +4,37 @@ Use this skill when the user wants to extract one article from a supported platf
 
 This workflow is designed to be platform-extensible. The current implementation may support specific note targets such as SiYuan, but the overall design should not be tied to a single destination. Future note platforms can be added through dedicated upload adapters, platform-specific configuration, and validation rules.
 
+## Deployment & Configuration
+
+### Setup
+
+```bash
+# 1. Enter project directory
+cd /path/to/Noosphere
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Copy example config and customize
+cp config.json.example config.json
+# Edit config.json — add your API keys and endpoints
+
+# 4. Verify installation
+python -m src.cli --help
+```
+
+### Config Overview
+
+Key fields in `config.json`:
+
+| Section | Fields | Notes |
+|---------|--------|-------|
+| `siyuan` | `api_base`, `default_parent_id`, `token` | SiYuan note platform connection |
+| `ai` | `provider`, `max_attempts`, `*_prompt_path` | Provider: `openai` or `anthropic` |
+| `ai_providers` | `model`, `api_base`, `api_key`, `max_output_tokens`, `temperature` | Per-provider model settings |
+
+**Provider compatibility note:** `ai.provider: "anthropic"` means **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi (`https://api.kimi.com/coding/`), MiniMax (`https://api.minimaxi.com/anthropic`), or any other compatible endpoint without code changes.
+
 ## Supported Sources
 
 ### Article Platforms
@@ -75,6 +106,8 @@ This workflow is designed to be platform-extensible. The current implementation 
    ```
 
 5. Run the AI review workflow when model credentials are configured and AI assistance is desired:
+
+   > **Note on AI provider compatibility:** The `ai.provider` field accepts `openai` or `anthropic`. The `anthropic` option is actually **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi (`https://api.kimi.com/coding/`), MiniMax (`https://api.minimaxi.com/anthropic`), or any other compatible endpoint without code changes.
 
    ```bash
    python -m src.cli ai-review outputs/ARTICLE_ID/reviewed.md
