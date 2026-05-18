@@ -106,8 +106,8 @@ class AIVerificationResult:
     raw: dict[str, Any]
 
 
-def prepare_rewritten_markdown(text: str) -> str:
-    return ensure_reviewed_markdown_structure(strip_markdown_fence(text), fallback_review_metadata())
+def prepare_rewritten_markdown(text: str, content_type: str = "article") -> str:
+    return ensure_reviewed_markdown_structure(strip_markdown_fence(text), fallback_review_metadata(), content_type)
 
 
 def strip_markdown_fence(text: str) -> str:
@@ -125,7 +125,9 @@ def parse_review_metadata_response(text: str) -> dict[str, Any]:
     return normalize_review_metadata(data.get("review", data))
 
 
-def ensure_reviewed_markdown_structure(markdown: str, review: dict[str, Any]) -> str:
+def ensure_reviewed_markdown_structure(markdown: str, review: dict[str, Any], content_type: str = "article") -> str:
+    if content_type == "social_post":
+        return markdown
     return remove_empty_generic_body_headings(ensure_main_article_section(ensure_ai_summary_section(markdown, review)))
 
 
