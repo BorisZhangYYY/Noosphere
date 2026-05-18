@@ -42,18 +42,6 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
     markdown = path.read_text(encoding="utf-8")
     if not H1_RE.search(markdown):
         issues.append(ValidationIssue("missing_h1", "Reviewed Markdown must start with or contain one H1 title."))
-    if not has_heading(markdown, 2, "AI Summary"):
-        issues.append(ValidationIssue("missing_ai_summary", "Reviewed Markdown must contain `## AI Summary`."))
-    else:
-        issues.extend(validate_content_before_ai_summary(markdown))
-        if not section_body(markdown, 2, "AI Summary").strip():
-            issues.append(ValidationIssue("empty_ai_summary", "`## AI Summary` must contain the AI summary."))
-    if not has_heading(markdown, 2, "Main Article"):
-        issues.append(ValidationIssue("missing_main_article", "Reviewed Markdown must contain `## Main Article`."))
-    elif not section_body(markdown, 2, "Main Article").strip():
-        issues.append(ValidationIssue("empty_main_article", "`## Main Article` must contain article body."))
-    issues.extend(validate_bare_urls(markdown))
-    issues.extend(validate_image_links(markdown, path.parent))
 
     manifest_path = inferred_manifest_path(path)
     manifest: dict[str, Any] | None = None
@@ -63,6 +51,28 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
         manifest, manifest_issue = read_json_document(manifest_path, "manifest")
         if manifest_issue:
             issues.append(manifest_issue)
+
+    content_type = "article"
+    if manifest:
+        article_data = manifest.get("article", {})
+        if isinstance(article_data, dict):
+            content_type = str(article_data.get("content_type", "article"))
+    is_social_post = content_type == "social_post"
+
+    if not is_social_post:
+        if not has_heading(markdown, 2, "AI Summary"):
+            issues.append(ValidationIssue("missing_ai_summary", "Reviewed Markdown must contain `## AI Summary`."))
+        else:
+            issues.extend(validate_content_before_ai_summary(markdown))
+            if not section_body(markdown, 2, "AI Summary").strip():
+                issues.append(ValidationIssue("empty_ai_summary", "`## AI Summary` must contain the AI summary."))
+        if not has_heading(markdown, 2, "Main Article"):
+            issues.append(ValidationIssue("missing_main_article", "Reviewed Markdown must contain `## Main Article`."))
+        elif not section_body(markdown, 2, "Main Article").strip():
+            issues.append(ValidationIssue("empty_main_article", "`## Main Article` must contain article body."))
+
+    issues.extend(validate_bare_urls(markdown))
+    issues.extend(validate_image_links(markdown, path.parent))
 
     report_path = review_report_path(path)
     report: dict[str, Any] | None = None
