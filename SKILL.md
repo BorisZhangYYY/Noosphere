@@ -29,8 +29,11 @@ Key fields in `config.json`:
 
 | Section | Fields | Notes |
 |---------|--------|-------|
+| `article` | `wechat_mp`, `zhihu_zhuanlan`, `xiaoheihe` | Article source platforms with `label` and `url_patterns` |
+| `social_post` | `x` | Social post source platforms with `label` and `url_patterns` |
+| `proxy` | `http`, `https` | Optional HTTP/HTTPS proxy URLs |
 | `siyuan` | `api_base`, `default_parent_id`, `token` | SiYuan note platform connection |
-| `ai` | `provider`, `max_attempts`, `*_prompt_path` | Provider: `openai` or `anthropic` |
+| `ai` | `provider`, `max_attempts`, `*_prompt_path`, `platform_prompts` | Provider: `openai` or `anthropic`; `platform_prompts` overrides prompts per platform |
 | `ai_providers` | `model`, `api_base`, `api_key`, `max_output_tokens`, `temperature` | Per-provider model settings |
 
 **Provider compatibility note:** `ai.provider: "anthropic"` means **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi (`https://api.kimi.com/coding/`), MiniMax (`https://api.minimaxi.com/anthropic`), or any other compatible endpoint without code changes.
@@ -42,6 +45,10 @@ Key fields in `config.json`:
 - WeChat public account articles: `mp.weixin.qq.com/s/...`
 - Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
 - Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
+
+### Social Post Platforms
+
+- X (Twitter): `x.com/...` or `twitter.com/...` (text-only via oEmbed MVP; images and videos are not downloaded)
 
 ### Note-taking Platforms
 
@@ -88,7 +95,7 @@ Key fields in `config.json`:
 
    Add `--apply` only for safe deterministic cleanup of empty, duplicate, or invalid-category marker entries. Substring overlaps and short markers are reported for manual review.
 
-4. The reviewed article produced by the AI review workflow should use this structure:
+4. The reviewed article produced by the AI review workflow should use this structure for **articles**:
 
    ```markdown
    # Article Title
@@ -104,6 +111,8 @@ Key fields in `config.json`:
 
    ...
    ```
+
+   For **social posts** (e.g., X/Twitter), the AI review preserves the original post text and adds a `## Context` section with background analysis instead of the `## AI Summary` / `## Main Article` structure.
 
 5. Run the AI review workflow when model credentials are configured and AI assistance is desired:
 

@@ -22,8 +22,24 @@ EXTRACTORS: dict[str, tuple[Callable[[str], bool], Extractor]] = {
 
 def classify_url(url: str, config: dict | None = None) -> str:
     config = config or load_config()
+
+    # Nested config structure: article.* and social_post.*
+    for section_key in ("article", "social_post"):
+        section = config.get(section_key, {})
+        if not isinstance(section, dict):
+            continue
+        for platform, value in section.items():
+            if not isinstance(value, dict):
+                continue
+            for pattern in value.get("url_patterns", []):
+                if pattern in url:
+                    if platform not in EXTRACTORS:
+                        raise ValueError(f"Configured platform has no extractor: {platform}")
+                    return platform
+
+    # Fallback: legacy flat config structure
     for platform, value in config.items():
-        if platform == "siyuan" or not isinstance(value, dict):
+        if platform in ("siyuan", "article", "social_post") or not isinstance(value, dict):
             continue
         for pattern in value.get("url_patterns", []):
             if pattern in url:

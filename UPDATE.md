@@ -6,13 +6,15 @@ Keep `README.md` focused on current user-facing behavior. Use this file for plan
 
 ## Current Baseline
 
-As of 2026-05-13, the project has:
+As of 2026-05-18, the project has:
 
 - Single-article CLI workflow through `python -m src.cli`.
 - Supported article sources:
   - WeChat public account articles: `mp.weixin.qq.com/s/...`
   - Zhihu Zhuanlan articles: `zhuanlan.zhihu.com/p/...`
   - Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
+- Supported social post sources:
+  - X (Twitter) posts: `x.com/...` and `twitter.com/...` (text-only oEmbed MVP)
 - Article workspaces under `outputs/<article_id>/`.
 - Each article workspace may contain:
   - `raw.md`: first-round crawler output
@@ -98,6 +100,7 @@ Support integration with more article platforms and note-taking platforms. The f
 | WeChat public account articles | ✅ |
 | Zhihu Zhuanlan | ✅ |
 | Xiaoheihe posts | ✅ |
+| X (Twitter) | ✅ (text-only oEmbed MVP) |
 | Xiaohongshu | ⬜ |
 
 #### Note-taking Platforms
@@ -179,3 +182,18 @@ Planned directions:
 - Article title not repeated in body when already in subject.
 - Report written to `outputs/<article_id>/email_report.json`.
 - Fixed email image display: img tag regex handles alt before src, path resolution uses parent directory, images embedded as base64 data URIs.
+
+### 2026-05-18
+
+- Added X (Twitter) as a source platform via oEmbed API MVP (`publish.twitter.com/oembed`).
+- Added `src/platforms/x/x_extractor.py`: `XExtractor` class extracting tweet text, author, and date from oEmbed HTML.
+- Added content-type classification: `article` (WeChat, Zhihu, Xiaoheihe) vs `social_post` (X).
+- Config restructured with nested sections: `article` (wechat_mp, zhihu_zhuanlan, xiaoheihe) and `social_post` (x).
+- Added `proxy` block in `config.json.example` for explicit HTTP/HTTPS proxy configuration.
+- Extractors declare `content_type` class variable; `manifest.json` stores it; AI review and validation respect it.
+- Social posts skip `## AI Summary` and `## Main Article` structure requirements.
+- Added platform-specific prompt overrides via `config.ai.platform_prompts`: X uses `rewrite_social_post.md`, `review_metadata_social.md`, `pre_upload_review_social.md`.
+- English prompt internationalization: all prompts rewritten in English for portability.
+- Social-post AI strategy: preserve original text and add context analysis (background, cultural references, subtext).
+- Added `test/test_x_extractor.py` (24 tests covering oEmbed parsing, title synthesis, HTML-to-markdown, error handling).
+- MVP limitation: X extraction is text-only; images and videos are not downloaded. Users view media through the original post link.

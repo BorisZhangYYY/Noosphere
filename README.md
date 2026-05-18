@@ -18,6 +18,10 @@ See [SKILL.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md) fo
 - Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
 - Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
 
+### Social Post Platforms
+
+- X (Twitter): `x.com/...` or `twitter.com/...` (text-only via oEmbed MVP)
+
 ### Note-taking Platforms
 
 - SiYuan
@@ -87,8 +91,11 @@ python -m src.cli --help
 
 ### Config Fields
 
+- `article`: article source platforms (wechat_mp, zhihu_zhuanlan, xiaoheihe)
+- `social_post`: social post source platforms (x)
+- `proxy`: optional HTTP/HTTPS proxy configuration
 - `siyuan`: API base, parent ID, token
-- `ai`: provider (`openai` or `anthropic`), retry count, prompt paths
+- `ai`: provider (`openai` or `anthropic`), retry count, prompt paths, platform-specific prompt overrides
 - `ai_providers`: model, API base, API key, token limit, temperature
 
 Supported AI providers currently include:

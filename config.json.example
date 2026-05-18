@@ -4,23 +4,34 @@
     "http": "http://127.0.0.1:7897",
     "https": "http://127.0.0.1:7897"
   },
-  "wechat_mp": {
-    "label": "微信公众号",
-    "url_patterns": [
-      "mp.weixin.qq.com/s/"
-    ]
+  "article": {
+    "wechat_mp": {
+      "label": "WeChat Public Account",
+      "url_patterns": [
+        "mp.weixin.qq.com/s/"
+      ]
+    },
+    "zhihu_zhuanlan": {
+      "label": "Zhihu Zhuanlan",
+      "url_patterns": [
+        "zhuanlan.zhihu.com/p/"
+      ]
+    },
+    "xiaoheihe": {
+      "label": "Xiaoheihe",
+      "url_patterns": [
+        "xiaoheihe.cn/bbs/post_share"
+      ]
+    }
   },
-  "zhihu_zhuanlan": {
-    "label": "知乎专栏",
-    "url_patterns": [
-      "zhuanlan.zhihu.com/p/"
-    ]
-  },
-  "xiaoheihe": {
-    "label": "小黑盒",
-    "url_patterns": [
-      "xiaoheihe.cn/bbs/post_share"
-    ]
+  "social_post": {
+    "x": {
+      "label": "X (Twitter)",
+      "url_patterns": [
+        "x.com/",
+        "twitter.com/"
+      ]
+    }
   },
   "siyuan": {
     "api_base": "http://127.0.0.1:6806",
@@ -62,7 +73,7 @@
     "port": 587,
     "user": "sender@example.com",
     "password": "your-smtp-password",
-    "sender_name": "你的称呼",
+    "sender_name": "Your Name",
     "allowed_recipients": ["friend@example.com"]
   }
 }
