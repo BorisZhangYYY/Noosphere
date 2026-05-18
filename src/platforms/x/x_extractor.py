@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -23,10 +23,11 @@ class XExtractor(BaseArticleExtractor):
     body_min_length = 10
 
     def handles(self, url: str) -> bool:
-        return any(domain in url for domain in ("x.com/", "twitter.com/"))
+        host = urlparse(url).netloc.lower()
+        return host in ("x.com", "www.x.com", "twitter.com", "www.twitter.com")
 
     def _extract_tweet_id(self, url: str) -> str:
-        match = re.search(r"/status/(\d+)", url)
+        match = re.search(r"/status/(\d+)(?:\?|$)", url)
         if not match:
             raise ValueError(f"Invalid X URL: no tweet ID found in {url}")
         return match.group(1)
@@ -62,7 +63,7 @@ class XExtractor(BaseArticleExtractor):
         # Extract author from &mdash; text node
         mdash_text = ""
         for elem in blockquote.children:
-            if isinstance(elem, str) and "—" in elem or "&mdash;" in str(elem):
+            if isinstance(elem, str) and ("—" in elem or "&mdash;" in elem):
                 mdash_text = str(elem)
                 break
 
@@ -87,6 +88,15 @@ class XExtractor(BaseArticleExtractor):
             "tweet_url": tweet_url or "",
         }
 
+    def crawl_options(self) -> dict[str, object]:
+        return {}
+
+    def extract_title(self, soup: BeautifulSoup) -> str | None:
+        return None
+
+    def content_node(self, soup: BeautifulSoup) -> Tag | None:
+        return None
+
     def _html_to_markdown(self, html: str) -> str:
         soup = BeautifulSoup(html, "lxml")
         for a in soup.find_all("a"):
@@ -102,7 +112,7 @@ class XExtractor(BaseArticleExtractor):
         preview = text[:60].replace("\n", " ")
         if len(text) > 60:
             preview = preview.rstrip() + "..."
-        author = author_name or "Unknown"
+        author = author_name or self.fallback_title
         return f"{author}: {preview}"
 
     async def extract(self, url: str) -> Article:

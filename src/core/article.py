@@ -12,6 +12,7 @@ class Article:
     url: str
     title: str
     markdown: str
+    content_type: str = "article"
     author: str | None = None
     published_at: str | None = None
     captured_at: str = field(default_factory=lambda: datetime.now().astimezone().isoformat(timespec="seconds"))
