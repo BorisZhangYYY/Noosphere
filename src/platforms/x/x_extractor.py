@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 
 from src.core.article import Article
 from src.core.base_extractor import BaseArticleExtractor
+from src.core.config import load_config
 
 PLATFORM = "x"
 PLATFORM_LABEL = "X (Twitter)"
@@ -32,10 +33,22 @@ class XExtractor(BaseArticleExtractor):
             raise ValueError(f"Invalid X URL: no tweet ID found in {url}")
         return match.group(1)
 
+    def _get_proxy(self) -> str | None:
+        config = load_config()
+        proxy_config = config.get("proxy")
+        if not isinstance(proxy_config, dict):
+            return None
+        return proxy_config.get("https") or proxy_config.get("http") or None
+
     async def _fetch_oembed(self, url: str) -> dict:
         params = f"?url={quote(url, safe='')}&omit_script=true&dnt=true"
+        proxy = self._get_proxy()
         async with aiohttp.ClientSession(trust_env=True) as session:
-            async with session.get(OEMBED_ENDPOINT + params, timeout=aiohttp.ClientTimeout(total=15)) as response:
+            async with session.get(
+                OEMBED_ENDPOINT + params,
+                proxy=proxy,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as response:
                 if response.status == 404:
                     raise ValueError(f"Tweet not found or private: {url}")
                 response.raise_for_status()
