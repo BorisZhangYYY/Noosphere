@@ -34,7 +34,7 @@ class XExtractor(BaseArticleExtractor):
 
     async def _fetch_oembed(self, url: str) -> dict:
         params = f"?url={quote(url, safe='')}&omit_script=true&dnt=true"
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             async with session.get(OEMBED_ENDPOINT + params, timeout=aiohttp.ClientTimeout(total=15)) as response:
                 if response.status == 404:
                     raise ValueError(f"Tweet not found or private: {url}")
