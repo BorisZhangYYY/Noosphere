@@ -19,3 +19,4 @@ Noosphere is an article web extraction, AI review, and SiYuan upload tool.
 - Before every commit, read UPDATE.md and record today's development progress with the date.
 - Keep commits grouped by intent: implementation, docs, and small corrections separately.
 - Never commit `config.json`, `outputs/`, API keys, SiYuan tokens, or generated caches.
+- Never commit **superpowers-related** plans, keeping them local. 
