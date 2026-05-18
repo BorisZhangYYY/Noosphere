@@ -63,7 +63,7 @@ class XExtractor:
             raise ValueError("oEmbed response missing blockquote")
 
         p_tag = blockquote.find("p")
-        text = self._html_to_markdown(str(p_tag)) if p_tag else ""
+        text = self._tag_to_markdown(p_tag) if p_tag else ""
 
         author_name = ""
         author_handle = ""
@@ -77,6 +77,7 @@ class XExtractor:
 
         # Extract author from &mdash; text node
         mdash_text = ""
+        full_text = ""
         for elem in blockquote.children:
             if isinstance(elem, str) and ("—" in elem or "&mdash;" in elem):
                 mdash_text = str(elem)
@@ -89,8 +90,8 @@ class XExtractor:
 
         if mdash_text:
             author_match = re.search(r"—\s*(.+?)\s*\(@([^)]+)\)", mdash_text)
-            if not author_match:
-                author_match = re.search(r"—\s*(.+?)\s*\(@([^)]+)\)", blockquote.get_text(" ", strip=True))
+            if not author_match and full_text:
+                author_match = re.search(r"—\s*(.+?)\s*\(@([^)]+)\)", full_text)
             if author_match:
                 author_name = author_match.group(1).strip()
                 author_handle = author_match.group(2).strip()
@@ -103,15 +104,14 @@ class XExtractor:
             "tweet_url": tweet_url or "",
         }
 
-    def _html_to_markdown(self, html: str) -> str:
-        soup = BeautifulSoup(html, "lxml")
-        for a in soup.find_all("a"):
+    def _tag_to_markdown(self, tag) -> str:
+        for a in tag.find_all("a"):
             href = a.get("href", "")
             text = a.get_text(strip=True)
             a.replace_with(f"[{text}]({href})")
-        for br in soup.find_all("br"):
+        for br in tag.find_all("br"):
             br.replace_with("\n")
-        text = soup.get_text(" ", strip=True)
+        text = tag.get_text(" ", strip=True)
         return re.sub(r"\n{3,}", "\n\n", text).strip()
 
     def _synthesize_title(self, author_name: str, text: str) -> str:

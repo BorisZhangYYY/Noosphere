@@ -135,20 +135,22 @@ def test_synthesize_title_no_author():
 
 
 # ---------------------------------------------------------------------------
-# _html_to_markdown()
+# _tag_to_markdown()
 # ---------------------------------------------------------------------------
-def test_html_to_markdown_links_and_breaks():
+def test_tag_to_markdown_links_and_breaks():
     extractor = XExtractor()
-    html = '<p>Hello <a href="https://example.com">world</a>!<br>Second line</p>'
-    result = extractor._html_to_markdown(html)
+    from bs4 import BeautifulSoup
+    tag = BeautifulSoup('<p>Hello <a href="https://example.com">world</a>!<br>Second line</p>', "lxml").find("p")
+    result = extractor._tag_to_markdown(tag)
     # get_text(" ", strip=True) inserts spaces between text nodes
     assert result == "Hello [world](https://example.com) ! Second line"
 
 
-def test_html_to_markdown_strip_other_tags():
+def test_tag_to_markdown_strip_other_tags():
     extractor = XExtractor()
-    html = '<p><strong>Bold</strong> and <em>italic</em></p>'
-    result = extractor._html_to_markdown(html)
+    from bs4 import BeautifulSoup
+    tag = BeautifulSoup('<p><strong>Bold</strong> and <em>italic</em></p>', "lxml").find("p")
+    result = extractor._tag_to_markdown(tag)
     assert result == "Bold and italic"
 
 
