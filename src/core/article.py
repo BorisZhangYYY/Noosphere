@@ -55,6 +55,7 @@ class Article:
         if self.published_at:
             metadata.append(f"> 发布时间：{self.published_at}")
         metadata.append(f"> 抓取时间：{self.captured_at}")
+        metadata.append(f"> 内容类型：{self.content_type}")
 
         return "\n".join(
             [

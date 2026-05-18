@@ -185,8 +185,6 @@ def test_extract_full_pipeline(monkeypatch):
 
     article = asyncio.run(x_extractor.extract("https://x.com/elonmusk/status/1234567890"))
 
-    article = asyncio.run(x_extractor.extract("https://x.com/elonmusk/status/1234567890"))
-
     assert article.platform == "x"
     assert article.platform_label == "X (Twitter)"
     assert article.content_type == "social_post"

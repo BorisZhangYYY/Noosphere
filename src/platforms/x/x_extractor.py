@@ -7,7 +7,6 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from src.core.article import Article
-from src.core.base_extractor import BaseArticleExtractor
 from src.core.config import load_config
 
 PLATFORM = "x"
@@ -16,12 +15,11 @@ FALLBACK_TITLE = "X Post"
 OEMBED_ENDPOINT = "https://publish.twitter.com/oembed"
 
 
-class XExtractor(BaseArticleExtractor):
+class XExtractor:
     platform = PLATFORM
     platform_label = PLATFORM_LABEL
     fallback_title = FALLBACK_TITLE
     content_type = "social_post"
-    body_min_length = 10
 
     def handles(self, url: str) -> bool:
         host = urlparse(url).netloc.lower()
@@ -34,11 +32,15 @@ class XExtractor(BaseArticleExtractor):
         return match.group(1)
 
     def _get_proxy(self) -> str | None:
+        if hasattr(self, "_proxy_cache"):
+            return self._proxy_cache
         config = load_config()
         proxy_config = config.get("proxy")
         if not isinstance(proxy_config, dict):
-            return None
-        return proxy_config.get("https") or proxy_config.get("http") or None
+            self._proxy_cache = None
+        else:
+            self._proxy_cache = proxy_config.get("https") or proxy_config.get("http") or None
+        return self._proxy_cache
 
     async def _fetch_oembed(self, url: str) -> dict:
         params = f"?url={quote(url, safe='')}&omit_script=true&dnt=true"
@@ -100,15 +102,6 @@ class XExtractor(BaseArticleExtractor):
             "published_at": published_at,
             "tweet_url": tweet_url or "",
         }
-
-    def crawl_options(self) -> dict[str, object]:
-        return {}
-
-    def extract_title(self, soup: BeautifulSoup) -> str | None:
-        return None
-
-    def content_node(self, soup: BeautifulSoup) -> Tag | None:
-        return None
 
     def _html_to_markdown(self, html: str) -> str:
         soup = BeautifulSoup(html, "lxml")
