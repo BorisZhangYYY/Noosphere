@@ -105,7 +105,7 @@ class XExtractor(BaseArticleExtractor):
             a.replace_with(f"[{text}]({href})")
         for br in soup.find_all("br"):
             br.replace_with("\n")
-        text = soup.get_text("", strip=True)
+        text = soup.get_text(" ", strip=True)
         return re.sub(r"\n{3,}", "\n\n", text).strip()
 
     def _synthesize_title(self, author_name: str, text: str) -> str:
