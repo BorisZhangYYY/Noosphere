@@ -57,9 +57,8 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
         article_data = manifest.get("article", {})
         if isinstance(article_data, dict):
             content_type = str(article_data.get("content_type", "article"))
-    is_social_post = content_type == "social_post"
 
-    if not is_social_post:
+    if content_type == "article":
         if not has_heading(markdown, 2, "AI Summary"):
             issues.append(ValidationIssue("missing_ai_summary", "Reviewed Markdown must contain `## AI Summary`."))
         else:
@@ -70,6 +69,8 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
             issues.append(ValidationIssue("missing_main_article", "Reviewed Markdown must contain `## Main Article`."))
         elif not section_body(markdown, 2, "Main Article").strip():
             issues.append(ValidationIssue("empty_main_article", "`## Main Article` must contain article body."))
+    elif content_type == "social_post":
+        pass  # social posts do not require AI Summary / Main Article structure
 
     issues.extend(validate_bare_urls(markdown))
     issues.extend(validate_image_links(markdown, path.parent))
