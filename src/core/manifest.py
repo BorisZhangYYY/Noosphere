@@ -31,6 +31,7 @@ def build_article_manifest(
             "published_at": article.published_at,
             "captured_at": article.captured_at,
             "status_code": article.status_code,
+            "content_type": article.content_type,
             "extra": article.extra,
         },
         "paths": {
