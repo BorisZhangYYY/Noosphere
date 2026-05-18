@@ -5,6 +5,7 @@ platform_rules/
 
 # AI
 .claude/
+superpowers/
 
 # cache
 __pycache__/

@@ -14,6 +14,7 @@ class BaseArticleExtractor(ABC):
     platform: str
     platform_label: str
     fallback_title: str
+    content_type: str = "article"
     body_min_length = 100
 
     @abstractmethod
@@ -57,6 +58,7 @@ class BaseArticleExtractor(ABC):
         return Article(
             platform=self.platform,
             platform_label=self.platform_label,
+            content_type=self.content_type,
             url=url,
             title=title,
             author=self.extract_author(soup),

@@ -1,22 +1,37 @@
 {
   "output_dir": "outputs",
-  "wechat_mp": {
-    "label": "微信公众号",
-    "url_patterns": [
-      "mp.weixin.qq.com/s/"
-    ]
+  "proxy": {
+    "http": "http://127.0.0.1:7897",
+    "https": "http://127.0.0.1:7897"
   },
-  "zhihu_zhuanlan": {
-    "label": "知乎专栏",
-    "url_patterns": [
-      "zhuanlan.zhihu.com/p/"
-    ]
+  "article": {
+    "wechat_mp": {
+      "label": "WeChat Public Account",
+      "url_patterns": [
+        "mp.weixin.qq.com/s/"
+      ]
+    },
+    "zhihu_zhuanlan": {
+      "label": "Zhihu Zhuanlan",
+      "url_patterns": [
+        "zhuanlan.zhihu.com/p/"
+      ]
+    },
+    "xiaoheihe": {
+      "label": "Xiaoheihe",
+      "url_patterns": [
+        "xiaoheihe.cn/bbs/post_share"
+      ]
+    }
   },
-  "xiaoheihe": {
-    "label": "小黑盒",
-    "url_patterns": [
-      "xiaoheihe.cn/bbs/post_share"
-    ]
+  "social_post": {
+    "x": {
+      "label": "X (Twitter)",
+      "url_patterns": [
+        "x.com/",
+        "twitter.com/"
+      ]
+    }
   },
   "siyuan": {
     "api_base": "http://127.0.0.1:6806",
@@ -28,7 +43,14 @@
     "max_attempts": 2,
     "rewrite_prompt_path": "prompts/rewrite_article.md",
     "review_metadata_prompt_path": "prompts/review_metadata.md",
-    "verify_prompt_path": "prompts/pre_upload_review.md"
+    "verify_prompt_path": "prompts/pre_upload_review.md",
+    "platform_prompts": {
+      "x": {
+        "rewrite_prompt_path": "prompts/rewrite_social_post.md",
+        "review_metadata_prompt_path": "prompts/review_metadata_social.md",
+        "verify_prompt_path": "prompts/pre_upload_review_social.md"
+      }
+    }
   },
   "ai_providers": {
     "openai": {
@@ -45,5 +67,13 @@
       "max_output_tokens": 12000,
       "temperature": 0.2
     }
+  },
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 587,
+    "user": "sender@example.com",
+    "password": "your-smtp-password",
+    "sender_name": "Your Name",
+    "allowed_recipients": ["friend@example.com"]
   }
 }

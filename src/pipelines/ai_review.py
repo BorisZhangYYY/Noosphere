@@ -66,15 +66,19 @@ def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGener
     raw_markdown = raw_markdown_from_manifest(manifest_path)
     ai_settings = ai_config(config)
     attempts = max_attempts or int(ai_settings.get("max_attempts") or 2)
-    rewrite_prompt = configured_prompt(ai_settings, "rewrite_prompt", "rewrite_prompt_path")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    platform = str((manifest.get("article") or {}).get("platform") or "")
+    content_type = str((manifest.get("article") or {}).get("content_type") or "article")
+    rewrite_prompt = configured_prompt(
+        ai_settings, "rewrite_prompt", "rewrite_prompt_path", platform=platform
+    )
     review_metadata_prompt = configured_prompt(
         ai_settings,
         "review_metadata_prompt",
         "review_metadata_prompt_path",
         default_path="prompts/review_metadata.md",
+        platform=platform,
     )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    platform = str((manifest.get("article") or {}).get("platform") or "")
     noise_hints_document = noise_hints_from_manifest(manifest_path, manifest)
     noise_hints_context = format_noise_hints_context(noise_hints_document)
 
@@ -94,7 +98,9 @@ def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGener
                 noise_hints_context=noise_hints_context,
             ),
         )
-        reviewed_markdown = normalize_markdown_links(prepare_rewritten_markdown(response.text))
+        reviewed_markdown = normalize_markdown_links(
+            prepare_rewritten_markdown(response.text, content_type)
+        )
 
         # Step 2: Generate review metadata (second AI call)
         path.write_text(reviewed_markdown, encoding="utf-8")
@@ -179,7 +185,11 @@ def verify_reviewed_article(
     reviewed_markdown = path.read_text(encoding="utf-8")
     validation = validation or validate_reviewed_markdown(path)
     ai_settings = ai_config(config)
-    verify_prompt = configured_prompt(ai_settings, "verify_prompt", "verify_prompt_path")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    platform = str((manifest.get("article") or {}).get("platform") or "")
+    verify_prompt = configured_prompt(
+        ai_settings, "verify_prompt", "verify_prompt_path", platform=platform
+    )
     response = generator.generate_structured_text(
         verify_prompt,
         build_verify_user_prompt(raw_markdown, reviewed_markdown, validation),
@@ -208,7 +218,29 @@ def raw_markdown_from_manifest(manifest_path: Path) -> str:
     return resolve_manifest_path_entry(manifest_path, raw_path).read_text(encoding="utf-8")
 
 
-def configured_prompt(config: dict, value_key: str, path_key: str, default_path: str | None = None) -> str:
+def configured_prompt(
+    config: dict,
+    value_key: str,
+    path_key: str,
+    default_path: str | None = None,
+    platform: str = "",
+) -> str:
+    # Check platform-specific override first
+    platform_overrides = config.get("platform_prompts")
+    if platform and isinstance(platform_overrides, dict):
+        platform_config = platform_overrides.get(platform, {})
+        if isinstance(platform_config, dict):
+            platform_value = platform_config.get(value_key)
+            if isinstance(platform_value, str) and platform_value.strip():
+                return platform_value
+            platform_path = platform_config.get(path_key)
+            if isinstance(platform_path, str) and platform_path.strip():
+                prompt_path = Path(platform_path).expanduser()
+                if not prompt_path.is_absolute():
+                    prompt_path = REPO_ROOT / prompt_path
+                return prompt_path.read_text(encoding="utf-8")
+
+    # Fall back to global config
     value = config.get(value_key)
     if isinstance(value, str) and value.strip():
         return value

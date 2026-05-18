@@ -18,6 +18,10 @@ See [SKILL.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md) fo
 - Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
 - Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
 
+### Social Post Platforms
+
+- X (Twitter): `x.com/...` or `twitter.com/...` (text-only via oEmbed MVP)
+
 ### Note-taking Platforms
 
 - SiYuan
@@ -39,6 +43,9 @@ python -m src.cli rules-review wechat_mp
 
 # Manual endpoint: upload the Markdown you provide
 python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
+
+# Send reviewed article as HTML email (requires SMTP config in config.json)
+python -m src.cli email ARTICLE_ID --to recipient@example.com
 
 # One-command: extract → ai-review → upload
 python -m src.cli run URL
@@ -65,16 +72,37 @@ Use `python -m src.cli rules-review PLATFORM` to report duplicates, overlapping 
 
 ## Configuration
 
-Copy `config.json.example` to `config.json` and configure:
+### Quick Start
 
+```bash
+# 1. Clone and enter
+cd /path/to/Noosphere
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Copy and edit config
+cp config.json.example config.json
+# Edit config.json with your API keys and endpoints
+
+# 4. Verify
+python -m src.cli --help
+```
+
+### Config Fields
+
+- `article`: article source platforms (wechat_mp, zhihu_zhuanlan, xiaoheihe)
+- `social_post`: social post source platforms (x)
+- `proxy`: optional HTTP/HTTPS proxy configuration
 - `siyuan`: API base, parent ID, token
-- `ai`: provider, retry count, prompt paths
+- `ai`: provider (`openai` or `anthropic`), retry count, prompt paths, platform-specific prompt overrides
 - `ai_providers`: model, API base, API key, token limit, temperature
 
 Supported AI providers currently include:
 
 - `openai`
 - `anthropic`
+- `compatible`
 
 ## Future Extensions
 

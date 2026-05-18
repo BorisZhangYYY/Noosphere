@@ -6,13 +6,15 @@ Keep `README.md` focused on current user-facing behavior. Use this file for plan
 
 ## Current Baseline
 
-As of 2026-05-13, the project has:
+As of 2026-05-18, the project has:
 
 - Single-article CLI workflow through `python -m src.cli`.
 - Supported article sources:
   - WeChat public account articles: `mp.weixin.qq.com/s/...`
   - Zhihu Zhuanlan articles: `zhuanlan.zhihu.com/p/...`
   - Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
+- Supported social post sources:
+  - X (Twitter) posts: `x.com/...` and `twitter.com/...` (text-only oEmbed MVP)
 - Article workspaces under `outputs/<article_id>/`.
 - Each article workspace may contain:
   - `raw.md`: first-round crawler output
@@ -98,6 +100,7 @@ Support integration with more article platforms and note-taking platforms. The f
 | WeChat public account articles | ✅ |
 | Zhihu Zhuanlan | ✅ |
 | Xiaoheihe posts | ✅ |
+| X (Twitter) | ✅ (text-only oEmbed MVP) |
 | Xiaohongshu | ⬜ |
 
 #### Note-taking Platforms
@@ -165,3 +168,32 @@ Planned directions:
 
 - Added system validation to reject article body content before `## AI Summary`, while still allowing the title, source metadata block, and separator before the summary section.
 - Added Xiaoheihe post extraction support for `xiaoheihe.cn/bbs/post_share` links.
+
+### 2026-05-15
+
+- Added `email` CLI command: `python -m src.cli email <article_id> --to recipient@example.com`
+- Added `src/integrations/email_adapter.py` with `EmailAdapter` class: SMTP send with whitelist validation, multipart/alternative MIME messages, inline image embedding, starttls support.
+- Added `src/integrations/markdown_to_email.py` with `MarkdownToEmailRenderer` class: converts Markdown to email-safe HTML with inline styles, embedded base64 images, and subject-title deduplication.
+- Added `src/core/email_report.py` with `EmailReport` dataclass and `write_report` helper for persisting per-article email send records.
+- Added `test/test_email_adapter.py` covering whitelist validation, MIME building.
+- Added `test/test_markdown_to_email.py` covering h2 rendering, title stripping, HR preservation, inline style application.
+- `config.json.example` extended with `smtp` block: host, port, user, password, sender_name, allowed_recipients.
+- Email subject format: `[Noosphere 用户 {sender_name} 向你分享] {article_title}`.
+- Article title not repeated in body when already in subject.
+- Report written to `outputs/<article_id>/email_report.json`.
+- Fixed email image display: img tag regex handles alt before src, path resolution uses parent directory, images embedded as base64 data URIs.
+
+### 2026-05-18
+
+- Added X (Twitter) as a source platform via oEmbed API MVP (`publish.twitter.com/oembed`).
+- Added `src/platforms/x/x_extractor.py`: `XExtractor` class extracting tweet text, author, and date from oEmbed HTML.
+- Added content-type classification: `article` (WeChat, Zhihu, Xiaoheihe) vs `social_post` (X).
+- Config restructured with nested sections: `article` (wechat_mp, zhihu_zhuanlan, xiaoheihe) and `social_post` (x).
+- Added `proxy` block in `config.json.example` for explicit HTTP/HTTPS proxy configuration.
+- Extractors declare `content_type` class variable; `manifest.json` stores it; AI review and validation respect it.
+- Social posts skip `## AI Summary` and `## Main Article` structure requirements.
+- Added platform-specific prompt overrides via `config.ai.platform_prompts`: X uses `rewrite_social_post.md`, `review_metadata_social.md`, `pre_upload_review_social.md`.
+- English prompt internationalization: all prompts rewritten in English for portability.
+- Social-post AI strategy: preserve original text and add context analysis (background, cultural references, subtext).
+- Added `test/test_x_extractor.py` (24 tests covering oEmbed parsing, title synthesis, HTML-to-markdown, error handling).
+- MVP limitation: X extraction is text-only; images and videos are not downloaded. Users view media through the original post link.

@@ -4,6 +4,40 @@ Use this skill when the user wants to extract one article from a supported platf
 
 This workflow is designed to be platform-extensible. The current implementation may support specific note targets such as SiYuan, but the overall design should not be tied to a single destination. Future note platforms can be added through dedicated upload adapters, platform-specific configuration, and validation rules.
 
+## Deployment & Configuration
+
+### Setup
+
+```bash
+# 1. Enter project directory
+cd /path/to/Noosphere
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Copy example config and customize
+cp config.json.example config.json
+# Edit config.json — add your API keys and endpoints
+
+# 4. Verify installation
+python -m src.cli --help
+```
+
+### Config Overview
+
+Key fields in `config.json`:
+
+| Section | Fields | Notes |
+|---------|--------|-------|
+| `article` | `wechat_mp`, `zhihu_zhuanlan`, `xiaoheihe` | Article source platforms with `label` and `url_patterns` |
+| `social_post` | `x` | Social post source platforms with `label` and `url_patterns` |
+| `proxy` | `http`, `https` | Optional HTTP/HTTPS proxy URLs |
+| `siyuan` | `api_base`, `default_parent_id`, `token` | SiYuan note platform connection |
+| `ai` | `provider`, `max_attempts`, `*_prompt_path`, `platform_prompts` | Provider: `openai` or `anthropic`; `platform_prompts` overrides prompts per platform |
+| `ai_providers` | `model`, `api_base`, `api_key`, `max_output_tokens`, `temperature` | Per-provider model settings |
+
+**Provider compatibility note:** `ai.provider: "anthropic"` means **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi (`https://api.kimi.com/coding/`), MiniMax (`https://api.minimaxi.com/anthropic`), or any other compatible endpoint without code changes.
+
 ## Supported Sources
 
 ### Article Platforms
@@ -11,6 +45,10 @@ This workflow is designed to be platform-extensible. The current implementation 
 - WeChat public account articles: `mp.weixin.qq.com/s/...`
 - Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
 - Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
+
+### Social Post Platforms
+
+- X (Twitter): `x.com/...` or `twitter.com/...` (text-only via oEmbed MVP; images and videos are not downloaded)
 
 ### Note-taking Platforms
 
@@ -57,7 +95,7 @@ This workflow is designed to be platform-extensible. The current implementation 
 
    Add `--apply` only for safe deterministic cleanup of empty, duplicate, or invalid-category marker entries. Substring overlaps and short markers are reported for manual review.
 
-4. The reviewed article produced by the AI review workflow should use this structure:
+4. The reviewed article produced by the AI review workflow should use this structure for **articles**:
 
    ```markdown
    # Article Title
@@ -74,7 +112,11 @@ This workflow is designed to be platform-extensible. The current implementation 
    ...
    ```
 
+   For **social posts** (e.g., X/Twitter), the AI review preserves the original post text and adds a `## Context` section with background analysis instead of the `## AI Summary` / `## Main Article` structure.
+
 5. Run the AI review workflow when model credentials are configured and AI assistance is desired:
+
+   > **Note on AI provider compatibility:** The `ai.provider` field accepts `openai` or `anthropic`. The `anthropic` option is actually **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi (`https://api.kimi.com/coding/`), MiniMax (`https://api.minimaxi.com/anthropic`), or any other compatible endpoint without code changes.
 
    ```bash
    python -m src.cli ai-review outputs/ARTICLE_ID/reviewed.md
@@ -122,4 +164,5 @@ This workflow is designed to be platform-extensible. The current implementation 
 | `validate FILE` | CLI | Run deterministic system review checks for the reviewed article. |
 | `rules-review PLATFORM` | CLI | Review local platform marker rules and optionally apply safe cleanup with `--apply`. |
 | `upload FILE` | CLI/platform adapter | Upload or import the provided Markdown file to the configured note-taking platform without review gating. |
+| `email ARTICLE_ID --to RECIPIENT` | CLI/SMTP | Send the reviewed article as an HTML email to the specified recipient (must be in allowed_recipients). |
 | `run URL` | Mixed | Run the full workflow from extraction through review and final upload/import. |

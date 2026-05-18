@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 from pathlib import Path
 
 from src.core.config import configured_output_dir, load_config
@@ -31,6 +32,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     run_parser = subparsers.add_parser("run", help="Extract one URL, AI-review it, then upload it to SiYuan.")
     run_parser.add_argument("url", help="Article URL to extract.")
+
+    email_parser = subparsers.add_parser("email", help="Send reviewed article as HTML email via SMTP.")
+    email_parser.add_argument("article_id", help="Article ID to send as email.")
+    email_parser.add_argument("--to", required=True, help="Recipient email address (must be in allowed_recipients).")
 
     return parser.parse_args(argv)
 
@@ -104,6 +109,87 @@ def main(argv: list[str] | None = None) -> int:
             hpath = upload_markdown_file(reviewed_path)
             print(f"Uploaded: {hpath}")
             return 0
+
+        if args.command == "email":
+            from src.core.email_report import EmailReport, write_report
+            from src.integrations.email_adapter import EmailAdapter
+            from src.integrations.markdown_to_email import MarkdownToEmailRenderer
+
+            # Load config and smtp settings
+            config = load_config()
+            smtp_config = config.get("smtp")
+            if not smtp_config:
+                print("Error: SMTP not configured in config.json")
+                return 1
+
+            # Validate recipient
+            allowed = smtp_config.get("allowed_recipients", [])
+            if args.to not in allowed:
+                print(f"Error: Recipient '{args.to}' is not in allowed_recipients list")
+                return 1
+
+            # Load article
+            output_dir = configured_output_dir(config)
+            article_dir = output_dir / args.article_id
+            reviewed_md = article_dir / "reviewed.md"
+            if not reviewed_md.exists():
+                print(f"Error: Article not found: {article_dir}")
+                return 1
+            markdown_text = reviewed_md.read_text(encoding="utf-8")
+
+            # Extract article title for subject
+            title_match = re.search(r"^#\s+(.+)$", markdown_text, re.MULTILINE)
+            article_title = title_match.group(1).strip() if title_match else args.article_id
+
+            # Get assets directory if exists
+            assets_dir = article_dir / "assets"
+
+            # Render HTML
+            renderer = MarkdownToEmailRenderer()
+            html_body = renderer.render(markdown_text, assets_dir=assets_dir, subject_title=article_title)
+
+            # Prepend header note
+            header_note = f'<p style="margin-bottom: 1em; color: #666; font-size: 0.9em;">[Noosphere 用户 {smtp_config["sender_name"]} 向你分享]</p>'
+            html_body = header_note + html_body
+
+            # Images are already embedded as base64 in HTML by MarkdownToEmailRenderer,
+            # so no separate attachments needed.
+
+            # Build subject
+            subject = f"[Noosphere 用户 {smtp_config['sender_name']} 向你分享] {article_title}"
+
+            # Send email
+            adapter = EmailAdapter(
+                host=smtp_config["host"],
+                port=smtp_config["port"],
+                user=smtp_config["user"],
+                password=smtp_config["password"],
+                sender_name=smtp_config["sender_name"],
+                allowed_recipients=allowed,
+            )
+            result = adapter.send(
+                article_id=args.article_id,
+                recipient=args.to,
+                html_body=html_body,
+                subject=subject,
+            )
+
+            # Write report
+            report = EmailReport(
+                article_id=args.article_id,
+                recipient=args.to,
+                subject=subject,
+                success=result.success,
+                error=result.message if not result.success else None,
+            )
+            report_path = write_report(args.article_id, report, output_dir)
+            print(f"Email report: {report_path}")
+
+            if result.success:
+                print(f"Email sent successfully to {args.to}")
+                return 0
+            print(f"Error: {result.message}")
+            return 1
 
     except Exception as exc:  # noqa: BLE001 - CLI should show a concise error.
         print(f"Error: {exc}")
