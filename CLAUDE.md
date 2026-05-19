@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Noosphere is an article web extraction, AI review, and SiYuan upload tool.
+Noosphere is an article web extraction, AI review, sharing and storing tool.
 
 ## Project Rules
 
