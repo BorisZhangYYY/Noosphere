@@ -8,6 +8,12 @@ from pathlib import Path
 
 from src.core.config.config import configured_output_dir
 
+"""Email report persistence for shared articles.
+
+Records the result of sending a reviewed article via email, including
+recipient, subject, success status, and any error message. Reports are
+written to outputs/<article_id>/email_report.json.
+"""
 
 @dataclass
 class EmailReport:

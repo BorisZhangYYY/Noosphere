@@ -4,6 +4,12 @@ import re
 
 from bs4 import BeautifulSoup, Tag
 
+"""Markdown cleaning and HTML-to-text conversion utilities.
+
+Provides clean_markdown() for normalizing crawler output and
+html_to_text_markdown() as a fallback when crawler markdown is too short
+or empty. Used by BaseArticleExtractor during the extraction phase.
+"""
 
 INVALID_HPATH_CHARS_RE = re.compile(r"[\x00-\x1f/\\:*?\"<>|]+")
 BLANK_LINES_RE = re.compile(r"\n{3,}")

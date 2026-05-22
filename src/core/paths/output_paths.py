@@ -6,6 +6,15 @@ from pathlib import Path
 
 from src.core.models.article import Article
 
+"""Output path management for article workspaces.
+
+Defines the per-article directory layout under outputs/<article_id>/:
+- raw.md: first-round crawler output
+- reviewed.md: editable and uploadable Markdown
+- assets/: downloaded local images
+- manifest.json: source metadata and path index
+- noise_hints.json: platform marker hits for AI review context
+"""
 
 @dataclass(frozen=True)
 class ArticleOutputPaths:

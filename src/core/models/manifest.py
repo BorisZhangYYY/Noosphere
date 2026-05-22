@@ -9,6 +9,12 @@ from src.core.models.article import Article
 from src.core.paths.output_paths import ArticleOutputPaths
 from src.integrations.assets import ImageDownloadResult
 
+"""Manifest builder for article workspaces.
+
+Each extraction produces a manifest.json in outputs/<article_id>/ that records
+source metadata, file paths, and asset download results. Downstream commands
+(ai-review, validate, upload, email) read the manifest to locate related files.
+"""
 
 SCHEMA_VERSION = 1
 

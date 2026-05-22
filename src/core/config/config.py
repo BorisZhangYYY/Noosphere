@@ -3,6 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+"""Configuration loader and accessors.
+
+Reads config.json from the repo root and provides typed accessors for
+SiYuan, AI provider, and output directory settings. All credential lookups
+read directly from config.json; environment variables are intentionally not used.
+"""
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "config.json"

@@ -6,6 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+"""Review report persistence.
+
+Handles reading and writing of review.json, the article-specific metadata
+produced by the AI review pipeline. Contains information about summary,
+removed sections, preserved sections, and pre-upload verification results.
+"""
 
 SCHEMA_VERSION = 1
 

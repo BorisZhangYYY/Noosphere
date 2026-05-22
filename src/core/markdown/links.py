@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import re
 
+"""Markdown link normalization.
+
+Converts bare prose URLs into proper Markdown links and fixes common
+formatting issues that would cause problems during upload or rendering.
+"""
 
 BARE_URL_RE = re.compile(r"https?://[^\s<>()\]]+")
 INLINE_CODE_RE = re.compile(r"`[^`\n]*`")

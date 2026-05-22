@@ -89,6 +89,14 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
     if manifest is not None and report is not None:
         from src.platforms.review_validation import validate_platform_review_structure
 
+"""Deterministic validation rules for reviewed Markdown.
+
+Checks Markdown structure, required sections, image/link integrity, and
+dispatches platform-specific validations from src/platforms/<platform>/.
+
+Used by both the ai-review pipeline (as a quality gate) and the standalone
+validate CLI command.
+"""
         issues.extend(validate_platform_review_structure(markdown, manifest_path, manifest, report))
 
     return ValidationResult(path, issues)

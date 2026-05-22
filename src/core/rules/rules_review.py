@@ -18,6 +18,12 @@ from src.core.rules.platform_rules import (
     string_list,
 )
 
+"""Deterministic hygiene checks for local platform marker rules.
+
+Reports duplicates, overlapping markers, short markers, invalid categories,
+and other rule quality issues. The --apply flag writes only safe cleanups
+(empty entries, duplicates, invalid categories) back to platform_rules/.
+"""
 
 @dataclass(frozen=True)
 class RulesReviewIssue:

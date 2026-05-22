@@ -5,6 +5,13 @@ from pathlib import Path
 
 from src.core.paths.output_paths import safe_filename
 
+"""Markdown upload preparation.
+
+Reads reviewed Markdown from disk and prepares it for upload by extracting
+the title (first H1) and returning title + body separately. The upload
+pipeline (src/pipelines/upload.py) uses this to know the document title
+independent of the Markdown body.
+"""
 
 H1_RE = re.compile(r"^#\s+(.+?)\s*$")
 

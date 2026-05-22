@@ -9,6 +9,16 @@ from src.core.models.article import Article
 from src.core.markdown.cleaner import clean_markdown, html_to_text_markdown
 from src.integrations.crawler import CrawledPage, crawl_page
 
+"""Abstract base class for platform-specific article extractors.
+
+All supported platforms (WeChat, Zhihu, Xiaoheihe, X, etc.) provide a
+concrete extractor that inherits from BaseArticleExtractor and implements
+the platform-specific hooks: handles(), crawl_options(), extract_title(),
+content_node(), and optionally clean_body().
+
+The extract() method defines the standard extraction flow:
+crawl -> parse HTML -> extract title/author/date -> clean body -> return Article.
+"""
 
 class BaseArticleExtractor(ABC):
     platform: str

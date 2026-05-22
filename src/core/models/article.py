@@ -5,8 +5,28 @@ from datetime import datetime
 from typing import Any
 
 
+"""Core domain models for extracted articles.
+
+Defines the Article dataclass and related result types (ExtractionResult, UploadResult).
+Article is the central immutable object produced by platform extractors and consumed
+by pipelines for review, validation, and upload.
+"""
+
+
 @dataclass
 class Article:
+    """Immutable domain object representing an extracted article.
+
+    The markdown field contains the cleaned body after platform-specific
+    extraction and cleaning. Platform extractors produce Article instances;
+    pipelines consume them to generate outputs (raw.md, manifest.json, etc.).
+
+    Note:
+        to_review_markdown() prepends a metadata block for human editing;
+        to_siyuan_markdown() strips metadata because SiYuan sets the doc
+        title separately via createDocWithMd.
+    """
+
     platform: str
     platform_label: str
     url: str

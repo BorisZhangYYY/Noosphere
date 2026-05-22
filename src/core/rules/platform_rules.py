@@ -7,6 +7,13 @@ from typing import Any
 
 from src.core.config.config import REPO_ROOT
 
+"""Platform noise marker rules loader and persistence.
+
+Runtime rules live in the gitignored platform_rules/ directory.
+Starter examples are kept in platform_rules.example/. AI review may
+suggest new markers after successful verification; this module handles
+appending them safely.
+"""
 
 RULES_DIR = REPO_ROOT / "platform_rules"
 EXAMPLE_RULES_DIR = REPO_ROOT / "platform_rules.example"

@@ -11,6 +11,14 @@ from src.core.rules.platform_rules import normalize_platform_noise_actions, norm
 from src.core.review.review_report import build_review_report, inferred_manifest_path, review_report_path
 from src.core.review.review_validation import ValidationIssue, format_validation_issues
 
+"""Data structures and JSON parsing for AI review output.
+
+Defines schemas, dataclasses, and parsing helpers for the three-stage AI review:
+rewrite metadata, review metadata, and pre-upload verification results.
+
+This module does not orchestrate the review pipeline; that lives in
+src/pipelines/ai_review.py.
+"""
 
 # JSON Schema for review_metadata structured output
 REVIEW_METADATA_SCHEMA: dict[str, Any] = {
