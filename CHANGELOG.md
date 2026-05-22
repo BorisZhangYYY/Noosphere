@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Rewrite prompt (`prompts/rewrite_article.md`): added "information redlines" — derivation logic, engineering backstory, and reasoning chains must be preserved; narrative structures must not be flattened into tables or bullet lists.
+- Pre-upload verification prompt (`prompts/pre_upload_review.md`): requires direct text evidence from reviewed.md for every flagged issue, preventing hallucinated validation failures.
+- AI client timeout is now configurable per provider (`timeout_seconds`, default 300s), replacing the previous hard-coded 120s limit.
+
 ## [0.1.0] - 2026-05-22
 
 ### Added

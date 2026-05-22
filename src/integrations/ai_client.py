@@ -25,6 +25,7 @@ class AISettings:
     max_output_tokens: int
     temperature: float | None = None
     anthropic_version: str = "2023-06-01"
+    timeout_seconds: int = 300
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ def resolve_ai_settings(config: dict | None = None) -> AISettings:
         raise AIProviderError(f"ai_providers.{provider}.api_base is required")
 
     api_key = resolve_ai_api_key(root_config, provider)
+    timeout_seconds = int(provider_config.get("timeout_seconds") or 300)
 
     return AISettings(
         provider=provider,
@@ -63,6 +65,7 @@ def resolve_ai_settings(config: dict | None = None) -> AISettings:
         max_output_tokens=max_output_tokens,
         temperature=temperature,
         anthropic_version=str(provider_config.get("anthropic_version") or "2023-06-01"),
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -201,7 +204,7 @@ class AIClient:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=120) as response:
+            with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")

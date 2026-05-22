@@ -65,7 +65,8 @@
       "api_base": "https://api.anthropic.com",
       "api_key": "your-anthropic-api-key-here",
       "max_output_tokens": 12000,
-      "temperature": 0.2
+      "temperature": 0.2,
+      "timeout_seconds": 300
     }
   },
   "smtp": {
