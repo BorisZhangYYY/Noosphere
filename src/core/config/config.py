@@ -10,7 +10,7 @@ SiYuan, AI provider, and output directory settings. All credential lookups
 read directly from config.json; environment variables are intentionally not used.
 """
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = REPO_ROOT / "config.json"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs"
 

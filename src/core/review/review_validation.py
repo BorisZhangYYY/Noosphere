@@ -70,7 +70,7 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
         elif not section_body(markdown, 2, "Main Article").strip():
             issues.append(ValidationIssue("empty_main_article", "`## Main Article` must contain article body."))
     elif content_type == "social_post":
-        pass  # social posts do not require AI Summary / Main Article structure
+        pass  # social posts do not require AI Summary / Main Article structure for now
 
     issues.extend(validate_bare_urls(markdown))
     issues.extend(validate_image_links(markdown, path.parent))
@@ -88,15 +88,12 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
 
     if manifest is not None and report is not None:
         from src.platforms.review_validation import validate_platform_review_structure
-
-"""Deterministic validation rules for reviewed Markdown.
-
-Checks Markdown structure, required sections, image/link integrity, and
-dispatches platform-specific validations from src/platforms/<platform>/.
-
-Used by both the ai-review pipeline (as a quality gate) and the standalone
-validate CLI command.
-"""
+        """
+        Deterministic validation rules for reviewed Markdown.
+        Checks Markdown structure, required sections, image/link integrity, and
+        dispatches platform-specific validations from src/platforms/<platform>/.
+        Used by both the ai-review pipeline (as a quality gate) and the standalone validate CLI command.
+        """
         issues.extend(validate_platform_review_structure(markdown, manifest_path, manifest, report))
 
     return ValidationResult(path, issues)
