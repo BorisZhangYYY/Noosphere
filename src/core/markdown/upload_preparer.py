@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from src.core.output_paths import safe_filename
+from src.core.paths.output_paths import safe_filename
 
 
 H1_RE = re.compile(r"^#\s+(.+?)\s*$")

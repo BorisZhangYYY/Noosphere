@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup, Tag
 
-from src.core.article import Article
+from src.core.models.article import Article
 from src.core.base_extractor import BaseArticleExtractor
-from src.core.markdown import first_text, meta_content
+from src.core.markdown.cleaner import first_text, meta_content
 from src.integrations.crawler import CrawledPage
 
 PLATFORM = "wechat_mp"

@@ -5,9 +5,9 @@ import urllib.parse
 
 from bs4 import BeautifulSoup, Tag
 
-from src.core.article import Article
+from src.core.models.article import Article
 from src.core.base_extractor import BaseArticleExtractor
-from src.core.markdown import clean_markdown, first_text, html_to_text_markdown, meta_content
+from src.core.markdown.cleaner import clean_markdown, first_text, html_to_text_markdown, meta_content
 from src.integrations.crawler import CrawledPage, crawl_page
 
 PLATFORM = "xiaoheihe"

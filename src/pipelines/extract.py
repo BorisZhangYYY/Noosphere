@@ -3,10 +3,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from src.core.config import load_config
-from src.core.manifest import write_article_manifest
-from src.core.output_paths import article_output_paths
-from src.core.platform_rules import write_noise_hints
+from src.core.config.config import load_config
+from src.core.models.manifest import write_article_manifest
+from src.core.paths.output_paths import article_output_paths
+from src.core.rules.platform_rules import write_noise_hints
 from src.extractor_registry import extract_one
 from src.integrations.assets import download_markdown_images
 

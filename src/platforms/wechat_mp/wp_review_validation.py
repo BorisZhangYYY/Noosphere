@@ -4,9 +4,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-from src.core.manifest import resolve_manifest_path_entry
-from src.core.platform_rules import non_topic_headings
-from src.core.review_validation import HEADING_RE, MARKDOWN_IMAGE_RE, ValidationIssue, section_body
+from src.core.models.manifest import resolve_manifest_path_entry
+from src.core.rules.platform_rules import non_topic_headings
+from src.core.review.review_validation import HEADING_RE, MARKDOWN_IMAGE_RE, ValidationIssue, section_body
 from src.platforms.wechat_mp import rules
 
 

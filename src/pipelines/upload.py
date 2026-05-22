@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.core.config import load_config, resolve_siyuan_token, siyuan_config
-from src.core.markdown_upload import read_markdown_for_upload
+from src.core.config.config import load_config, resolve_siyuan_token, siyuan_config
+from src.core.markdown.upload_preparer import read_markdown_for_upload
 from src.integrations.assets import local_image_paths, replace_image_urls
 from src.integrations.siyuan import SiyuanClient
 

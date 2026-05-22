@@ -7,9 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from src.core.platform_rules import normalize_platform_noise_actions, normalize_suggested_platform_markers
-from src.core.review_report import build_review_report, inferred_manifest_path, review_report_path
-from src.core.review_validation import ValidationIssue, format_validation_issues
+from src.core.rules.platform_rules import normalize_platform_noise_actions, normalize_suggested_platform_markers
+from src.core.review.review_report import build_review_report, inferred_manifest_path, review_report_path
+from src.core.review.review_validation import ValidationIssue, format_validation_issues
 
 
 # JSON Schema for review_metadata structured output

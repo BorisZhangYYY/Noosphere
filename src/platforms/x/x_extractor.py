@@ -6,8 +6,8 @@ from urllib.parse import quote, urlparse
 import aiohttp
 from bs4 import BeautifulSoup
 
-from src.core.article import Article
-from src.core.config import load_config
+from src.core.models.article import Article
+from src.core.config.config import load_config
 
 PLATFORM = "x"
 PLATFORM_LABEL = "X (Twitter)"

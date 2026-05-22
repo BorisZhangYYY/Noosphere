@@ -5,8 +5,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
-from src.core.article import Article
-from src.core.markdown import clean_markdown, html_to_text_markdown
+from src.core.models.article import Article
+from src.core.markdown.cleaner import clean_markdown, html_to_text_markdown
 from src.integrations.crawler import CrawledPage, crawl_page
 
 

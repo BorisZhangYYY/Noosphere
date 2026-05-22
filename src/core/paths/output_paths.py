@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.core.article import Article
+from src.core.models.article import Article
 
 
 @dataclass(frozen=True)

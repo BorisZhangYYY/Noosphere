@@ -123,6 +123,9 @@ Planned directions:
 - **Link-based sharing**: generate a shareable link for the reviewed article that recipients can open directly.
 - **Recipient configuration**: allow users to configure recipients, sharing templates, and related options.
 
+### 3. System Optimization
+Implement detailed logging throughout the entire pipeline to facilitate fault diagnosis and troubleshooting.
+
 ## Development Log
 
 ### 2026-05-07

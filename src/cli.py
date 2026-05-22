@@ -5,7 +5,7 @@ import asyncio
 import re
 from pathlib import Path
 
-from src.core.config import configured_output_dir, load_config
+from src.core.config.config import configured_output_dir, load_config
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "validate":
-            from src.core.review_validation import format_validation_issues
+            from src.core.review.review_validation import format_validation_issues
             from src.pipelines.validate import validate_reviewed_file
 
             result = validate_reviewed_file(args.file)
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         if args.command == "ai-review":
-            from src.core.review_validation import format_validation_issues
+            from src.core.review.review_validation import format_validation_issues
             from src.pipelines.ai_review import run_ai_review
 
             result = run_ai_review(args.file)
@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         if args.command == "rules-review":
-            from src.core.rules_review import format_rules_review, review_platform_rules
+            from src.core.rules.rules_review import format_rules_review, review_platform_rules
 
             result = review_platform_rules(args.platform, apply=args.apply)
             print(format_rules_review(result))

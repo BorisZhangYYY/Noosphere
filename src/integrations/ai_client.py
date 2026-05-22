@@ -6,7 +6,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from src.core.config import ai_config, ai_provider_config, load_config, resolve_ai_api_key
+from src.core.config.config import ai_config, ai_provider_config, load_config, resolve_ai_api_key
 
 
 class AIProviderError(RuntimeError):

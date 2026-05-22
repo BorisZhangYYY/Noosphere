@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.core.platform_rules import (
+from src.core.rules.platform_rules import (
     DEFAULT_MARKER_CATEGORY,
     EXAMPLE_RULES_DIR,
     RULES_DIR,

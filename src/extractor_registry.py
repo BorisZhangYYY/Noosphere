@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Awaitable, Callable
 
-from src.core.article import Article
-from src.core.config import load_config
+from src.core.models.article import Article
+from src.core.config.config import load_config
 from src.platforms.wechat_mp import mp_extractor as wechat_mp
 from src.platforms.x import x_extractor as x_platform
 from src.platforms.xiaoheihe import heihe_extractor as xiaoheihe

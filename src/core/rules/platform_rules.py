@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.core.config import REPO_ROOT
+from src.core.config.config import REPO_ROOT
 
 
 RULES_DIR = REPO_ROOT / "platform_rules"

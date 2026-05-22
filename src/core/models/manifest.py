@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from src.core.article import Article
-from src.core.output_paths import ArticleOutputPaths
+from src.core.models.article import Article
+from src.core.paths.output_paths import ArticleOutputPaths
 from src.integrations.assets import ImageDownloadResult
 
 

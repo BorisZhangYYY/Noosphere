@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from src.core.ai_review import (
+from src.core.review.ai_review_data import (
     AIVerificationResult,
     REVIEW_METADATA_SCHEMA,
     VERIFY_SCHEMA,
@@ -18,16 +18,16 @@ from src.core.ai_review import (
     update_pre_upload_review,
     write_completed_review_report,
 )
-from src.core.config import REPO_ROOT, ai_config, load_config
-from src.core.manifest import resolve_manifest_path_entry
-from src.core.markdown_links import normalize_markdown_links
-from src.core.platform_rules import (
+from src.core.config.config import REPO_ROOT, ai_config, load_config
+from src.core.models.manifest import resolve_manifest_path_entry
+from src.core.markdown.links import normalize_markdown_links
+from src.core.rules.platform_rules import (
     append_suggested_platform_markers,
     format_noise_hints_context,
     load_noise_hints,
 )
-from src.core.review_report import inferred_manifest_path, review_report_path
-from src.core.review_validation import ValidationResult, validate_reviewed_markdown
+from src.core.review.review_report import inferred_manifest_path, review_report_path
+from src.core.review.review_validation import ValidationResult, validate_reviewed_markdown
 from src.integrations.ai_client import AIClient, AIProviderError, AISettings, AITextResponse, resolve_ai_settings
 
 

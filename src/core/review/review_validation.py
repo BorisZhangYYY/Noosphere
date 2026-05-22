@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.core.markdown_links import bare_markdown_urls
-from src.core.review_report import inferred_manifest_path, review_report_path, reviewed_article_id
+from src.core.markdown.links import bare_markdown_urls
+from src.core.review.review_report import inferred_manifest_path, review_report_path, reviewed_article_id
 
 
 H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)

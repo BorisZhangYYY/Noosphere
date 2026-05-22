@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.core.config import configured_output_dir
+from src.core.config.config import configured_output_dir
 
 
 @dataclass
