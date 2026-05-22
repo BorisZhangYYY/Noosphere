@@ -132,6 +132,7 @@ def redirect_link_data(url: str) -> dict[str, object]:
 
 def clean_title(title: str | None) -> str:
     cleaned = str(title or "").strip()
+    # Xiaoheihe appends " - 小黑盒" to article titles; remove it.
     return cleaned.removesuffix(" - 小黑盒").strip()
 
 

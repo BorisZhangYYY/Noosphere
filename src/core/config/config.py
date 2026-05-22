@@ -49,7 +49,7 @@ def configured_output_dir(config: dict) -> Path:
 
 
 def resolve_siyuan_token(config: dict) -> str:
-    """从 config.json 直接获取 SiYuan token，不读取环境变量"""
+    """Read SiYuan token directly from config.json, not from environment variables."""
     sconfig = siyuan_config(config)
     token = sconfig.get("token")
     if not token:
@@ -58,7 +58,7 @@ def resolve_siyuan_token(config: dict) -> str:
 
 
 def resolve_ai_api_key(config: dict, provider: str) -> str:
-    """从 config.json 的 ai_providers section 直接获取 API key，不读取环境变量"""
+    """Read API key directly from the ai_providers section in config.json, not from environment variables."""
     key = ai_provider_config(config, provider).get("api_key")
     if not key:
         raise ValueError(f"ai_providers.{provider}.api_key (in config.json) is required")

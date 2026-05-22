@@ -62,7 +62,7 @@ def normalize_inline_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def safe_hpath_title(title: str, fallback: str = "未命名文章", max_len: int = 90) -> str:
+def safe_hpath_title(title: str, fallback: str = "Untitled Article", max_len: int = 90) -> str:
     cleaned = INVALID_HPATH_CHARS_RE.sub("-", title).strip(" .-")
     cleaned = re.sub(r"\s+", " ", cleaned)
     if not cleaned:

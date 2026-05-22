@@ -100,6 +100,7 @@ def topic_headings(markdown: str) -> list[str]:
             continue
         if normalized in non_topics:
             continue
+        # WeChat appends device signatures like "发自我的 iPhone" at the end of articles.
         if "发自" in normalized:
             continue
         result.append(normalized)

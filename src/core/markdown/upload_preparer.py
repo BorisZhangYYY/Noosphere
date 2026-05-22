@@ -44,6 +44,6 @@ def markdown_without_leading_h1(markdown: str) -> str:
 
 def read_markdown_for_upload(path: Path, title: str | None = None) -> tuple[str, str]:
     markdown = path.read_text(encoding="utf-8")
-    fallback = safe_filename(path.stem, fallback="未命名文章")
+    fallback = safe_filename(path.stem, fallback="Untitled Article")
     resolved_title = title or title_from_markdown(markdown, fallback)
     return resolved_title, markdown_without_leading_h1(markdown)

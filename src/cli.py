@@ -149,14 +149,14 @@ def main(argv: list[str] | None = None) -> int:
             html_body = renderer.render(markdown_text, assets_dir=assets_dir, subject_title=article_title)
 
             # Prepend header note
-            header_note = f'<p style="margin-bottom: 1em; color: #666; font-size: 0.9em;">[Noosphere 用户 {smtp_config["sender_name"]} 向你分享]</p>'
+            header_note = f'<p style="margin-bottom: 1em; color: #666; font-size: 0.9em;">[Shared by {smtp_config["sender_name"]} via Noosphere]</p>'
             html_body = header_note + html_body
 
             # Images are already embedded as base64 in HTML by MarkdownToEmailRenderer,
             # so no separate attachments needed.
 
             # Build subject
-            subject = f"[Noosphere 用户 {smtp_config['sender_name']} 向你分享] {article_title}"
+            subject = f"[Shared by {smtp_config['sender_name']} via Noosphere] {article_title}"
 
             # Send email
             adapter = EmailAdapter(

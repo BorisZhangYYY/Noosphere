@@ -67,15 +67,15 @@ class Article:
 
     def to_review_markdown(self) -> str:
         metadata = [
-            f"> 来源：[{self.url}]({self.url})",
-            f"> 平台：{self.platform_label}",
+            f"> Source: [{self.url}]({self.url})",
+            f"> Platform: {self.platform_label}",
         ]
         if self.author:
-            metadata.append(f"> 作者：{self.author}")
+            metadata.append(f"> Author: {self.author}")
         if self.published_at:
-            metadata.append(f"> 发布时间：{self.published_at}")
-        metadata.append(f"> 抓取时间：{self.captured_at}")
-        metadata.append(f"> 内容类型：{self.content_type}")
+            metadata.append(f"> Published: {self.published_at}")
+        metadata.append(f"> Captured: {self.captured_at}")
+        metadata.append(f"> Type: {self.content_type}")
 
         return "\n".join(
             [

@@ -199,7 +199,7 @@ def verify_reviewed_article(
     if not validation.ok:
         verification = AIVerificationResult(
             passed=False,
-            summary=verification.summary or "机器校验未通过。",
+            summary=verification.summary or "Machine validation failed.",
             issues=verification.issues,
             raw=verification.raw,
         )
@@ -263,9 +263,9 @@ def build_rewrite_user_prompt(
     noise_hints_context: str = "",
 ) -> str:
     parts = [
-        "下面是原始抓取文章，请完整阅读：",
+        "Below is the original crawled article. Please read it in full:",
         raw_markdown,
-        "下面是当前 reviewed 草稿，可以作为参考，但如果结构不清晰必须重写：",
+        "Below is the current reviewed draft for reference. Rewrite it if the structure is unclear:",
         current_markdown,
     ]
     if noise_hints_context:
@@ -279,7 +279,7 @@ def build_rewrite_user_prompt(
             ]
         )
     if feedback:
-        parts.extend(["上一轮审核反馈：", feedback])
+        parts.extend(["Previous review feedback:", feedback])
     return "\n\n".join(parts)
 
 
@@ -293,29 +293,30 @@ def build_review_metadata_user_prompt(
     noise_hints_context: str = "",
 ) -> str:
     parts = [
-        "原始抓取文章：",
+        "Original crawled article:",
         raw_markdown,
-        "AI 改写后的 reviewed Markdown：",
+        "AI-rewritten reviewed Markdown:",
         reviewed_markdown,
     ]
     if rewrite_prompt:
-        parts.extend(["AI 改写指令：", rewrite_prompt])
+        parts.extend(["AI rewrite instructions:", rewrite_prompt])
     if feedback:
-        parts.extend(["上一轮反馈（如有）：", feedback])
+        parts.extend(["Previous feedback (if any):", feedback])
     if model:
-        parts.extend([f"（AI model: {model}）"])
+        parts.extend([f"(AI model: {model})"])
     if noise_hints_context:
         parts.extend(
             [
-                "平台噪声提示与处理要求：",
+                "Platform noise hints and handling requirements:",
                 noise_hints_context,
                 (
-                    "请在 platform_noise_actions 中逐条记录你对这些提示的处理。decision 只能是 "
-                    "removed、kept、rewritten、unclear。"
+                    "Record your handling of each hint in platform_noise_actions. "
+                    "decision must be one of: removed, kept, rewritten, unclear."
                 ),
                 (
-                    "如发现可沉淀的新平台 marker，请写入 suggested_platform_markers。text 必须短、稳定、"
-                    "可复用，不要使用只适用于本篇文章的长句。reason 只说明建议原因。"
+                    "If you discover a new reusable platform marker, add it to suggested_platform_markers. "
+                    "text must be short, stable, and reusable—do not use long sentences that only apply to "
+                    "this article. reason should only explain why it is suggested."
                 ),
             ]
         )
@@ -350,14 +351,14 @@ def filter_platform_noise_actions(review_metadata: dict, noise_hints_document: d
 
 
 def build_verify_user_prompt(raw_markdown: str, reviewed_markdown: str, validation: ValidationResult) -> str:
-    validation_text = "机器校验通过。" if validation.ok else feedback_from_validation_issues(validation.issues)
+    validation_text = "Machine validation passed." if validation.ok else feedback_from_validation_issues(validation.issues)
     return "\n\n".join(
         [
-            "原始文章：",
+            "Original article:",
             raw_markdown,
-            "AI 改写后的 reviewed Markdown：",
+            "AI-rewritten reviewed Markdown:",
             reviewed_markdown,
-            "机器校验结果：",
+            "Machine validation result:",
             validation_text,
         ]
     )

@@ -184,6 +184,9 @@ def remove_empty_generic_body_headings(markdown: str) -> str:
     while index < len(lines):
         line = lines[index]
         match = re.match(r"^(#{2,6})\s+(.+?)\s*$", line)
+        # "正文" is a meaningless generic heading used by Chinese news sites.
+        # TODO: Review whether stripping this heading risks losing content that
+        # follows it on the same line (e.g. "正文 | key insight").
         if match and normalize_generic_heading(match.group(2)) in {"正文"}:
             next_index = index + 1
             while next_index < len(lines) and not lines[next_index].strip():
@@ -336,13 +339,13 @@ def verification_to_report(verification: AIVerificationResult, model: str, provi
 def feedback_from_validation_issues(issues: list[ValidationIssue]) -> str:
     if not issues:
         return ""
-    return "机器校验未通过，请按以下问题返工：\n" + format_validation_issues(issues)
+    return "Machine validation failed. Please fix the following issues:\n" + format_validation_issues(issues)
 
 
 def feedback_from_ai_verification(result: AIVerificationResult) -> str:
     if result.passed:
         return ""
-    lines = ["上传前 AI 审核未通过，请按以下问题返工："]
+    lines = ["Pre-upload AI review failed. Please fix the following issues:"]
     if result.summary:
         lines.append(f"- summary: {result.summary}")
     for issue in result.issues:
