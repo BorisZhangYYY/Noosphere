@@ -106,4 +106,4 @@ Supported AI providers currently include:
 
 ## Future Extensions
 
-See [UPDATE.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/UPDATE.md) for development notes and progress tracking.
+See [CHANGLOG.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/CHANGELOG.md) for development notes and progress tracking.
