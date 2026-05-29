@@ -1,3 +1,13 @@
+"""
+CLI command definitions and entry points. Currently supported:
+- extract: Extract an article from a website.
+- upload: Upload a Markdown file to Siyuan.
+- validate: Validate Markdown formatting compliance.
+- ai-review: AI-powered check for formatting issues and noise.
+- rules-review: Check current platform rules.
+- run: Pipeline of extract → rewrite → ai-review → validate → upload.
+- email: Send Markdown-styled emails via SMTP.
+"""
 from __future__ import annotations
 
 import argparse
@@ -20,6 +30,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file to SiYuan.")
     upload_parser.add_argument("file", type=Path, help="Markdown file to upload.")
 
+    # The validate command uses only rule-based validation (no AI features).
     validate_parser = subparsers.add_parser("validate", help="Run system review checks for one reviewed Markdown file.")
     validate_parser.add_argument("file", type=Path, help="Reviewed Markdown file to validate.")
 
@@ -101,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
             from src.pipelines.extract import extract_to_output
             from src.pipelines.upload import upload_markdown_file
 
+            # Pipeline: extract -> ai-review -> upload. Any step failure aborts the chain.
             reviewed_path = asyncio.run(extract_to_output(args.url, configured_output_dir(load_config())))
             result = run_ai_review(reviewed_path)
             if not result.ok:
@@ -115,20 +127,20 @@ def main(argv: list[str] | None = None) -> int:
             from src.integrations.email_adapter import EmailAdapter
             from src.integrations.markdown_to_email import MarkdownToEmailRenderer
 
-            # Load config and smtp settings
+            # --- Load SMTP configuration ---
             config = load_config()
             smtp_config = config.get("smtp")
             if not smtp_config:
                 print("Error: SMTP not configured in config.json")
                 return 1
 
-            # Validate recipient
+            # --- Validate recipient against allowlist ---
             allowed = smtp_config.get("allowed_recipients", [])
             if args.to not in allowed:
                 print(f"Error: Recipient '{args.to}' is not in allowed_recipients list")
                 return 1
 
-            # Load article
+            # --- Load reviewed article ---
             output_dir = configured_output_dir(config)
             article_dir = output_dir / args.article_id
             reviewed_md = article_dir / "reviewed.md"
@@ -137,28 +149,22 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             markdown_text = reviewed_md.read_text(encoding="utf-8")
 
-            # Extract article title for subject
+            # Derive email subject from the article title (first H1)
             title_match = re.search(r"^#\s+(.+)$", markdown_text, re.MULTILINE)
             article_title = title_match.group(1).strip() if title_match else args.article_id
 
-            # Get assets directory if exists
             assets_dir = article_dir / "assets"
 
-            # Render HTML
+            # --- Render Markdown to HTML (images embedded as base64) ---
             renderer = MarkdownToEmailRenderer()
             html_body = renderer.render(markdown_text, assets_dir=assets_dir, subject_title=article_title)
 
-            # Prepend header note
             header_note = f'<p style="margin-bottom: 1em; color: #666; font-size: 0.9em;">[Shared by {smtp_config["sender_name"]} via Noosphere]</p>'
             html_body = header_note + html_body
 
-            # Images are already embedded as base64 in HTML by MarkdownToEmailRenderer,
-            # so no separate attachments needed.
-
-            # Build subject
             subject = f"[Shared by {smtp_config['sender_name']} via Noosphere] {article_title}"
 
-            # Send email
+            # --- Send email ---
             adapter = EmailAdapter(
                 host=smtp_config["host"],
                 port=smtp_config["port"],
@@ -174,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                 subject=subject,
             )
 
-            # Write report
+            # --- Persist send report for audit/debugging ---
             report = EmailReport(
                 article_id=args.article_id,
                 recipient=args.to,
@@ -191,7 +197,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Error: {result.message}")
             return 1
 
-    except Exception as exc:  # noqa: BLE001 - CLI should show a concise error.
+    except Exception as exc:
+        # Catch-all: CLI surfaces a concise message instead of a full traceback.
         print(f"Error: {exc}")
         return 1
 
