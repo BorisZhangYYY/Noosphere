@@ -9,6 +9,5 @@ superpowers/
 
 # cache
 __pycache__/
-.pytest_cache/
 .crawl4ai-runtime/
 outputs/

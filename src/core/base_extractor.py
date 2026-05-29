@@ -6,7 +6,7 @@ from typing import Any
 from bs4 import BeautifulSoup, Tag
 
 from src.core.models.article import Article
-from src.core.markdown.cleaner import clean_markdown, html_to_text_markdown
+from src.core.markdown.cleaner import clean_markdown, extract_title_from_markdown, html_to_text_markdown
 from src.integrations.crawler import CrawledPage, crawl_page
 
 """Abstract base class for platform-specific article extractors.
@@ -55,7 +55,11 @@ class BaseArticleExtractor(ABC):
     async def extract(self, url: str) -> Article:
         page = await crawl_page(url, **self.crawl_options())
         soup = BeautifulSoup(page.html or page.cleaned_html, "lxml")
-        title = self.extract_title(soup) or self.fallback_title
+        title = (
+            self.extract_title(soup)
+            or extract_title_from_markdown(page.markdown)
+            or self.fallback_title
+        )
 
         markdown = clean_markdown(page.markdown)
         if len(markdown) < self.body_min_length:
@@ -75,7 +79,11 @@ class BaseArticleExtractor(ABC):
             published_at=self.extract_published_at(soup),
             markdown=markdown,
             status_code=page.status_code,
-            extra={"crawl_success": page.success, "crawl_error": page.error},
+            extra={
+                "crawl_success": page.success,
+                "crawl_error": page.error,
+                "fallback_used": page.fallback_used,
+            },
         )
 
     def too_short_message(self, page: CrawledPage) -> str:

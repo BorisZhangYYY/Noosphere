@@ -20,7 +20,9 @@
     "xiaoheihe": {
       "label": "Xiaoheihe",
       "url_patterns": [
-        "xiaoheihe.cn/bbs/post_share"
+        "xiaoheihe.cn/bbs/post_share",
+        "xiaoheihe.cn/app/bbs/link/",
+        "api.xiaoheihe.cn/v3/bbs/app/api/web/share"
       ]
     }
   },
@@ -67,6 +69,13 @@
       "max_output_tokens": 12000,
       "temperature": 0.2,
       "timeout_seconds": 300
+    }
+  },
+  "crawler": {
+    "fallback": "firecrawl",
+    "firecrawl": {
+      "api_key": "your-firecrawl-api-key-here",
+      "api_base": "https://api.firecrawl.dev/v1"
     }
   },
   "smtp": {

@@ -63,3 +63,38 @@ def resolve_ai_api_key(config: dict, provider: str) -> str:
     if not key:
         raise ValueError(f"ai_providers.{provider}.api_key (in config.json) is required")
     return key
+
+
+def crawler_config(config: dict) -> dict:
+    value = config.get("crawler", {})
+    return value if isinstance(value, dict) else {}
+
+
+def firecrawl_config(config: dict) -> dict:
+    value = crawler_config(config).get("firecrawl", {})
+    return value if isinstance(value, dict) else {}
+
+
+def resolve_firecrawl_api_key(config: dict) -> str:
+    """Read Firecrawl API key directly from config.json, not from environment variables."""
+    key = firecrawl_config(config).get("api_key")
+    if not key:
+        raise ValueError("crawler.firecrawl.api_key (in config.json) is required")
+    return key
+
+
+def firecrawl_enabled(config: dict) -> bool:
+    """Check if Firecrawl fallback is enabled and has a valid API key."""
+    cconfig = crawler_config(config)
+    if str(cconfig.get("fallback") or "").lower() != "firecrawl":
+        return False
+    fconfig = firecrawl_config(config)
+    return bool(fconfig.get("api_key"))
+
+
+def crawler_proxy(config: dict) -> str | None:
+    """Read proxy settings from config.json for use with HTTP clients."""
+    proxy_config = config.get("proxy")
+    if isinstance(proxy_config, dict):
+        return proxy_config.get("https") or proxy_config.get("http") or None
+    return None
