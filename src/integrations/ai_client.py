@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from src.core.config.config import ai_config, ai_provider_config, load_config, resolve_ai_api_key
+import aiohttp
+
+from src.core.config.config import load_config
+from src.core.config.schema import Config
 
 
 class AIProviderError(RuntimeError):
@@ -35,37 +36,19 @@ class AITextResponse:
     provider: str
 
 
-def resolve_ai_settings(config: dict | None = None) -> AISettings:
-    root_config = load_config() if config is None else config
-    resolved = ai_config(root_config)
-    provider = str(resolved.get("provider") or "").strip().lower()
-    if not provider:
-        raise AIProviderError("ai.provider is required")
-    provider_config = ai_provider_config(root_config, provider)
-
-    model = str(provider_config.get("model") or "").strip()
-    if not model:
-        raise AIProviderError(f"ai_providers.{provider}.model is required")
-
-    max_output_tokens = int(provider_config.get("max_output_tokens") or 12000)
-    temperature_value = provider_config.get("temperature")
-    temperature = float(temperature_value) if temperature_value is not None else None
-    api_base = str(provider_config.get("api_base") or "").rstrip("/")
-    if not api_base:
-        raise AIProviderError(f"ai_providers.{provider}.api_base is required")
-
-    api_key = resolve_ai_api_key(root_config, provider)
-    timeout_seconds = int(provider_config.get("timeout_seconds") or 300)
-
+def resolve_ai_settings(config: Config | None = None) -> AISettings:
+    if config is None:
+        config = load_config()
+    settings = config.resolve_ai_settings()
     return AISettings(
-        provider=provider,
-        model=model,
-        api_key=api_key,
-        api_base=api_base,
-        max_output_tokens=max_output_tokens,
-        temperature=temperature,
-        anthropic_version=str(provider_config.get("anthropic_version") or "2023-06-01"),
-        timeout_seconds=timeout_seconds,
+        provider=settings["provider"],
+        model=settings["model"],
+        api_key=settings["api_key"],
+        api_base=settings["api_base"],
+        max_output_tokens=settings["max_output_tokens"],
+        temperature=settings["temperature"],
+        anthropic_version=settings["anthropic_version"],
+        timeout_seconds=settings["timeout_seconds"],
     )
 
 
@@ -73,25 +56,11 @@ class AIClient:
     def __init__(self, settings: AISettings | None = None):
         self.settings = settings or resolve_ai_settings()
 
-    def generate_text(self, system_prompt: str, user_prompt: str) -> AITextResponse:
+    async def generate_text(self, system_prompt: str, user_prompt: str) -> AITextResponse:
         if self.settings.provider == "openai":
-            text = self._openai_response(system_prompt, user_prompt)
-        elif self.settings.provider == ANTHROPIC_PROVIDER:
-            text = self._anthropic_message(system_prompt, user_prompt)
-        else:
-            raise AIProviderError(f"Unsupported AI provider: {self.settings.provider}")
-        return AITextResponse(text=text, model=self.settings.model, provider=self.settings.provider)
-
-    def generate_structured_text(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        json_schema: dict[str, Any],
-    ) -> AITextResponse:
-        if self.settings.provider == "openai":
-            text = self._openai_structured_response(system_prompt, user_prompt, json_schema)
-        elif self.settings.provider == ANTHROPIC_PROVIDER:
-            text = self._anthropic_structured_message(system_prompt, user_prompt, json_schema)
+            text = await self._openai_response(system_prompt, user_prompt)
+        elif self.settings.provider in {ANTHROPIC_PROVIDER, "compatible"}:
+            text = await self._anthropic_message(system_prompt, user_prompt)
         else:
             raise AIProviderError(f"Unsupported AI provider: {self.settings.provider}")
         return AITextResponse(text=text, model=self.settings.model, provider=self.settings.provider)
@@ -99,7 +68,7 @@ class AIClient:
     def _api_key(self) -> str:
         return self.settings.api_key
 
-    def _openai_response(self, system_prompt: str, user_prompt: str) -> str:
+    async def _openai_response(self, system_prompt: str, user_prompt: str) -> str:
         endpoint = openai_responses_endpoint(self.settings.api_base)
         payload: dict[str, Any] = {
             "model": self.settings.model,
@@ -110,7 +79,7 @@ class AIClient:
         if self.settings.temperature is not None:
             payload["temperature"] = self.settings.temperature
 
-        data = self._post_json(
+        data = await self._post_json(
             endpoint,
             payload,
             {
@@ -123,7 +92,7 @@ class AIClient:
             return text
         return text_from_openai_output(data)
 
-    def _anthropic_message(self, system_prompt: str, user_prompt: str) -> str:
+    async def _anthropic_message(self, system_prompt: str, user_prompt: str) -> str:
         endpoint = anthropic_messages_endpoint(self.settings.api_base)
         payload: dict[str, Any] = {
             "model": self.settings.model,
@@ -134,7 +103,7 @@ class AIClient:
         if self.settings.temperature is not None:
             payload["temperature"] = self.settings.temperature
 
-        data = self._post_json(
+        data = await self._post_json(
             endpoint,
             payload,
             {
@@ -145,74 +114,16 @@ class AIClient:
         )
         return text_from_anthropic_content(data)
 
-    def _openai_structured_response(
-        self, system_prompt: str, user_prompt: str, json_schema: dict[str, Any]
-    ) -> str:
-        endpoint = openai_responses_endpoint(self.settings.api_base)
-        payload: dict[str, Any] = {
-            "model": self.settings.model,
-            "instructions": system_prompt,
-            "input": user_prompt,
-            "max_output_tokens": self.settings.max_output_tokens,
-            "response_format": {
-                "type": "json_object",
-                "schema": json_schema,
-            },
-        }
-        if self.settings.temperature is not None:
-            payload["temperature"] = self.settings.temperature
-
-        data = self._post_json(
-            endpoint,
-            payload,
-            {
-                "Authorization": f"Bearer {self._api_key()}",
-                "Content-Type": "application/json",
-            },
-        )
-        text = data.get("output_text")
-        if isinstance(text, str) and text.strip():
-            return text
-        return text_from_openai_output(data)
-
-    def _anthropic_structured_message(
-        self, system_prompt: str, user_prompt: str, json_schema: dict[str, Any]
-    ) -> str:
-        endpoint = anthropic_messages_endpoint(self.settings.api_base)
-        payload: dict[str, Any] = {
-            "model": self.settings.model,
-            "max_tokens": self.settings.max_output_tokens,
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": [{"type": "text", "text": user_prompt}]}],
-            "input_schema": json_schema,
-        }
-        if self.settings.temperature is not None:
-            payload["temperature"] = self.settings.temperature
-
-        data = self._post_json(
-            endpoint,
-            payload,
-            {
-                "x-api-key": self._api_key(),
-                "anthropic-version": self.settings.anthropic_version,
-                "Content-Type": "application/json",
-            },
-        )
-        return text_from_anthropic_content(data)
-
-    def _post_json(self, endpoint: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        request = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise AIProviderError(f"{self.settings.provider} API HTTP {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise AIProviderError(f"{self.settings.provider} API connection failed: {exc.reason}") from exc
-        except json.JSONDecodeError as exc:
-            raise AIProviderError(f"{self.settings.provider} API returned invalid JSON: {exc}") from exc
+    async def _post_json(self, endpoint: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                endpoint,
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=self.settings.timeout_seconds),
+            ) as response:
+                response.raise_for_status()
+                data = await response.json()
         if not isinstance(data, dict):
             raise AIProviderError(f"{self.settings.provider} API returned a non-object response")
         return data
