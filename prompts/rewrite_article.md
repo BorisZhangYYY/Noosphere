@@ -81,3 +81,14 @@ The output must be pure Markdown body text. Do not explain your processing steps
 
 ...
 ```
+
+**Format Checklist — your output MUST satisfy all of these:**
+
+- [ ] Starts with exactly one `# Article Title` H1 heading
+- [ ] Includes a `> Source metadata block` immediately after the H1
+- [ ] Has `---` on its own line after the metadata block
+- [ ] Has `## AI Summary` with at least one bullet of summary
+- [ ] Has `---` on its own line after AI Summary
+- [ ] Has `## Main Article` with the full rewritten body
+- [ ] All images use the original local relative paths; do not use `http://` or `https://` image URLs
+- [ ] Any AI-added inline commentary is wrapped in a blockquote labeled `> AI Addition ({model})`

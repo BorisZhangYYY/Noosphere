@@ -56,3 +56,13 @@ Write the analysis in clear, informative prose. Use a quote block labeled `AI Co
 >
 > {background, joke explanation, references, subtext}
 ```
+
+**Format Checklist — your output MUST satisfy all of these:**
+
+- [ ] Starts with exactly one `# {Author}: {text preview}` H1 heading
+- [ ] Includes the `> Source:` / `> Platform:` / `> Author:` / `> Published:` metadata block
+- [ ] Has `---` on its own line after the metadata block
+- [ ] Has `## Original Post` with the tweet text preserved verbatim
+- [ ] Has `---` on its own line after Original Post
+- [ ] Has `## Context` with AI analysis inside `> AI Context ({model})` blockquotes
+- [ ] Any AI-added commentary is wrapped in a blockquote labeled `> AI Context ({model})`
