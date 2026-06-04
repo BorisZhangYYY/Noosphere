@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.core.config.config import REPO_ROOT
+from src.core.paths.paths import Paths, get_paths
 
 """Platform noise marker rules loader and persistence.
 
@@ -15,8 +15,9 @@ suggest new markers after successful verification; this module handles
 appending them safely.
 """
 
-RULES_DIR = REPO_ROOT / "platform_rules"
-EXAMPLE_RULES_DIR = REPO_ROOT / "platform_rules.example"
+_paths = get_paths()
+RULES_DIR = _paths.platform_rules_dir
+EXAMPLE_RULES_DIR = _paths.platform_rules_example_dir
 NOISE_HINTS_FILENAME = "noise_hints.json"
 VALID_MARKER_CATEGORIES = {
     "platform_ui",

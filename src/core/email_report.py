@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.core.config.config import configured_output_dir
+from src.core.paths.paths import Paths, get_paths
 
 """Email report persistence for shared articles.
 
@@ -29,10 +29,9 @@ class EmailReport:
             self.sent_at = datetime.now(timezone.utc).isoformat()
 
 
-def write_report(article_id: str, report: EmailReport, output_dir: Path | None = None) -> Path:
-    output_dir = output_dir or configured_output_dir({})
-    article_dir = output_dir / article_id
-    article_dir.mkdir(parents=True, exist_ok=True)
-    path = article_dir / "email_report.json"
+def write_report(article_id: str, report: EmailReport, paths: Paths | None = None) -> Path:
+    paths = paths or get_paths()
+    paths.ensure_article_dirs(article_id)
+    path = paths.article_email_report_path(article_id)
     path.write_text(json.dumps(asdict(report), ensure_ascii=False, indent=2), encoding="utf-8")
     return path

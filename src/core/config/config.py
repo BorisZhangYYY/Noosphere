@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from src.core.paths import project_root, resolve_project_path
+
 """Configuration loader and accessors.
 
 Reads config.json from the repo root and provides typed accessors for
@@ -10,9 +12,8 @@ SiYuan, AI provider, and output directory settings. All credential lookups
 read directly from config.json; environment variables are intentionally not used.
 """
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_CONFIG = REPO_ROOT / "config.json"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs"
+DEFAULT_CONFIG = project_root() / "config.json"
+DEFAULT_OUTPUT_DIR = project_root() / "outputs"
 
 
 def load_config(path: Path = DEFAULT_CONFIG) -> dict:
@@ -44,8 +45,7 @@ def ai_provider_config(config: dict, provider: str) -> dict:
 
 def configured_output_dir(config: dict) -> Path:
     value = config.get("output_dir") or DEFAULT_OUTPUT_DIR
-    path = Path(value).expanduser()
-    return path if path.is_absolute() else REPO_ROOT / path
+    return resolve_project_path(value)
 
 
 def resolve_siyuan_token(config: dict) -> str:

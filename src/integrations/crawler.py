@@ -16,13 +16,12 @@ from src.core.config.config import (
     firecrawl_enabled,
     load_config,
 )
+from src.core.paths.paths import get_paths
 
 # Cache config at module level to avoid re-reading from disk on every crawl.
 _crawler_config_cache: dict | None = None
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-CRAWL4AI_RUNTIME = REPO_ROOT / ".crawl4ai-runtime"
-CRAWL4AI_RUNTIME.mkdir(parents=True, exist_ok=True)
+CRAWL4AI_RUNTIME = get_paths().ensure_crawl4ai_runtime_dir()
 os.environ.setdefault("CRAWL4AI_BASE_DIRECTORY", str(CRAWL4AI_RUNTIME))
 os.environ.setdefault("CRAWL4_AI_BASE_DIRECTORY", str(CRAWL4AI_RUNTIME))
 

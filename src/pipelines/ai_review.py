@@ -18,7 +18,8 @@ from src.core.review.ai_review_data import (
     update_pre_upload_review,
     write_completed_review_report,
 )
-from src.core.config.config import REPO_ROOT, ai_config, load_config
+from src.core.config.config import ai_config, load_config
+from src.core.paths import resolve_project_path
 from src.core.models.manifest import resolve_manifest_path_entry
 from src.core.markdown.links import normalize_markdown_links
 from src.core.rules.platform_rules import (
@@ -235,10 +236,7 @@ def configured_prompt(
                 return platform_value
             platform_path = platform_config.get(path_key)
             if isinstance(platform_path, str) and platform_path.strip():
-                prompt_path = Path(platform_path).expanduser()
-                if not prompt_path.is_absolute():
-                    prompt_path = REPO_ROOT / prompt_path
-                return prompt_path.read_text(encoding="utf-8")
+                return resolve_project_path(platform_path).read_text(encoding="utf-8")
 
     # Fall back to global config
     value = config.get(value_key)
@@ -246,12 +244,9 @@ def configured_prompt(
         return value
     path = config.get(path_key)
     if isinstance(path, str) and path.strip():
-        prompt_path = Path(path).expanduser()
-        if not prompt_path.is_absolute():
-            prompt_path = REPO_ROOT / prompt_path
-        return prompt_path.read_text(encoding="utf-8")
+        return resolve_project_path(path).read_text(encoding="utf-8")
     if default_path:
-        return (REPO_ROOT / default_path).read_text(encoding="utf-8")
+        return resolve_project_path(default_path).read_text(encoding="utf-8")
     raise AIProviderError(f"ai.{value_key} or ai.{path_key} is required")
 
 

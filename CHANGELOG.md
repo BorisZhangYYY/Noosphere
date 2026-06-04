@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `fallback_used` tracking in `CrawledPage` and `Article.extra`.
 
 ### Changed
+- Migrated path management to a deer-flow-inspired layered architecture: runtime layer (`src.core.paths`) and application layer (`Paths` class with lazy singleton).
 - `crawl_page()` now catches Crawl4AI exceptions and attempts Firecrawl fallback before surfacing errors.
 - `BaseArticleExtractor` and `XiaoheiheExtractor` fall back to markdown-based title extraction.
 

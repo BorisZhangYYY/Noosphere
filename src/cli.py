@@ -15,7 +15,8 @@ import asyncio
 import re
 from pathlib import Path
 
-from src.core.config.config import configured_output_dir, load_config
+from src.core.config.config import load_config
+from src.core.paths.paths import get_paths
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -58,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "extract":
             from src.pipelines.extract import extract_to_output
 
-            path = asyncio.run(extract_to_output(args.url, configured_output_dir(load_config())))
+            path = asyncio.run(extract_to_output(args.url, get_paths().output_dir))
             print(f"Reviewed draft: {path}")
             print(f"Next: edit manually and upload, or run: python -m src.cli ai-review {path}")
             return 0
@@ -113,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             from src.pipelines.upload import upload_markdown_file
 
             # Pipeline: extract -> ai-review -> upload. Any step failure aborts the chain.
-            reviewed_path = asyncio.run(extract_to_output(args.url, configured_output_dir(load_config())))
+            reviewed_path = asyncio.run(extract_to_output(args.url, get_paths().output_dir))
             result = run_ai_review(reviewed_path)
             if not result.ok:
                 print(f"AI review failed after {result.attempts} attempt(s): {reviewed_path}")
@@ -141,11 +142,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
 
             # --- Load reviewed article ---
-            output_dir = configured_output_dir(config)
-            article_dir = output_dir / args.article_id
-            reviewed_md = article_dir / "reviewed.md"
+            paths = get_paths()
+            reviewed_md = paths.article_reviewed_path(args.article_id)
             if not reviewed_md.exists():
-                print(f"Error: Article not found: {article_dir}")
+                print(f"Error: Article not found: {paths.article_dir(args.article_id)}")
                 return 1
             markdown_text = reviewed_md.read_text(encoding="utf-8")
 
@@ -153,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
             title_match = re.search(r"^#\s+(.+)$", markdown_text, re.MULTILINE)
             article_title = title_match.group(1).strip() if title_match else args.article_id
 
-            assets_dir = article_dir / "assets"
+            assets_dir = paths.article_assets_dir(args.article_id)
 
             # --- Render Markdown to HTML (images embedded as base64) ---
             renderer = MarkdownToEmailRenderer()
@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
                 success=result.success,
                 error=result.message if not result.success else None,
             )
-            report_path = write_report(args.article_id, report, output_dir)
+            report_path = write_report(args.article_id, report, paths)
             print(f"Email report: {report_path}")
 
             if result.success:
