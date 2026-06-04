@@ -4,7 +4,7 @@ Noosphere is an article extraction, AI review, and note-import tool designed for
 
 Do you often come across long articles worth saving on platforms such as WeChat, Zhihu, and others, only to find them difficult to understand quickly because they are too long, poorly structured, or cluttered with ads and noise? Do you often want to share an article with friends, but they lack the necessary context, making the sharing ineffective? Or are you a heavy content collector who wants to save valuable articles in a complete, clean, and structured form into your own knowledge base?
 
-Noosphere is designed for exactly this purpose. Based on `crawl4ai`, it extracts the main content of articles, then uses large language models to perform structured rewriting, summary generation, noise cleanup, and pre-upload validation. The final Markdown content can then be imported into your note-taking tool.
+Noosphere is designed for exactly this purpose. Based on `crawl4ai` with a `firecrawl` fallback for hard-to-crawl pages, it extracts the main content of articles, then uses large language models to perform structured rewriting, summary generation, noise cleanup, and pre-upload validation. The final Markdown content can then be imported into your note-taking tool.
 
 In one sentence: Noosphere turns scattered, lengthy, and hard-to-read articles on the internet into clean, structured, understandable, saveable, and shareable knowledge content.
 
@@ -97,6 +97,7 @@ python -m src.cli --help
 - `siyuan`: API base, parent ID, token
 - `ai`: provider (`openai` or `anthropic`), retry count, prompt paths, platform-specific prompt overrides
 - `ai_providers`: model, API base, API key, token limit, temperature
+- `crawler`: fallback strategy (`firecrawl`) and Firecrawl API credentials
 
 Supported AI providers currently include:
 
@@ -106,4 +107,4 @@ Supported AI providers currently include:
 
 ## Future Extensions
 
-See [CHANGLOG.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/CHANGELOG.md) for development notes and progress tracking.
+See [CHANGELOG.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/CHANGELOG.md) for development notes and progress tracking.
