@@ -10,16 +10,12 @@ from urllib.parse import parse_qs, urlparse
 
 import aiohttp
 
-from src.core.config.config import (
-    crawler_proxy,
-    firecrawl_config,
-    firecrawl_enabled,
-    load_config,
-)
+from src.core.config.config import load_config
+from src.core.config.schema import Config
 from src.core.paths.paths import get_paths
 
 # Cache config at module level to avoid re-reading from disk on every crawl.
-_crawler_config_cache: dict | None = None
+_crawler_config_cache: Config | None = None
 
 CRAWL4AI_RUNTIME = get_paths().ensure_crawl4ai_runtime_dir()
 os.environ.setdefault("CRAWL4AI_BASE_DIRECTORY", str(CRAWL4AI_RUNTIME))
@@ -172,7 +168,7 @@ def _build_firecrawl_payload(
     return payload
 
 
-def _get_cached_config() -> dict:
+def _get_cached_config() -> Config:
     """Return cached config, loading from disk on first call."""
     global _crawler_config_cache
     if _crawler_config_cache is None:
@@ -197,9 +193,9 @@ async def _crawl_page_firecrawl(
     del excluded_tags, page_timeout, pruning_threshold, word_count_threshold  # Unused in Firecrawl path
 
     config = _get_cached_config()
-    api_key = firecrawl_config(config).get("api_key", "")
-    api_base = firecrawl_config(config).get("api_base", "https://api.firecrawl.dev/v1")
-    proxy = crawler_proxy(config)
+    api_key = config.crawler.firecrawl.api_key or ""
+    api_base = config.crawler.firecrawl.api_base
+    proxy = config.proxy.https or config.proxy.http if config.proxy else None
 
     payload = _build_firecrawl_payload(
         url,
@@ -327,7 +323,7 @@ async def crawl_page(
         return page
 
     config = _get_cached_config()
-    if not firecrawl_enabled(config):
+    if not config.crawler.firecrawl_enabled:
         return page
 
     resolved_url = _resolve_xiaoheihe_url(url)
