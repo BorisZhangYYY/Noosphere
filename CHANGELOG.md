@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Pydantic v2 schema models for configuration (`src/core/config/schema.py`).
 - Firecrawl fallback when Crawl4AI fails or throws exceptions, transparent to all extractors.
 - Xiaoheihe share URL resolution to canonical `/app/bbs/link/{id}` for Firecrawl fallback.
 - `crawler` configuration section with `fallback` and `firecrawl` subsections in `config.json`.
