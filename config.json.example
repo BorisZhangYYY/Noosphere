@@ -44,13 +44,9 @@
     "provider": "anthropic",
     "max_attempts": 2,
     "rewrite_prompt_path": "prompts/rewrite_article.md",
-    "review_metadata_prompt_path": "prompts/review_metadata.md",
-    "verify_prompt_path": "prompts/pre_upload_review.md",
     "platform_prompts": {
       "x": {
-        "rewrite_prompt_path": "prompts/rewrite_social_post.md",
-        "review_metadata_prompt_path": "prompts/review_metadata_social.md",
-        "verify_prompt_path": "prompts/pre_upload_review_social.md"
+        "rewrite_prompt_path": "prompts/rewrite_social_post.md"
       }
     }
   },

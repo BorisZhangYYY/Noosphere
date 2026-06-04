@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Pydantic v2 schema models for configuration (`src/core/config/schema.py`).
+- AI feedback length limit (`MAX_FEEDBACK_CHARS = 2000`) to prevent context window overflow during review loops.
+- Parallel async image download with `asyncio.Semaphore(5)` concurrency limit in `download_markdown_images()`.
 - Firecrawl fallback when Crawl4AI fails or throws exceptions, transparent to all extractors.
 - Xiaoheihe share URL resolution to canonical `/app/bbs/link/{id}` for Firecrawl fallback.
 - `crawler` configuration section with `fallback` and `firecrawl` subsections in `config.json`.
@@ -17,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Migrated `extractor_registry.py` and `src/core/paths/paths.py` to use the Pydantic `Config` model.
 - Migrated path management to a deer-flow-inspired layered architecture: runtime layer (`src.core.paths`) and application layer (`Paths` class with lazy singleton).
+- Unified entire pipeline under async/await: `run_ai_review()`, `upload_markdown_file()`, `download_markdown_images()`, and `AIClient.generate_text()` are now async.
+- CLI entry point simplified to a single `asyncio.run(_main_async(args))` call; all pipeline commands run in one async context.
 - Hardened local image upload logic in `upload_markdown_file`: added basename fallback for SiYuan response keys and warnings for missing uploads; documented the pipeline and helpers.
 - `crawl_page()` now catches Crawl4AI exceptions and attempts Firecrawl fallback before surfacing errors.
 - `BaseArticleExtractor` and `XiaoheiheExtractor` fall back to markdown-based title extraction.
@@ -38,6 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Removed `rules-review` CLI command and the entire platform-rules / noise-hints system.
 - Removed `review.json` detailed metadata fields (`summary`, `removed_noise`, `preserved_sections`, `formatting_changes`, `image_decisions`, `platform_noise_actions`, `suggested_platform_markers`) and `pre_upload_review`.
 - Deleted metadata prompts (`review_metadata.md`, `review_metadata_social.md`) and verification prompts (`pre_upload_review.md`, `pre_upload_review_social.md`).
+- Removed all bare-dict config accessor functions (`ai_config()`, `siyuan_config()`, `crawler_config()`, `resolve_ai_api_key()`, `resolve_siyuan_token()`, `configured_output_dir()`, etc.); all configuration access now goes through the Pydantic `Config` model.
 
 ## [0.1.0] - 2026-05-22
 
