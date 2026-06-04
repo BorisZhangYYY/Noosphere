@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from src.core.config.config import ai_config, load_config
+from src.core.config.config import load_config
 from src.core.markdown.links import normalize_markdown_links
 from src.core.models.manifest import resolve_manifest_path_entry
 from src.core.paths import resolve_project_path
@@ -22,7 +22,7 @@ from src.integrations.ai_client import AIClient, AIProviderError, AISettings, AI
 class TextGenerator(Protocol):
     settings: AISettings
 
-    def generate_text(self, system_prompt: str, user_prompt: str) -> AITextResponse:
+    async def generate_text(self, system_prompt: str, user_prompt: str) -> AITextResponse:
         ...
 
 
@@ -37,26 +37,23 @@ class AIReviewRunResult:
         return self.validation.ok
 
 
-def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGenerator | None = None) -> AIReviewRunResult:
+async def run_ai_review(path: Path, max_attempts: int | None = None, client: TextGenerator | None = None) -> AIReviewRunResult:
     config = load_config()
     settings = client.settings if client else resolve_ai_settings(config)
     generator = client or AIClient(settings)
     manifest_path = inferred_manifest_path(path)
     raw_markdown = raw_markdown_from_manifest(manifest_path)
-    ai_settings = ai_config(config)
-    attempts = max_attempts or int(ai_settings.get("max_attempts") or 2)
+    attempts = max_attempts or config.ai.max_attempts
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     platform = str((manifest.get("article") or {}).get("platform") or "")
     content_type = str((manifest.get("article") or {}).get("content_type") or "article")
-    rewrite_prompt = configured_prompt(
-        ai_settings, "rewrite_prompt", "rewrite_prompt_path", platform=platform
-    )
+    rewrite_prompt = config.ai.resolve_prompt("rewrite_prompt", "rewrite_prompt_path", platform=platform)
     resolved_rewrite_prompt = rewrite_prompt.replace("{model}", generator.settings.model)
 
     feedback = ""
     validation = ValidationResult(path, [])
     for attempt in range(1, attempts + 1):
-        response = generator.generate_text(
+        response = await generator.generate_text(
             resolved_rewrite_prompt,
             build_rewrite_user_prompt(raw_markdown, feedback),
         )
@@ -86,35 +83,6 @@ def raw_markdown_from_manifest(manifest_path: Path) -> str:
     if not isinstance(raw_path, str) or not raw_path:
         raise ValueError(f"Raw Markdown path not found in manifest: {manifest_path}")
     return resolve_manifest_path_entry(manifest_path, raw_path).read_text(encoding="utf-8")
-
-
-def configured_prompt(
-    config: dict,
-    value_key: str,
-    path_key: str,
-    default_path: str | None = None,
-    platform: str = "",
-) -> str:
-    platform_overrides = config.get("platform_prompts")
-    if platform and isinstance(platform_overrides, dict):
-        platform_config = platform_overrides.get(platform, {})
-        if isinstance(platform_config, dict):
-            platform_value = platform_config.get(value_key)
-            if isinstance(platform_value, str) and platform_value.strip():
-                return platform_value
-            platform_path = platform_config.get(path_key)
-            if isinstance(platform_path, str) and platform_path.strip():
-                return resolve_project_path(platform_path).read_text(encoding="utf-8")
-
-    value = config.get(value_key)
-    if isinstance(value, str) and value.strip():
-        return value
-    path = config.get(path_key)
-    if isinstance(path, str) and path.strip():
-        return resolve_project_path(path).read_text(encoding="utf-8")
-    if default_path:
-        return resolve_project_path(default_path).read_text(encoding="utf-8")
-    raise AIProviderError(f"ai.{value_key} or ai.{path_key} is required")
 
 
 def build_rewrite_user_prompt(raw_markdown: str, feedback: str = "") -> str:
