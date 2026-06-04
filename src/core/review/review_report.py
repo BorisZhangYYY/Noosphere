@@ -8,9 +8,8 @@ from typing import Any
 
 """Review report persistence.
 
-Handles reading and writing of review.json, the article-specific metadata
-produced by the AI review pipeline. Contains information about summary,
-removed sections, preserved sections, and pre-upload verification results.
+Handles reading and writing of review.json, the article-specific status
+record produced by the AI review pipeline.
 """
 
 SCHEMA_VERSION = 1
@@ -46,15 +45,6 @@ def build_review_report(
             "title": (manifest.get("article") or {}).get("title"),
             "url": (manifest.get("article") or {}).get("url"),
             "platform": (manifest.get("article") or {}).get("platform"),
-        },
-        "review": {
-            "summary": "",
-            "removed_noise": [],
-            "preserved_sections": [],
-            "formatting_changes": [],
-            "image_decisions": [],
-            "platform_noise_actions": [],
-            "suggested_platform_markers": [],
         },
     }
 
