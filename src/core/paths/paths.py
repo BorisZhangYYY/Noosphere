@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from src.core.config.config import configured_output_dir, load_config
 from src.core.paths import project_root
@@ -24,7 +23,6 @@ class Paths:
             ├── raw.md
             ├── reviewed.md
             ├── manifest.json
-            ├── noise_hints.json
             ├── review.json
             ├── email_report.json
             └── assets/
@@ -46,16 +44,6 @@ class Paths:
         return project_root() / "prompts"
 
     @property
-    def platform_rules_dir(self) -> Path:
-        """Runtime platform marker rules directory (gitignored)."""
-        return project_root() / "platform_rules"
-
-    @property
-    def platform_rules_example_dir(self) -> Path:
-        """Starter platform marker rules shipped with the repo."""
-        return project_root() / "platform_rules.example"
-
-    @property
     def crawl4ai_runtime_dir(self) -> Path:
         """Crawl4AI runtime cache directory."""
         return project_root() / ".crawl4ai-runtime"
@@ -74,9 +62,6 @@ class Paths:
 
     def article_manifest_path(self, article_id: str) -> Path:
         return self.article_dir(article_id) / "manifest.json"
-
-    def article_noise_hints_path(self, article_id: str) -> Path:
-        return self.article_dir(article_id) / "noise_hints.json"
 
     def article_review_path(self, article_id: str) -> Path:
         return self.article_dir(article_id) / "review.json"
