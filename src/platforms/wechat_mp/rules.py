@@ -1,5 +1,0 @@
-from __future__ import annotations
-
-
-REVIEW_LONG_ARTICLE_MIN_CHARS = 2500
-REVIEW_MIN_LONG_ARTICLE_TOPIC_HEADINGS = 4

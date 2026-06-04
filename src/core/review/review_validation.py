@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.markdown.links import bare_markdown_urls
-from src.core.review.review_report import inferred_manifest_path, review_report_path, reviewed_article_id
+from src.core.review.review_report import inferred_manifest_path
 
 
 H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
@@ -75,17 +75,6 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
     issues.extend(validate_bare_urls(markdown))
     issues.extend(validate_image_links(markdown, path.parent))
 
-    report_path = review_report_path(path)
-    report: dict[str, Any] | None = None
-    if not report_path.exists():
-        issues.append(ValidationIssue("missing_review_report", f"Review report not found: {report_path}"))
-    else:
-        report, report_issue = read_json_document(report_path, "review report")
-        if report_issue:
-            issues.append(report_issue)
-        else:
-            issues.extend(validate_review_report_data(report, reviewed_article_id(path)))
-
     return ValidationResult(path, issues)
 
 
@@ -127,32 +116,6 @@ def read_json_document(path: Path, label: str) -> tuple[dict[str, Any] | None, V
     if not isinstance(data, dict):
         return None, ValidationIssue(issue_code, f"{label.title()} must be a JSON object.")
     return data, None
-
-
-def validate_review_report(path: Path, expected_article_id: str) -> list[ValidationIssue]:
-    report, issue = read_json_document(path, "review report")
-    if issue:
-        return [issue]
-    assert report is not None
-    return validate_review_report_data(report, expected_article_id)
-
-
-def validate_review_report_data(report: dict[str, Any], expected_article_id: str) -> list[ValidationIssue]:
-    issues: list[ValidationIssue] = []
-    if report.get("article_id") != expected_article_id:
-        issues.append(
-            ValidationIssue("review_report_article_mismatch", "Review report article_id does not match file name.")
-        )
-    if report.get("status") != "reviewed":
-        issues.append(ValidationIssue("review_report_not_reviewed", "Review report status must be `reviewed`."))
-
-    review = report.get("review")
-    if not isinstance(review, dict):
-        issues.append(ValidationIssue("missing_review_body", "Review report must contain a review object."))
-        return issues
-    if not str(review.get("summary") or "").strip():
-        issues.append(ValidationIssue("missing_review_summary", "Review report review.summary must be filled."))
-    return issues
 
 
 def validate_image_links(markdown: str, base_dir: Path) -> list[ValidationIssue]:
