@@ -45,12 +45,7 @@ def build_article_manifest(
             "reviewed": relative_to(paths.reviewed_path, article_dir),
             "assets": relative_to(paths.asset_dir, article_dir),
             "manifest": relative_to(paths.manifest_path, article_dir),
-        }
-        | (
-            {"noise_hints": relative_to(paths.noise_hints_path, article_dir)}
-            if article.content_type == "article"
-            else {}
-        ),
+        },
         "assets": {
             "downloaded": [
                 {
