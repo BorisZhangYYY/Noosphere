@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.core.config.config import configured_output_dir, load_config
+from src.core.config.config import load_config
 from src.core.paths import project_root
 
 """Application-level path configuration for Noosphere.
@@ -36,7 +36,7 @@ class Paths:
         """Root directory for all article workspaces."""
         if self._output_dir is not None:
             return self._output_dir
-        return configured_output_dir(load_config())
+        return load_config().output_dir_path
 
     @property
     def prompts_dir(self) -> Path:
