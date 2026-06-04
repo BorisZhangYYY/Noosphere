@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - Migrated path management to a deer-flow-inspired layered architecture: runtime layer (`src.core.paths`) and application layer (`Paths` class with lazy singleton).
+- Hardened local image upload logic in `upload_markdown_file`: added basename fallback for SiYuan response keys and warnings for missing uploads; documented the pipeline and helpers.
 - `crawl_page()` now catches Crawl4AI exceptions and attempts Firecrawl fallback before surfacing errors.
 - `BaseArticleExtractor` and `XiaoheiheExtractor` fall back to markdown-based title extraction.
 

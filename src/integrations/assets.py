@@ -134,6 +134,12 @@ def split_image_target(target: str) -> tuple[str, str | None]:
 
 
 def local_image_paths(markdown: str, base_dir: Path) -> dict[str, Path]:
+    """Return a mapping from Markdown image URL to resolved local file path.
+
+    Only URLs without a scheme (e.g. ``assets/image.png``) are considered local.
+    The URL is URL-decoded and resolved relative to *base_dir*; only files that
+    actually exist on disk are returned.
+    """
     paths: dict[str, Path] = {}
     for match in MARKDOWN_IMAGE_RE.finditer(markdown):
         url, _ = split_image_target(match.group(2))
@@ -146,4 +152,9 @@ def local_image_paths(markdown: str, base_dir: Path) -> dict[str, Path]:
 
 
 def replace_image_urls(markdown: str, replacements: dict[str, str]) -> str:
+    """Rewrite image URLs in *markdown* using the *replacements* map.
+
+    Keys are the original Markdown image URLs; values are the replacement URLs.
+    References not present in the map are left unchanged.
+    """
     return MARKDOWN_IMAGE_RE.sub(lambda m: _replace_image_url(m, replacements), markdown)
