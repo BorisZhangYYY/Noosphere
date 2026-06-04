@@ -3,13 +3,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from src.core.config.config import load_config, resolve_siyuan_token, siyuan_config
+from src.core.config.config import load_config
 from src.core.markdown.upload_preparer import read_markdown_for_upload
 from src.integrations.assets import local_image_paths, replace_image_urls
 from src.integrations.siyuan import SiyuanClient
 
 
-def upload_markdown_file(
+async def upload_markdown_file(
     path: Path,
     title: str | None = None,
 ) -> str:
@@ -25,13 +25,15 @@ def upload_markdown_file(
     assets are rewritten so the SiYuan document can render them.
     """
     config = load_config()
-    sconfig = siyuan_config(config)
-    resolved_parent_id = sconfig.get("default_parent_id") or None
-    if not resolved_parent_id:
+    sconfig = config.siyuan
+    if not sconfig or not sconfig.default_parent_id:
         raise ValueError("siyuan.default_parent_id is required for upload")
 
-    resolved_api_base = sconfig.get("api_base", "http://127.0.0.1:6806")
-    token = resolve_siyuan_token(config)
+    resolved_parent_id = sconfig.default_parent_id
+    resolved_api_base = sconfig.api_base
+    token = sconfig.token
+    if not token:
+        raise ValueError("siyuan.token is required for upload")
 
     # Step 1: Prepare Markdown content and document title.
     resolved_title, markdown = read_markdown_for_upload(path, title)
