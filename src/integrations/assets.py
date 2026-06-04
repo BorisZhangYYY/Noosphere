@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import mimetypes
 import os
 import re
-import urllib.error
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import aiohttp
 
 
 MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]*)\)")
@@ -70,49 +71,66 @@ def _extension_from_content_type(content_type: str | None) -> str:
     return mimetypes.guess_extension(media_type) or ""
 
 
-def download_markdown_images(markdown_path: Path, assets_root: Path | None = None) -> ImageDownloadResult:
+async def download_markdown_images(
+    markdown_path: Path, assets_root: Path | None = None
+) -> ImageDownloadResult:
     markdown = markdown_path.read_text(encoding="utf-8")
     asset_dir = assets_root or markdown_path.parent / "assets" / safe_path_segment(markdown_path.stem)
     asset_dir.mkdir(parents=True, exist_ok=True)
 
     result = ImageDownloadResult(markdown_path=markdown_path, asset_dir=asset_dir)
-    replacements: dict[str, str] = {}
     urls = []
     for match in MARKDOWN_IMAGE_RE.finditer(markdown):
         url, _ = split_image_target(match.group(2))
         if is_remote_url(url) and url not in urls:
             urls.append(url)
 
-    for index, url in enumerate(urls, 1):
-        digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
-        extension = _extension_from_url(url)
-        temp_path = asset_dir / f"image_{index:02d}_{digest}{extension or '.bin'}"
-        try:
-            request = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
-            with urllib.request.urlopen(request, timeout=30) as response:
-                data = response.read()
-                if not data:
-                    raise ValueError("empty image response")
-                content_extension = _extension_from_content_type(response.headers.get("Content-Type"))
-                final_extension = extension or content_extension or ".bin"
-                final_path = asset_dir / f"image_{index:02d}_{digest}{final_extension}"
-                final_path.write_bytes(data)
-        except (OSError, ValueError, urllib.error.URLError) as exc:
-            result.failed[url] = str(exc)
+    semaphore = asyncio.Semaphore(5)
+    tasks = [_download_one(url, asset_dir, index + 1, semaphore) for index, url in enumerate(urls)]
+    download_results = await asyncio.gather(*tasks)
+
+    replacements: dict[str, str] = {}
+    for downloaded in download_results:
+        if downloaded is None:
             continue
-
-        rel_path = Path(os.path.relpath(final_path, markdown_path.parent)).as_posix()
-        replacements[url] = rel_path
-        result.downloaded.append(DownloadedImage(source_url=url, local_path=final_path))
-
-        if temp_path.exists() and temp_path != final_path:
-            temp_path.unlink()
+        rel_path = Path(os.path.relpath(downloaded.local_path, markdown_path.parent)).as_posix()
+        replacements[downloaded.source_url] = rel_path
+        result.downloaded.append(downloaded)
 
     if replacements:
         updated = MARKDOWN_IMAGE_RE.sub(lambda m: _replace_image_url(m, replacements), markdown)
         markdown_path.write_text(updated, encoding="utf-8")
 
     return result
+
+
+async def _download_one(
+    url: str, asset_dir: Path, index: int, semaphore: asyncio.Semaphore
+) -> DownloadedImage | None:
+    async with semaphore:
+        digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
+        extension = _extension_from_url(url)
+        final_path = asset_dir / f"image_{index:02d}_{digest}{extension or '.bin'}"
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url,
+                    headers={"User-Agent": DEFAULT_USER_AGENT},
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.read()
+                    if not data:
+                        raise ValueError("empty image response")
+                    content_extension = _extension_from_content_type(response.headers.get("Content-Type"))
+                    final_extension = extension or content_extension or ".bin"
+                    final_path = asset_dir / f"image_{index:02d}_{digest}{final_extension}"
+                    final_path.write_bytes(data)
+        except (OSError, ValueError, aiohttp.ClientError):
+            return None
+
+        return DownloadedImage(source_url=url, local_path=final_path)
 
 
 def _replace_image_url(match: re.Match[str], replacements: dict[str, str]) -> str:
