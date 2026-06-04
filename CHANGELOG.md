@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Hardened local image upload logic in `upload_markdown_file`: added basename fallback for SiYuan response keys and warnings for missing uploads; documented the pipeline and helpers.
 - `crawl_page()` now catches Crawl4AI exceptions and attempts Firecrawl fallback before surfacing errors.
 - `BaseArticleExtractor` and `XiaoheiheExtractor` fall back to markdown-based title extraction.
+- Simplified `ai-review` pipeline from 3 AI calls (rewrite + metadata + verification) to 1 AI rewrite call with deterministic machine-validation feedback loop.
 
 ### Fixed
 - `XiaoheiheExtractor.handles()` now matches all three configured URL patterns (`bbs/post_share`, `app/bbs/link/`, `api.xiaoheihe.cn`).
@@ -29,6 +30,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `crawl_page()` caches config to avoid re-reading `config.json` from disk on every call.
 - `crawl_page()` logs fallback messages to `sys.stderr` instead of `stdout`.
 - `XiaoheiheExtractor` falls back to `page.markdown` when HTML-based extraction yields empty content.
+
+### Removed
+- Removed standalone `validate` CLI command; validation is now internal to `ai-review`.
+- Removed `rules-review` CLI command and the entire platform-rules / noise-hints system.
+- Removed `review.json` detailed metadata fields (`summary`, `removed_noise`, `preserved_sections`, `formatting_changes`, `image_decisions`, `platform_noise_actions`, `suggested_platform_markers`) and `pre_upload_review`.
+- Deleted metadata prompts (`review_metadata.md`, `review_metadata_social.md`) and verification prompts (`pre_upload_review.md`, `pre_upload_review_social.md`).
 
 ## [0.1.0] - 2026-05-22
 
