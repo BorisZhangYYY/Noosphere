@@ -35,11 +35,11 @@ class XExtractor:
         if hasattr(self, "_proxy_cache"):
             return self._proxy_cache
         config = load_config()
-        proxy_config = config.get("proxy")
-        if not isinstance(proxy_config, dict):
+        proxy_config = config.proxy
+        if proxy_config is None:
             self._proxy_cache = None
         else:
-            self._proxy_cache = proxy_config.get("https") or proxy_config.get("http") or None
+            self._proxy_cache = proxy_config.https or proxy_config.http or None
         return self._proxy_cache
 
     async def _fetch_oembed(self, url: str) -> dict:

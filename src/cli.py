@@ -102,13 +102,13 @@ async def _main_async(args: argparse.Namespace) -> int:
 
         # --- Load SMTP configuration ---
         config = load_config()
-        smtp_config = config.get("smtp")
+        smtp_config = config.smtp
         if not smtp_config:
             print("Error: SMTP not configured in config.json")
             return 1
 
         # --- Validate recipient against allowlist ---
-        allowed = smtp_config.get("allowed_recipients", [])
+        allowed = smtp_config.allowed_recipients
         if args.to not in allowed:
             print(f"Error: Recipient '{args.to}' is not in allowed_recipients list")
             return 1
@@ -131,18 +131,18 @@ async def _main_async(args: argparse.Namespace) -> int:
         renderer = MarkdownToEmailRenderer()
         html_body = renderer.render(markdown_text, assets_dir=assets_dir, subject_title=article_title)
 
-        header_note = f'<p style="margin-bottom: 1em; color: #666; font-size: 0.9em;">[Shared by {smtp_config["sender_name"]} via Noosphere]</p>'
+        header_note = f'<p style="margin-bottom: 1em; color: #666; font-size: 0.9em;">[Shared by {smtp_config.sender_name} via Noosphere]</p>'
         html_body = header_note + html_body
 
-        subject = f"[Shared by {smtp_config['sender_name']} via Noosphere] {article_title}"
+        subject = f"[Shared by {smtp_config.sender_name} via Noosphere] {article_title}"
 
         # --- Send email ---
         adapter = EmailAdapter(
-            host=smtp_config["host"],
-            port=smtp_config["port"],
-            user=smtp_config["user"],
-            password=smtp_config["password"],
-            sender_name=smtp_config["sender_name"],
+            host=smtp_config.host,
+            port=smtp_config.port,
+            user=smtp_config.user,
+            password=smtp_config.password,
+            sender_name=smtp_config.sender_name,
             allowed_recipients=allowed,
         )
         result = adapter.send(

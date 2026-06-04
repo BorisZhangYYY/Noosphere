@@ -30,9 +30,7 @@ def classify_url(url: str, config: Config | None = None) -> str:
         if not isinstance(section, dict):
             continue
         for platform, value in section.items():
-            if not isinstance(value, dict):
-                continue
-            for pattern in value.get("url_patterns", []):
+            for pattern in value.url_patterns:
                 if pattern in url:
                     if platform not in EXTRACTORS:
                         raise ValueError(f"Configured platform has no extractor: {platform}")

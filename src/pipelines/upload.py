@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -44,7 +45,7 @@ async def upload_markdown_file(
     if local_images:
         # Step 3: Upload unique local images and rewrite Markdown URLs for successful uploads.
         unique_paths = list(dict.fromkeys(local_images.values()))
-        succ_map = client.upload_assets(unique_paths)
+        succ_map = await asyncio.to_thread(client.upload_assets, unique_paths)
 
         replacements: dict[str, str] = {}
         missing: list[str] = []
@@ -73,5 +74,5 @@ async def upload_markdown_file(
             markdown = replace_image_urls(markdown, replacements)
 
     # Step 4: Upload the Markdown document under the configured parent.
-    result = client.upload_markdown_under_parent(resolved_title, markdown, resolved_parent_id)
+    result = await asyncio.to_thread(client.upload_markdown_under_parent, resolved_title, markdown, resolved_parent_id)
     return result.hpath

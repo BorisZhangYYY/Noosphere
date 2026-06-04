@@ -122,7 +122,13 @@ def write_completed_review_report(
     return output_path
 
 
+MAX_FEEDBACK_CHARS = 2000
+
+
 def feedback_from_validation_issues(issues: list[ValidationIssue]) -> str:
     if not issues:
         return ""
-    return "Machine validation failed. Please fix the following issues:\n" + format_validation_issues(issues)
+    text = "Machine validation failed. Please fix the following issues:\n" + format_validation_issues(issues)
+    if len(text) > MAX_FEEDBACK_CHARS:
+        text = text[:MAX_FEEDBACK_CHARS] + "\n... (truncated)"
+    return text

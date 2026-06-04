@@ -66,7 +66,7 @@ class MarkdownToEmailRenderer:
                     stripped = stripped[:-1]
                 ends_with_block_trigger = stripped.endswith("：") or stripped.endswith(":") or stripped.endswith("。") or stripped.endswith(",")
                 if ends_with_block_trigger:
-                    if next_line.startswith(("|", "-", "*", "+")) or re.match(r'\|', next_line):
+                    if next_line.startswith(("|", "-", "*", "+")):
                         processed.append("")
 
         text = "\n".join(processed)
