@@ -2,10 +2,8 @@
 CLI command definitions and entry points. Currently supported:
 - extract: Extract an article from a website.
 - upload: Upload a Markdown file to Siyuan.
-- validate: Validate Markdown formatting compliance.
-- ai-review: AI-powered check for formatting issues and noise.
-- rules-review: Check current platform rules.
-- run: Pipeline of extract → rewrite → ai-review → validate → upload.
+- ai-review: AI-powered rewrite and format validation.
+- run: Pipeline of extract → ai-review → upload.
 - email: Send Markdown-styled emails via SMTP.
 """
 from __future__ import annotations
@@ -31,16 +29,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file to SiYuan.")
     upload_parser.add_argument("file", type=Path, help="Markdown file to upload.")
 
-    # The validate command uses only rule-based validation (no AI features).
-    validate_parser = subparsers.add_parser("validate", help="Run system review checks for one reviewed Markdown file.")
-    validate_parser.add_argument("file", type=Path, help="Reviewed Markdown file to validate.")
-
     ai_review_parser = subparsers.add_parser("ai-review", help="Use the configured AI model to rewrite and check one reviewed Markdown file.")
     ai_review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to rewrite.")
-
-    rules_review_parser = subparsers.add_parser("rules-review", help="Review local platform marker rules.")
-    rules_review_parser.add_argument("platform", help="Platform name, for example wechat_mp or zhihu_zhuanlan.")
-    rules_review_parser.add_argument("--apply", action="store_true", help="Apply safe rule cleanups to local platform_rules/.")
 
     run_parser = subparsers.add_parser("run", help="Extract one URL, AI-review it, then upload it to SiYuan.")
     run_parser.add_argument("url", help="Article URL to extract.")
@@ -74,18 +64,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Uploaded: {hpath}")
             return 0
 
-        if args.command == "validate":
-            from src.core.review.review_validation import format_validation_issues
-            from src.pipelines.validate import validate_reviewed_file
-
-            result = validate_reviewed_file(args.file)
-            if result.ok:
-                print(f"Valid: {args.file}")
-                return 0
-            print("Invalid reviewed Markdown:")
-            print(format_validation_issues(result.issues))
-            return 1
-
         if args.command == "ai-review":
             from src.core.review.review_validation import format_validation_issues
             from src.pipelines.ai_review import run_ai_review
@@ -95,18 +73,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"AI reviewed: {result.reviewed_path}")
                 return 0
             print(f"AI review failed after {result.attempts} attempt(s).")
-            if not result.validation.ok:
-                print(format_validation_issues(result.validation.issues))
-            if result.verification and result.verification.summary:
-                print(result.verification.summary)
+            print(format_validation_issues(result.validation.issues))
             return 1
-
-        if args.command == "rules-review":
-            from src.core.rules.rules_review import format_rules_review, review_platform_rules
-
-            result = review_platform_rules(args.platform, apply=args.apply)
-            print(format_rules_review(result))
-            return 0
 
         if args.command == "run":
             from src.pipelines.ai_review import run_ai_review
