@@ -53,7 +53,24 @@ class BaseArticleExtractor(ABC):
         return markdown
 
     async def extract(self, url: str) -> Article:
-        page = await crawl_page(url, **self.crawl_options())
+        page = await self._crawl(url)
+        return await self._parse(page, url)
+
+    async def _crawl(self, url: str) -> CrawledPage:
+        """Crawl the URL and return the raw page data.
+
+        Subclasses may override this to customize the crawl strategy,
+        but most platforms only need to override ``crawl_options()``.
+        """
+        return await crawl_page(url, **self.crawl_options())
+
+    async def _parse(self, page: CrawledPage, url: str) -> Article:
+        """Parse a crawled page into an Article.
+
+        This is the default parsing strategy for web-article platforms.
+        Platforms with special needs (e.g. Xiaoheihe) may override this
+        method entirely instead of the individual hook methods.
+        """
         soup = BeautifulSoup(page.html or page.cleaned_html, "lxml")
         title = (
             self.extract_title(soup)

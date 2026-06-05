@@ -14,9 +14,6 @@ from src.core.config.config import load_config
 from src.core.config.schema import Config
 from src.core.paths.paths import get_paths
 
-# Cache config at module level to avoid re-reading from disk on every crawl.
-_crawler_config_cache: Config | None = None
-
 CRAWL4AI_RUNTIME = get_paths().ensure_crawl4ai_runtime_dir()
 os.environ.setdefault("CRAWL4AI_BASE_DIRECTORY", str(CRAWL4AI_RUNTIME))
 os.environ.setdefault("CRAWL4_AI_BASE_DIRECTORY", str(CRAWL4AI_RUNTIME))
@@ -168,14 +165,6 @@ def _build_firecrawl_payload(
     return payload
 
 
-def _get_cached_config() -> Config:
-    """Return cached config, loading from disk on first call."""
-    global _crawler_config_cache
-    if _crawler_config_cache is None:
-        _crawler_config_cache = load_config()
-    return _crawler_config_cache
-
-
 async def _crawl_page_firecrawl(
     url: str,
     *,
@@ -192,7 +181,7 @@ async def _crawl_page_firecrawl(
     """Call Firecrawl /scrape API as a fallback when Crawl4AI fails."""
     del excluded_tags, page_timeout, pruning_threshold, word_count_threshold  # Unused in Firecrawl path
 
-    config = _get_cached_config()
+    config = load_config()
     api_key = config.crawler.firecrawl.api_key or ""
     api_base = config.crawler.firecrawl.api_base
     proxy = config.proxy.https or config.proxy.http if config.proxy else None
@@ -322,7 +311,7 @@ async def crawl_page(
     if page.success:
         return page
 
-    config = _get_cached_config()
+    config = load_config()
     if not config.crawler.firecrawl_enabled:
         return page
 
