@@ -24,26 +24,35 @@ class AIConfig(BaseModel):
     rewrite_prompt_path: str = "prompts/rewrite_article.md"
     platform_prompts: dict[str, dict[str, str]] = Field(default_factory=dict)
 
-    def resolve_prompt(self, key: str, path_key: str, platform: str = "") -> str:
-        """Resolve prompt with priority: platform override > global config."""
+    def resolve_prompt(self, key: str, path_key: str, platform: str = "") -> tuple[str, PromptMetadata]:
+        """Resolve prompt with priority: platform override > global config.
+
+        Returns the prompt body text and the parsed metadata from its YAML frontmatter.
+        """
+        from src.core.review.prompt_metadata import parse_prompt_file, PromptMetadata
+
         platform_overrides = self.platform_prompts
         if platform and platform in platform_overrides:
             platform_config = platform_overrides[platform]
             if key in platform_config and platform_config[key].strip():
-                return platform_config[key]
+                return platform_config[key], PromptMetadata()
             if path_key in platform_config and platform_config[path_key].strip():
                 try:
-                    return resolve_project_path(platform_config[path_key]).read_text(encoding="utf-8")
+                    path = resolve_project_path(platform_config[path_key])
+                    parsed = parse_prompt_file(path)
+                    return parsed.body, parsed.metadata
                 except (OSError, FileNotFoundError) as exc:
                     raise ValueError(f"Prompt file not found: {platform_config[path_key]}") from exc
 
         value = getattr(self, key, None)
         if isinstance(value, str) and value.strip():
-            return value
+            return value, PromptMetadata()
         path = getattr(self, path_key, None)
         if isinstance(path, str) and path.strip():
             try:
-                return resolve_project_path(path).read_text(encoding="utf-8")
+                resolved_path = resolve_project_path(path)
+                parsed = parse_prompt_file(resolved_path)
+                return parsed.body, parsed.metadata
             except (OSError, FileNotFoundError) as exc:
                 raise ValueError(f"Prompt file not found: {path}") from exc
         raise ValueError(f"ai.{key} or ai.{path_key} is required")

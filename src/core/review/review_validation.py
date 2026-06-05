@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.markdown.links import bare_markdown_urls
+from src.core.review.prompt_metadata import PromptMetadata
 from src.core.review.review_report import inferred_manifest_path
 
 
@@ -34,14 +35,12 @@ class ValidationResult:
         return not self.issues
 
 
-def validate_reviewed_markdown(path: Path) -> ValidationResult:
+def validate_reviewed_markdown(path: Path, prompt_metadata: PromptMetadata | None = None) -> ValidationResult:
     issues: list[ValidationIssue] = []
     if not path.exists():
         return ValidationResult(path, [ValidationIssue("missing_file", f"Reviewed Markdown file not found: {path}")])
 
     markdown = path.read_text(encoding="utf-8")
-    if not H1_RE.search(markdown):
-        issues.append(ValidationIssue("missing_h1", "Reviewed Markdown must start with or contain one H1 title."))
 
     manifest_path = inferred_manifest_path(path)
     manifest: dict[str, Any] | None = None
@@ -58,6 +57,58 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
         if isinstance(article_data, dict):
             content_type = str(article_data.get("content_type", "article"))
 
+    # Use prompt metadata if provided; otherwise fall back to legacy hardcoded rules.
+    if prompt_metadata is not None:
+        issues.extend(_validate_from_metadata(markdown, prompt_metadata, content_type))
+    else:
+        issues.extend(_validate_legacy(markdown, content_type))
+
+    issues.extend(validate_bare_urls(markdown))
+    issues.extend(validate_image_links(markdown, path.parent))
+
+    return ValidationResult(path, issues)
+
+
+def _validate_from_metadata(markdown: str, metadata: PromptMetadata, content_type: str) -> list[ValidationIssue]:
+    """Validate Markdown using rules from the prompt metadata."""
+    issues: list[ValidationIssue] = []
+
+    # Check required headings
+    for heading in metadata.required_headings:
+        if heading.level == 1:
+            if not H1_RE.search(markdown):
+                issues.append(ValidationIssue("missing_h1", "Reviewed Markdown must start with or contain one H1 title."))
+        elif heading.text and not has_heading(markdown, heading.level, heading.text):
+            issues.append(ValidationIssue(
+                f"missing_{heading.text.lower().replace(' ', '_')}",
+                f"Reviewed Markdown must contain `{'#' * heading.level} {heading.text}`."
+            ))
+        elif heading.text and not section_body(markdown, heading.level, heading.text).strip():
+            issues.append(ValidationIssue(
+                f"empty_{heading.text.lower().replace(' ', '_')}",
+                f"`{'#' * heading.level} {heading.text}` must contain content."
+            ))
+
+    # Check validation rules
+    for rule in metadata.validation_rules:
+        if rule.rule_type == "no_content_before_heading":
+            anchor = rule.params.get("heading")
+            if anchor:
+                issues.extend(validate_content_before_heading(markdown, anchor))
+        elif rule.rule_type == "all_images_local":
+            # Handled by validate_image_links in the main validator
+            pass
+
+    return issues
+
+
+def _validate_legacy(markdown: str, content_type: str) -> list[ValidationIssue]:
+    """Legacy hardcoded validation rules for backward compatibility."""
+    issues: list[ValidationIssue] = []
+
+    if not H1_RE.search(markdown):
+        issues.append(ValidationIssue("missing_h1", "Reviewed Markdown must start with or contain one H1 title."))
+
     if content_type == "article":
         if not has_heading(markdown, 2, "AI Summary"):
             issues.append(ValidationIssue("missing_ai_summary", "Reviewed Markdown must contain `## AI Summary`."))
@@ -72,10 +123,7 @@ def validate_reviewed_markdown(path: Path) -> ValidationResult:
     elif content_type == "social_post":
         pass  # social posts do not require AI Summary / Main Article structure for now
 
-    issues.extend(validate_bare_urls(markdown))
-    issues.extend(validate_image_links(markdown, path.parent))
-
-    return ValidationResult(path, issues)
+    return issues
 
 
 def validate_bare_urls(markdown: str) -> list[ValidationIssue]:
@@ -85,13 +133,15 @@ def validate_bare_urls(markdown: str) -> list[ValidationIssue]:
     ]
 
 
-def validate_content_before_ai_summary(markdown: str) -> list[ValidationIssue]:
+def validate_content_before_heading(markdown: str, heading_text: str) -> list[ValidationIssue]:
+    """Ensure no article body content appears before the specified heading."""
     lines = markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    summary_index = next((index for index, line in enumerate(lines) if line.strip() == "## AI Summary"), None)
-    if summary_index is None:
+    heading_line = f"{'#' * 2} {heading_text}"
+    heading_index = next((index for index, line in enumerate(lines) if line.strip() == heading_line), None)
+    if heading_index is None:
         return []
 
-    for line in lines[:summary_index]:
+    for line in lines[:heading_index]:
         stripped = line.strip()
         if not stripped:
             continue
@@ -99,12 +149,18 @@ def validate_content_before_ai_summary(markdown: str) -> list[ValidationIssue]:
             continue
         return [
             ValidationIssue(
-                "content_before_ai_summary",
-                "Reviewed Markdown must not contain article body before `## AI Summary`; "
-                "move all body content into `## Main Article`.",
+                "content_before_heading",
+                f"Reviewed Markdown must not contain article body before `## {heading_text}`; "
+                f"move all body content into the appropriate section.",
             )
         ]
     return []
+
+
+# Backward-compatible alias
+def validate_content_before_ai_summary(markdown: str) -> list[ValidationIssue]:
+    """Legacy alias for validate_content_before_heading('AI Summary')."""
+    return validate_content_before_heading(markdown, "AI Summary")
 
 
 def read_json_document(path: Path, label: str) -> tuple[dict[str, Any] | None, ValidationIssue | None]:

@@ -14,6 +14,7 @@ from src.core.review.ai_review_data import (
     prepare_rewritten_markdown,
     write_completed_review_report,
 )
+from src.core.review.prompt_metadata import PromptMetadata
 from src.core.review.review_report import inferred_manifest_path
 from src.core.review.review_validation import ValidationResult, validate_reviewed_markdown
 from src.integrations.ai_client import AIClient, AIProviderError, AISettings, AITextResponse, resolve_ai_settings
@@ -47,7 +48,7 @@ async def run_ai_review(path: Path, max_attempts: int | None = None, client: Tex
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     platform = str((manifest.get("article") or {}).get("platform") or "")
     content_type = str((manifest.get("article") or {}).get("content_type") or "article")
-    rewrite_prompt = config.ai.resolve_prompt("rewrite_prompt", "rewrite_prompt_path", platform=platform)
+    rewrite_prompt, prompt_metadata = config.ai.resolve_prompt("rewrite_prompt", "rewrite_prompt_path", platform=platform)
     resolved_rewrite_prompt = rewrite_prompt.replace("{model}", generator.settings.model)
 
     feedback = ""
@@ -62,7 +63,7 @@ async def run_ai_review(path: Path, max_attempts: int | None = None, client: Tex
         )
         path.write_text(reviewed_markdown, encoding="utf-8")
 
-        validation = validate_reviewed_markdown(path)
+        validation = validate_reviewed_markdown(path, prompt_metadata)
         if validation.ok:
             write_completed_review_report(
                 path,

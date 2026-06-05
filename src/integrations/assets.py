@@ -29,10 +29,10 @@ class DownloadedImage:
 
 @dataclass
 class ImageDownloadResult:
-    markdown_path: Path
     asset_dir: Path
     downloaded: list[DownloadedImage] = field(default_factory=list)
     failed: dict[str, str] = field(default_factory=dict)
+    markdown_path: Path | None = None  # Optional; kept for backward compatibility.
 
 
 def is_remote_url(url: str) -> bool:
@@ -71,14 +71,24 @@ def _extension_from_content_type(content_type: str | None) -> str:
     return mimetypes.guess_extension(media_type) or ""
 
 
-async def download_markdown_images(
-    markdown_path: Path, assets_root: Path | None = None
-) -> ImageDownloadResult:
-    markdown = markdown_path.read_text(encoding="utf-8")
-    asset_dir = assets_root or markdown_path.parent / "assets" / safe_path_segment(markdown_path.stem)
+async def download_images(
+    markdown: str, asset_dir: Path
+) -> tuple[str, ImageDownloadResult]:
+    """Download remote images referenced in *markdown* and return the updated Markdown.
+
+    This is a pure function: it does not read or write files on disk. The caller
+    is responsible for reading the original Markdown and writing the updated text.
+
+    Args:
+        markdown: The original Markdown body text.
+        asset_dir: Directory where downloaded images should be saved.
+
+    Returns:
+        A tuple of (updated_markdown, download_result).
+    """
     asset_dir.mkdir(parents=True, exist_ok=True)
 
-    result = ImageDownloadResult(markdown_path=markdown_path, asset_dir=asset_dir)
+    result = ImageDownloadResult(asset_dir=asset_dir)
     urls = []
     for match in MARKDOWN_IMAGE_RE.finditer(markdown):
         url, _ = split_image_target(match.group(2))
@@ -93,14 +103,32 @@ async def download_markdown_images(
     for downloaded in download_results:
         if downloaded is None:
             continue
-        rel_path = Path(os.path.relpath(downloaded.local_path, markdown_path.parent)).as_posix()
+        rel_path = Path(os.path.relpath(downloaded.local_path, asset_dir)).as_posix()
         replacements[downloaded.source_url] = rel_path
         result.downloaded.append(downloaded)
 
     if replacements:
         updated = MARKDOWN_IMAGE_RE.sub(lambda m: _replace_image_url(m, replacements), markdown)
-        markdown_path.write_text(updated, encoding="utf-8")
+    else:
+        updated = markdown
 
+    return updated, result
+
+
+async def download_markdown_images(
+    markdown_path: Path, assets_root: Path | None = None
+) -> ImageDownloadResult:
+    """Download remote images from a Markdown file and update the file in place.
+
+    .. deprecated::
+        Prefer ``download_images()`` for a pure function that does not mutate
+        the file system. This wrapper is kept for backward compatibility.
+    """
+    markdown = markdown_path.read_text(encoding="utf-8")
+    asset_dir = assets_root or markdown_path.parent / "assets" / safe_path_segment(markdown_path.stem)
+    updated, result = await download_images(markdown, asset_dir)
+    result.markdown_path = markdown_path
+    markdown_path.write_text(updated, encoding="utf-8")
     return result
 
 
