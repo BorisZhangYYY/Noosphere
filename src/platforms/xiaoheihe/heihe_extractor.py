@@ -7,7 +7,8 @@ from bs4 import BeautifulSoup, Tag
 
 from src.core.models.article import Article
 from src.core.base_extractor import BaseArticleExtractor
-from src.core.markdown.cleaner import clean_markdown, first_text, html_to_text_markdown, meta_content
+from src.core.registry import register_extractor
+from src.core.markdown.cleaner import clean_markdown, extract_title_from_markdown, first_text, html_to_text_markdown, meta_content
 from src.integrations.crawler import CrawledPage, crawl_page
 
 PLATFORM = "xiaoheihe"
@@ -15,13 +16,28 @@ PLATFORM_LABEL = "小黑盒"
 FALLBACK_TITLE = "小黑盒帖子"
 
 
+@register_extractor(
+    "xiaoheihe",
+    url_patterns=[
+        "xiaoheihe.cn/bbs/post_share",
+        "xiaoheihe.cn/app/bbs/link/",
+        "api.xiaoheihe.cn/v3/bbs/app/api/web/share",
+    ],
+)
 class XiaoheiheExtractor(BaseArticleExtractor):
     platform = PLATFORM
     platform_label = PLATFORM_LABEL
     fallback_title = FALLBACK_TITLE
 
     def handles(self, url: str) -> bool:
-        return "xiaoheihe.cn/bbs/post_share" in url
+        return any(
+            pattern in url
+            for pattern in (
+                "xiaoheihe.cn/bbs/post_share",
+                "xiaoheihe.cn/app/bbs/link/",
+                "api.xiaoheihe.cn/v3/bbs/app/api/web/share",
+            )
+        )
 
     def crawl_options(self) -> dict[str, object]:
         return {
@@ -52,10 +68,21 @@ class XiaoheiheExtractor(BaseArticleExtractor):
     async def extract(self, url: str) -> Article:
         page = await crawl_page(url, **self.crawl_options())
         soup = BeautifulSoup(page.html or page.cleaned_html, "lxml")
-        title = self.extract_title(soup) or title_from_redirect_data(url) or self.fallback_title
-        markdown = extract_post_markdown(soup)
-        if len(markdown) < self.body_min_length:
-            markdown = description_from_redirect_data(url)
+        title = (
+            self.extract_title(soup)
+            or extract_title_from_markdown(page.markdown)
+            or title_from_redirect_data(url)
+            or self.fallback_title
+        )
+        if page.fallback_used == "firecrawl" and len(page.markdown) >= self.body_min_length:
+            markdown = page.markdown
+        else:
+            markdown = extract_post_markdown(soup)
+            if len(markdown) < self.body_min_length:
+                # Fallback to Crawl4AI-generated markdown when HTML parsing yields nothing.
+                markdown = page.markdown
+            if len(markdown) < self.body_min_length:
+                markdown = description_from_redirect_data(url)
         markdown = self.clean_body(clean_markdown(markdown), title)
         if len(markdown) < self.body_min_length:
             raise ValueError(self.too_short_message(page))
@@ -69,7 +96,11 @@ class XiaoheiheExtractor(BaseArticleExtractor):
             published_at=self.extract_published_at(soup),
             markdown=markdown,
             status_code=page.status_code,
-            extra={"crawl_success": page.success, "crawl_error": page.error},
+            extra={
+                "crawl_success": page.success,
+                "crawl_error": page.error,
+                "fallback_used": page.fallback_used,
+            },
         )
 
     def too_short_message(self, page: CrawledPage) -> str:
@@ -134,14 +165,3 @@ def clean_title(title: str | None) -> str:
     cleaned = str(title or "").strip()
     # Xiaoheihe appends " - 小黑盒" to article titles; remove it.
     return cleaned.removesuffix(" - 小黑盒").strip()
-
-
-extractor = XiaoheiheExtractor()
-
-
-def handles(url: str) -> bool:
-    return extractor.handles(url)
-
-
-async def extract(url: str) -> Article:
-    return await extractor.extract(url)

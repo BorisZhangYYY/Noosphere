@@ -62,6 +62,29 @@ def normalize_inline_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def extract_title_from_markdown(markdown: str) -> str | None:
+    """Extract the first H1 heading from markdown as a title candidate.
+
+    Skips lines inside fenced code blocks (```) and indented code blocks
+    (4+ leading spaces) to avoid matching shell comments or Python shebangs.
+    """
+    in_code_block = False
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        # Toggle fenced code block state
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        # Skip indented code blocks
+        if line.startswith("    ") or line.startswith("\t"):
+            continue
+        if stripped.startswith("# "):
+            return normalize_inline_text(stripped[2:].strip())
+    return None
+
+
 def safe_hpath_title(title: str, fallback: str = "Untitled Article", max_len: int = 90) -> str:
     cleaned = INVALID_HPATH_CHARS_RE.sub("-", title).strip(" .-")
     cleaned = re.sub(r"\s+", " ", cleaned)

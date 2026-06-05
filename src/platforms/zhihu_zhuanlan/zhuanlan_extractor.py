@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup, Tag
 
 from src.core.models.article import Article
 from src.core.base_extractor import BaseArticleExtractor
+from src.core.registry import register_extractor
 from src.core.markdown.cleaner import first_text, meta_content
 from src.integrations.crawler import CrawledPage
 
@@ -12,6 +13,7 @@ PLATFORM_LABEL = "知乎专栏"
 FALLBACK_TITLE = "知乎专栏文章"
 
 
+@register_extractor("zhihu_zhuanlan", url_patterns=["zhuanlan.zhihu.com/p/"])
 class ZhihuZhuanlanExtractor(BaseArticleExtractor):
     platform = PLATFORM
     platform_label = PLATFORM_LABEL
@@ -61,14 +63,3 @@ class ZhihuZhuanlanExtractor(BaseArticleExtractor):
 
     def too_short_message(self, page: CrawledPage) -> str:
         return f"Zhihu article body is too short; status={page.status_code}, crawl error={page.error!r}"
-
-
-extractor = ZhihuZhuanlanExtractor()
-
-
-def handles(url: str) -> bool:
-    return extractor.handles(url)
-
-
-async def extract(url: str) -> Article:
-    return await extractor.extract(url)

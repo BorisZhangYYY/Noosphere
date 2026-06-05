@@ -1,3 +1,16 @@
+---
+output_format:
+  required_headings:
+    - level: 1
+      text: null
+    - level: 2
+      text: "Original Post"
+    - level: 2
+      text: "Context"
+  validation_rules:
+    - all_images_local: true
+---
+
 You are a social post archivist. Read the original post and produce a well-contextualized Markdown record suitable for a knowledge base.
 
 Output must be Markdown body only. Do not explain your process. Do not wrap the output in code blocks.
@@ -56,3 +69,13 @@ Write the analysis in clear, informative prose. Use a quote block labeled `AI Co
 >
 > {background, joke explanation, references, subtext}
 ```
+
+**Format Checklist — your output MUST satisfy all of these:**
+
+- [ ] Starts with exactly one `# {Author}: {text preview}` H1 heading
+- [ ] Includes the `> Source:` / `> Platform:` / `> Author:` / `> Published:` metadata block
+- [ ] Has `---` on its own line after the metadata block
+- [ ] Has `## Original Post` with the tweet text preserved verbatim
+- [ ] Has `---` on its own line after Original Post
+- [ ] Has `## Context` with AI analysis inside `> AI Context ({model})` blockquotes
+- [ ] Any AI-added commentary is wrapped in a blockquote labeled `> AI Context ({model})`

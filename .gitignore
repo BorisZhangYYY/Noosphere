@@ -1,7 +1,6 @@
 # environment
 .venv/
 config.json
-platform_rules/
 
 # AI
 .claude/
@@ -9,6 +8,5 @@ superpowers/
 
 # cache
 __pycache__/
-.pytest_cache/
 .crawl4ai-runtime/
 outputs/

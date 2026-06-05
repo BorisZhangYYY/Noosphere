@@ -43,6 +43,13 @@ def markdown_without_leading_h1(markdown: str) -> str:
 
 
 def read_markdown_for_upload(path: Path, title: str | None = None) -> tuple[str, str]:
+    """Read a Markdown file and prepare it for upload.
+
+    Returns a ``(title, body)`` tuple where *title* is taken from the
+    explicit *title* argument, the first H1 heading, or the filename stem,
+    and *body* is the Markdown content with the leading H1 removed so the
+    destination note platform can use its own title field.
+    """
     markdown = path.read_text(encoding="utf-8")
     fallback = safe_filename(path.stem, fallback="Untitled Article")
     resolved_title = title or title_from_markdown(markdown, fallback)

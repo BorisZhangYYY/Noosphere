@@ -33,7 +33,7 @@ Key fields in `config.json`:
 | `social_post` | `x` | Social post source platforms with `label` and `url_patterns` |
 | `proxy` | `http`, `https` | Optional HTTP/HTTPS proxy URLs |
 | `siyuan` | `api_base`, `default_parent_id`, `token` | SiYuan note platform connection |
-| `ai` | `provider`, `max_attempts`, `*_prompt_path`, `platform_prompts` | Provider: `openai` or `anthropic`; `platform_prompts` overrides prompts per platform |
+| `ai` | `provider`, `max_attempts`, `*_prompt_path`, `platform_prompts` | Provider: `openai`, `anthropic`, or `compatible`; `platform_prompts` overrides prompts per platform |
 | `ai_providers` | `model`, `api_base`, `api_key`, `max_output_tokens`, `temperature` | Per-provider model settings |
 
 **Provider compatibility note:** `ai.provider: "anthropic"` means **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi (`https://api.kimi.com/coding/`), MiniMax (`https://api.minimaxi.com/anthropic`), or any other compatible endpoint without code changes.
@@ -67,8 +67,6 @@ Key fields in `config.json`:
 
    The first-round crawler output is kept as `raw.md` in the same article directory and should not be edited. Each extraction also writes `manifest.json` with source metadata, output paths, crawl status, image download results, and platform information.
 
-   A `noise_hints.json` sidecar is also generated with platform marker hits for AI review context.
-
    Any remote images found in the Markdown are downloaded under the article `assets/` directory and rewritten to local relative links.
 
 3. Either edit `reviewed.md` manually, or let the CLI AI review workflow handle Markdown rewrite decisions.
@@ -82,18 +80,6 @@ Key fields in `config.json`:
    - Improving heading hierarchy, spacing, and long article structure when needed.
    - Keeping meaningful local image links and removing only decorative or duplicate images.
    - Producing clean Markdown suitable for later import into different note-taking platforms.
-
-   Platform marker rules are loaded from local `platform_rules/` when present, otherwise from `platform_rules.example/`.
-
-   Local `platform_rules/` is intentionally gitignored because AI review can append suggested markers over time.
-
-   Review accumulated local markers when needed:
-
-   ```bash
-   python -m src.cli rules-review wechat_mp
-   ```
-
-   Add `--apply` only for safe deterministic cleanup of empty, duplicate, or invalid-category marker entries. Substring overlaps and short markers are reported for manual review.
 
 4. The reviewed article produced by the AI review workflow should use this structure for **articles**:
 
@@ -122,30 +108,19 @@ Key fields in `config.json`:
    python -m src.cli ai-review outputs/ARTICLE_ID/reviewed.md
    ```
 
-   This command rewrites the Markdown, writes article-specific review metadata to `outputs/ARTICLE_ID/review.json`, runs deterministic validation, runs a pre-upload AI verification, and retries when verification feedback requires revision.
+   This command sends the raw Markdown to the configured AI provider with a rewrite prompt, writes the response to `outputs/ARTICLE_ID/reviewed.md`, then runs deterministic machine validation. If validation fails, the issues are fed back to the AI as a correction prompt and the rewrite is retried (up to `ai.max_attempts`).
 
-   The AI rewrite response uses JSON with separate `markdown` and `review` fields. Only `review` metadata is stored in `review.json`.
+   On success, a lightweight `review.json` is written with model/provider info for traceability.
 
-6. Run system review checks when you need a deterministic audit:
-
-   ```bash
-   python -m src.cli validate outputs/ARTICLE_ID/reviewed.md
-   ```
-
-   `validate` checks common Markdown/report readiness rules for all platforms and dispatches source-platform-specific checks from `src/platforms/<platform>/` when implemented.
-
-   It is useful after AI review or after manual editing, but `upload` does not require it.
-
-7. Report the review result to the user:
+6. Report the review result to the user:
 
    - Modified content: list important deletions, rewrites, and structure changes.
    - Preserved content: list important sections that were kept.
-   - System review: report whether `validate` passed when it was used.
-   - AI review: report whether `ai-review` passed when it was used.
+   - AI review: report whether `ai-review` passed (including attempt count and any validation issues on the final attempt).
    - Target platform: report which note-taking platform or upload adapter will be used.
    - Ask for confirmation before uploading.
 
-8. After confirmation, upload or import the Markdown:
+7. After confirmation, upload or import the Markdown:
 
    ```bash
    python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
@@ -160,9 +135,7 @@ Key fields in `config.json`:
 | Command | Driver | Description |
 |---------|--------|-------------|
 | `extract URL` | CLI/crawl4ai | Crawl one article and save raw, reviewed, asset, manifest, and review-context files. |
-| `ai-review FILE` | AI | Use the configured AI provider to review and rewrite the article. |
-| `validate FILE` | CLI | Run deterministic system review checks for the reviewed article. |
-| `rules-review PLATFORM` | CLI | Review local platform marker rules and optionally apply safe cleanup with `--apply`. |
+| `ai-review FILE` | AI | Use the configured AI provider to rewrite the article, with machine-validation feedback and retry. |
 | `upload FILE` | CLI/platform adapter | Upload or import the provided Markdown file to the configured note-taking platform without review gating. |
 | `email ARTICLE_ID --to RECIPIENT` | CLI/SMTP | Send the reviewed article as an HTML email to the specified recipient (must be in allowed_recipients). |
 | `run URL` | Mixed | Run the full workflow from extraction through review and final upload/import. |

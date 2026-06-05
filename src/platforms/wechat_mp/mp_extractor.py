@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup, Tag
 
 from src.core.models.article import Article
 from src.core.base_extractor import BaseArticleExtractor
+from src.core.registry import register_extractor
 from src.core.markdown.cleaner import first_text, meta_content
 from src.integrations.crawler import CrawledPage
 
@@ -12,6 +13,7 @@ PLATFORM_LABEL = "微信公众号"
 FALLBACK_TITLE = "微信公众号文章"
 
 
+@register_extractor("wechat_mp", url_patterns=["mp.weixin.qq.com/s/"])
 class WechatMpExtractor(BaseArticleExtractor):
     platform = PLATFORM
     platform_label = PLATFORM_LABEL
@@ -47,14 +49,3 @@ class WechatMpExtractor(BaseArticleExtractor):
 
     def too_short_message(self, page: CrawledPage) -> str:
         return f"WeChat article body is too short; crawl error={page.error!r}"
-
-
-extractor = WechatMpExtractor()
-
-
-def handles(url: str) -> bool:
-    return extractor.handles(url)
-
-
-async def extract(url: str) -> Article:
-    return await extractor.extract(url)

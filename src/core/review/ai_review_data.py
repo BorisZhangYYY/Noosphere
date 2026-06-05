@@ -2,120 +2,22 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
-from src.core.rules.platform_rules import normalize_platform_noise_actions, normalize_suggested_platform_markers
-from src.core.review.review_report import build_review_report, inferred_manifest_path, review_report_path
+from src.core.review.review_report import inferred_manifest_path, review_report_path
 from src.core.review.review_validation import ValidationIssue, format_validation_issues
 
-"""Data structures and JSON parsing for AI review output.
+"""Data structures and parsing helpers for AI rewrite output.
 
-Defines schemas, dataclasses, and parsing helpers for the three-stage AI review:
-rewrite metadata, review metadata, and pre-upload verification results.
-
-This module does not orchestrate the review pipeline; that lives in
-src/pipelines/ai_review.py.
+Defines helpers for normalizing AI-rewritten Markdown into the required
+reviewed structure. This module does not orchestrate the review pipeline;
+that lives in src/pipelines/ai_review.py.
 """
-
-# JSON Schema for review_metadata structured output
-REVIEW_METADATA_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "review": {
-            "type": "object",
-            "properties": {
-                "summary": {"type": "string"},
-                "removed_noise": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "preserved_sections": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "formatting_changes": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "image_decisions": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "platform_noise_actions": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "hint_id": {"type": "string"},
-                            "marker": {"type": "string"},
-                            "decision": {"type": "string"},
-                            "reason": {"type": "string"},
-                        },
-                        "required": ["hint_id", "marker", "decision", "reason"],
-                    },
-                },
-                "suggested_platform_markers": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "text": {"type": "string"},
-                            "category": {"type": "string"},
-                            "reason": {"type": "string"},
-                        },
-                        "required": ["text", "category", "reason"],
-                    },
-                },
-            },
-            "required": ["summary", "removed_noise", "preserved_sections", "formatting_changes"],
-        },
-    },
-    "required": ["review"],
-}
-
-# JSON Schema for verification structured output
-VERIFY_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "passed": {"type": "boolean"},
-        "summary": {"type": "string"},
-        "issues": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "severity": {"type": "string"},
-                    "message": {"type": "string"},
-                    "revision_instruction": {"type": "string"},
-                },
-                "required": ["severity", "message"],
-            },
-        },
-    },
-    "required": ["passed", "summary", "issues"],
-}
-
-
-@dataclass(frozen=True)
-class AIVerificationIssue:
-    severity: str
-    message: str
-    revision_instruction: str
-
-
-@dataclass(frozen=True)
-class AIVerificationResult:
-    passed: bool
-    summary: str
-    issues: list[AIVerificationIssue]
-    raw: dict[str, Any]
 
 
 def prepare_rewritten_markdown(text: str, content_type: str = "article") -> str:
-    return ensure_reviewed_markdown_structure(strip_markdown_fence(text), fallback_review_metadata(), content_type)
+    return ensure_reviewed_markdown_structure(strip_markdown_fence(text), content_type)
 
 
 def strip_markdown_fence(text: str) -> str:
@@ -126,20 +28,13 @@ def strip_markdown_fence(text: str) -> str:
     return stripped + "\n"
 
 
-def parse_review_metadata_response(text: str) -> dict[str, Any]:
-    data = json.loads(extract_json_object(text))
-    if not isinstance(data, dict):
-        raise ValueError("AI review metadata response must be a JSON object")
-    return normalize_review_metadata(data.get("review", data))
-
-
-def ensure_reviewed_markdown_structure(markdown: str, review: dict[str, Any], content_type: str = "article") -> str:
+def ensure_reviewed_markdown_structure(markdown: str, content_type: str = "article") -> str:
     if content_type == "social_post":
         return markdown
-    return remove_empty_generic_body_headings(ensure_main_article_section(ensure_ai_summary_section(markdown, review)))
+    return remove_empty_generic_body_headings(ensure_main_article_section(ensure_ai_summary_section(markdown)))
 
 
-def ensure_ai_summary_section(markdown: str, review: dict[str, Any]) -> str:
+def ensure_ai_summary_section(markdown: str) -> str:
     if re.search(r"^##\s+AI Summary\s*$", markdown, flags=re.MULTILINE):
         return markdown
 
@@ -148,7 +43,7 @@ def ensure_ai_summary_section(markdown: str, review: dict[str, Any]) -> str:
     if separator_index is None:
         return markdown
 
-    summary = str(review.get("summary") or "").strip() or "AI rewrite completed and structured for upload."
+    summary = "AI rewrite completed and structured for upload."
     normalized = lines[: separator_index + 1] + ["", "## AI Summary", "", f"- {summary}", "", "---", ""] + lines[separator_index + 1 :]
     return "\n".join(normalized).rstrip() + "\n"
 
@@ -184,9 +79,6 @@ def remove_empty_generic_body_headings(markdown: str) -> str:
     while index < len(lines):
         line = lines[index]
         match = re.match(r"^(#{2,6})\s+(.+?)\s*$", line)
-        # "正文" is a meaningless generic heading used by Chinese news sites.
-        # TODO: Review whether stripping this heading risks losing content that
-        # follows it on the same line (e.g. "正文 | key insight").
         if match and normalize_generic_heading(match.group(2)) in {"正文"}:
             next_index = index + 1
             while next_index < len(lines) and not lines[next_index].strip():
@@ -207,148 +99,36 @@ def normalize_generic_heading(text: str) -> str:
     return re.sub(r"\s+", "", text.strip().strip("#"))
 
 
-def parse_verification_json(text: str) -> AIVerificationResult:
-    data = json.loads(extract_json_object(text))
-    if not isinstance(data, dict):
-        raise ValueError("AI verification response must be a JSON object")
-
-    issues: list[AIVerificationIssue] = []
-    raw_issues = data.get("issues") or []
-    if isinstance(raw_issues, list):
-        for item in raw_issues:
-            if not isinstance(item, dict):
-                continue
-            issues.append(
-                AIVerificationIssue(
-                    severity=str(item.get("severity") or "major"),
-                    message=str(item.get("message") or "").strip(),
-                    revision_instruction=str(item.get("revision_instruction") or "").strip(),
-                )
-            )
-    return AIVerificationResult(
-        passed=bool(data.get("passed")) and not issues,
-        summary=str(data.get("summary") or "").strip(),
-        issues=issues,
-        raw=data,
-    )
-
-
-def extract_json_object(text: str) -> str:
-    stripped = text.strip()
-    fence = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", stripped, flags=re.DOTALL | re.IGNORECASE)
-    if fence:
-        return fence.group(1).strip()
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError("AI verification response did not contain a JSON object")
-    return stripped[start : end + 1]
-
-
 def write_completed_review_report(
     reviewed_path: Path,
     manifest_path: Path | None,
     model: str,
     provider: str,
-    verification: AIVerificationResult | None = None,
-    review: dict[str, Any] | None = None,
 ) -> Path:
+    from src.core.review.review_report import build_review_report
+
     resolved_manifest_path = manifest_path or inferred_manifest_path(reviewed_path)
     manifest = json.loads(resolved_manifest_path.read_text(encoding="utf-8"))
     report = build_review_report(reviewed_path, resolved_manifest_path, manifest)
     report["status"] = "reviewed"
-    report["review"] = normalize_review_metadata(review)
     report["ai"] = {
         "rewrite_provider": provider,
         "rewrite_model": model,
         "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
-    if verification is not None:
-        report["pre_upload_review"] = verification_to_report(verification, model=model, provider=provider)
-
     output_path = review_report_path(reviewed_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return output_path
 
 
-def normalize_review_metadata(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return fallback_review_metadata()
-    summary = str(value.get("summary") or "").strip() or "AI rewrite completed and structured for upload."
-    return {
-        "summary": summary,
-        "removed_noise": string_list(value.get("removed_noise")) or ["Removed platform/navigation noise, duplicate separators, and unrelated footer content when present."],
-        "preserved_sections": string_list(value.get("preserved_sections")) or [f"Preserved the source article's main argument and key sections: {summary}"],
-        "formatting_changes": string_list(value.get("formatting_changes")) or ["Normalized the article into the required H1, AI Summary, Main Article, and topic-heading Markdown structure."],
-        "image_decisions": string_list(value.get("image_decisions")),
-        "platform_noise_actions": normalize_platform_noise_actions(value.get("platform_noise_actions")),
-        "suggested_platform_markers": normalize_suggested_platform_markers(value.get("suggested_platform_markers")),
-    }
-
-
-def string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def fallback_review_metadata() -> dict[str, Any]:
-    return {
-        "summary": "AI rewrite completed and structured for upload.",
-        "removed_noise": ["AI rewrite was instructed to remove platform noise, footer promotions, duplicated sections, and unrelated recommendations."],
-        "preserved_sections": ["AI rewrite was instructed to preserve the source article's main facts, arguments, images, tables, lists, code blocks, and references."],
-        "formatting_changes": ["AI rewrite normalized the article to H1, AI Summary, Main Article, and topic-oriented Markdown headings."],
-        "image_decisions": ["AI rewrite was instructed to keep meaningful local image links and place them near relevant content."],
-        "platform_noise_actions": [],
-        "suggested_platform_markers": [],
-    }
-
-
-def update_pre_upload_review(
-    reviewed_path: Path,
-    verification: AIVerificationResult,
-    model: str,
-    provider: str,
-) -> Path:
-    output_path = review_report_path(reviewed_path)
-    report = json.loads(output_path.read_text(encoding="utf-8"))
-    report["pre_upload_review"] = verification_to_report(verification, model=model, provider=provider)
-    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return output_path
-
-
-def verification_to_report(verification: AIVerificationResult, model: str, provider: str) -> dict[str, Any]:
-    return {
-        "provider": provider,
-        "model": model,
-        "passed": verification.passed,
-        "summary": verification.summary,
-        "issues": [
-            {
-                "severity": issue.severity,
-                "message": issue.message,
-                "revision_instruction": issue.revision_instruction,
-            }
-            for issue in verification.issues
-        ],
-        "reviewed_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-    }
+MAX_FEEDBACK_CHARS = 2000
 
 
 def feedback_from_validation_issues(issues: list[ValidationIssue]) -> str:
     if not issues:
         return ""
-    return "Machine validation failed. Please fix the following issues:\n" + format_validation_issues(issues)
-
-
-def feedback_from_ai_verification(result: AIVerificationResult) -> str:
-    if result.passed:
-        return ""
-    lines = ["Pre-upload AI review failed. Please fix the following issues:"]
-    if result.summary:
-        lines.append(f"- summary: {result.summary}")
-    for issue in result.issues:
-        instruction = f" {issue.revision_instruction}" if issue.revision_instruction else ""
-        lines.append(f"- {issue.severity}: {issue.message}{instruction}")
-    return "\n".join(lines)
+    text = "Machine validation failed. Please fix the following issues:\n" + format_validation_issues(issues)
+    if len(text) > MAX_FEEDBACK_CHARS:
+        text = text[:MAX_FEEDBACK_CHARS] + "\n... (truncated)"
+    return text

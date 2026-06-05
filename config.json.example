@@ -20,7 +20,9 @@
     "xiaoheihe": {
       "label": "Xiaoheihe",
       "url_patterns": [
-        "xiaoheihe.cn/bbs/post_share"
+        "xiaoheihe.cn/bbs/post_share",
+        "xiaoheihe.cn/app/bbs/link/",
+        "api.xiaoheihe.cn/v3/bbs/app/api/web/share"
       ]
     }
   },
@@ -42,13 +44,9 @@
     "provider": "anthropic",
     "max_attempts": 2,
     "rewrite_prompt_path": "prompts/rewrite_article.md",
-    "review_metadata_prompt_path": "prompts/review_metadata.md",
-    "verify_prompt_path": "prompts/pre_upload_review.md",
     "platform_prompts": {
       "x": {
-        "rewrite_prompt_path": "prompts/rewrite_social_post.md",
-        "review_metadata_prompt_path": "prompts/review_metadata_social.md",
-        "verify_prompt_path": "prompts/pre_upload_review_social.md"
+        "rewrite_prompt_path": "prompts/rewrite_social_post.md"
       }
     }
   },
@@ -67,6 +65,13 @@
       "max_output_tokens": 12000,
       "temperature": 0.2,
       "timeout_seconds": 300
+    }
+  },
+  "crawler": {
+    "fallback": "firecrawl",
+    "firecrawl": {
+      "api_key": "your-firecrawl-api-key-here",
+      "api_base": "https://api.firecrawl.dev/v1"
     }
   },
   "smtp": {
