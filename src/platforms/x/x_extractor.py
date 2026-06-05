@@ -7,6 +7,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from src.core.models.article import Article
+from src.core.registry import register_extractor
 from src.core.config.config import load_config
 
 PLATFORM = "x"
@@ -15,6 +16,11 @@ FALLBACK_TITLE = "X Post"
 OEMBED_ENDPOINT = "https://publish.twitter.com/oembed"
 
 
+@register_extractor(
+    "x",
+    url_patterns=["x.com/", "twitter.com/"],
+    content_type="social_post",
+)
 class XExtractor:
     platform = PLATFORM
     platform_label = PLATFORM_LABEL
@@ -145,14 +151,3 @@ class XExtractor:
             status_code=200,
             extra={"tweet_url": parsed["tweet_url"] or url},
         )
-
-
-extractor = XExtractor()
-
-
-def handles(url: str) -> bool:
-    return extractor.handles(url)
-
-
-async def extract(url: str) -> Article:
-    return await extractor.extract(url)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from src.core.config.config import load_config
 from src.core.models.manifest import write_article_manifest
 from src.core.paths.output_paths import article_output_paths
 from src.extractor_registry import extract_one
@@ -11,8 +10,7 @@ from src.integrations.assets import download_markdown_images
 
 
 async def extract_to_output(url: str, output_dir: Path) -> Path:
-    config = load_config()
-    article = await extract_one(url, config)
+    article = await extract_one(url)
     paths = article_output_paths(output_dir, article)
     paths.raw_path.parent.mkdir(parents=True, exist_ok=True)
     paths.reviewed_path.parent.mkdir(parents=True, exist_ok=True)
