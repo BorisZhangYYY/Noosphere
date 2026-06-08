@@ -17,7 +17,7 @@ async def extract_to_output(url: str, output_dir: Path) -> Path:
 
     # Generate review Markdown and download images (pure function).
     markdown = article.to_review_markdown()
-    updated_markdown, image_result = await download_images(markdown, assets_root=paths.asset_dir)
+    updated_markdown, image_result = await download_images(markdown, paths.asset_dir)
 
     # Write the updated Markdown (with local image URLs) to raw.md, then copy to reviewed.md.
     paths.raw_path.write_text(updated_markdown, encoding="utf-8")

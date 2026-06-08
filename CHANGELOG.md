@@ -35,7 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Simplified `ai-review` pipeline from 3 AI calls (rewrite + metadata + verification) to 1 AI rewrite call with deterministic machine-validation feedback loop.
 
 ### Fixed
-- `XiaoheiheExtractor.handles()` now matches all three configured URL patterns (`bbs/post_share`, `app/bbs/link/`, `api.xiaoheihe.cn`).
+- `extract.py`: corrected `download_images` parameter from `assets_root` to `asset_dir`.
+- `ai_client.py`: increased default `timeout_seconds` from 300 to 600 and added explicit `sock_read` timeout to prevent hangs on long AI review requests.
 - Firecrawl client checks HTTP status with `raise_for_status()` before parsing JSON.
 - Firecrawl fallback failure now returns the Firecrawl error page instead of the original Crawl4AI failure.
 - `extract_title_from_markdown()` skips lines inside fenced and indented code blocks.

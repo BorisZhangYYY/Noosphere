@@ -26,7 +26,7 @@ class AISettings:
     max_output_tokens: int
     temperature: float | None = None
     anthropic_version: str = "2023-06-01"
-    timeout_seconds: int = 300
+    timeout_seconds: int = 600
 
 
 @dataclass(frozen=True)
@@ -120,7 +120,7 @@ class AIClient:
                 endpoint,
                 json=payload,
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=self.settings.timeout_seconds),
+                timeout=aiohttp.ClientTimeout(total=self.settings.timeout_seconds, connect=60, sock_read=self.settings.timeout_seconds, sock_connect=60),
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
