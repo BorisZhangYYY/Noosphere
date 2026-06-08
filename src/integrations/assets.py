@@ -103,7 +103,7 @@ async def download_images(
     for downloaded in download_results:
         if downloaded is None:
             continue
-        rel_path = Path(os.path.relpath(downloaded.local_path, asset_dir)).as_posix()
+        rel_path = Path(os.path.relpath(downloaded.local_path, asset_dir.parent)).as_posix()
         replacements[downloaded.source_url] = rel_path
         result.downloaded.append(downloaded)
 

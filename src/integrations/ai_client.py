@@ -65,6 +65,26 @@ class AIClient:
             raise AIProviderError(f"Unsupported AI provider: {self.settings.provider}")
         return AITextResponse(text=text, model=self.settings.model, provider=self.settings.provider)
 
+    async def generate_vision(self, system_prompt: str, content: list[dict]) -> AITextResponse:
+        """Generate response with vision input (images + text).
+
+        Args:
+            system_prompt: The system/instruction prompt.
+            content: A list of content dicts following Anthropic format:
+                [{"type": "image", "source": {"type": "base64", "media_type": "...", "data": "..."}},
+                 {"type": "text", "text": "..."}]
+
+        Returns:
+            AITextResponse with the model's analysis text.
+        """
+        if self.settings.provider == "openai":
+            text = await self._openai_vision_response(system_prompt, content)
+        elif self.settings.provider in {ANTHROPIC_PROVIDER, "compatible"}:
+            text = await self._anthropic_vision_message(system_prompt, content)
+        else:
+            raise AIProviderError(f"Unsupported AI provider: {self.settings.provider}")
+        return AITextResponse(text=text, model=self.settings.model, provider=self.settings.provider)
+
     def _api_key(self) -> str:
         return self.settings.api_key
 
@@ -113,6 +133,66 @@ class AIClient:
             },
         )
         return text_from_anthropic_content(data)
+
+    async def _anthropic_vision_message(self, system_prompt: str, content: list[dict]) -> str:
+        endpoint = anthropic_messages_endpoint(self.settings.api_base)
+        payload: dict[str, Any] = {
+            "model": self.settings.model,
+            "max_tokens": min(self.settings.max_output_tokens, 1024),
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": content}],
+        }
+        if self.settings.temperature is not None:
+            payload["temperature"] = self.settings.temperature
+
+        data = await self._post_json(
+            endpoint,
+            payload,
+            {
+                "x-api-key": self._api_key(),
+                "anthropic-version": self.settings.anthropic_version,
+                "Content-Type": "application/json",
+            },
+        )
+        return text_from_anthropic_content(data)
+
+    async def _openai_vision_response(self, system_prompt: str, content: list[dict]) -> str:
+        endpoint = openai_responses_endpoint(self.settings.api_base)
+        openai_input: list[dict] = []
+        for item in content:
+            if item.get("type") == "text":
+                openai_input.append({"type": "input_text", "text": item["text"]})
+            elif item.get("type") == "image":
+                source = item.get("source", {})
+                if source.get("type") == "base64":
+                    media_type = source.get("media_type", "image/jpeg")
+                    data = source.get("data", "")
+                    openai_input.append({
+                        "type": "input_image",
+                        "image_url": {"url": f"data:{media_type};base64,{data}"},
+                    })
+
+        payload: dict[str, Any] = {
+            "model": self.settings.model,
+            "instructions": system_prompt,
+            "input": openai_input,
+            "max_output_tokens": min(self.settings.max_output_tokens, 1024),
+        }
+        if self.settings.temperature is not None:
+            payload["temperature"] = self.settings.temperature
+
+        data = await self._post_json(
+            endpoint,
+            payload,
+            {
+                "Authorization": f"Bearer {self._api_key()}",
+                "Content-Type": "application/json",
+            },
+        )
+        text = data.get("output_text")
+        if isinstance(text, str) and text.strip():
+            return text
+        return text_from_openai_output(data)
 
     async def _post_json(self, endpoint: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         async with aiohttp.ClientSession() as session:
