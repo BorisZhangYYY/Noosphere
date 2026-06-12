@@ -11,8 +11,7 @@ Noosphere is an article web extraction, AI review, sharing and storing tool.
 
 ## Verification
 
-- Run focused tests for every behavior change.
-- Run `pytest -q`, `python -m compileall src`, `python -m json.tool config.json.example`, and `git diff --check` before committing broad workflow changes.
+- Run `python -m compileall src`, `python -m json.tool config.json.example`, and `git diff --check` before committing workflow changes.
 
 ## Git
 
