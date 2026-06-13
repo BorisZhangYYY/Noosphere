@@ -222,30 +222,65 @@ async def filter_promotion_images(
     )
 
 
-def remove_promotion_images_from_markdown(markdown: str, promotion_images: set[str]) -> str:
-    """Remove markdown image references that are in the promotion set.
+def remove_promotion_images_from_markdown(
+    markdown: str, 
+    promotion_images: set[str], 
+    assets_dir: Path | None = None
+) -> tuple[str, list[str]]:
+    """Remove markdown image references and optionally move files to removed/.
 
     Args:
         markdown: Original markdown content.
         promotion_images: Set of relative image paths to remove (e.g., 'assets/image_01.webp').
+        assets_dir: If provided, physically move removed image files to assets/removed/.
 
     Returns:
-        Markdown with promotion images removed.
+        Tuple of (cleaned markdown, list of moved file paths).
     """
-
-    def _should_keep(match: MARKDOWN_IMAGE_RE.Match) -> bool:  # type: ignore[name-defined]
+    removed_files: list[str] = []
+    
+    def _should_keep(match: "re.Match[str]") -> bool:
         target = match.group(2)
         url, _ = split_image_target(target)
         normalized = url.lstrip("./")
         return normalized not in promotion_images
 
-    return MARKDOWN_IMAGE_RE.sub(
+    cleaned_markdown = MARKDOWN_IMAGE_RE.sub(
         lambda m: m.group(0) if _should_keep(m) else "",
         markdown,
     )
+    
+    # Physically move files to removed/ if assets_dir is provided
+    if assets_dir is not None:
+        removed_dir = assets_dir.parent / "removed"
+        removed_dir.mkdir(exist_ok=True)
+        
+        for img_path in promotion_images:
+            normalized = img_path.lstrip("./")
+            src = assets_dir.parent / normalized
+            if src.exists() and src.is_file():
+                dst = removed_dir / src.name
+                # Handle duplicate names
+                counter = 1
+                while dst.exists():
+                    stem = src.stem
+                    suffix = src.suffix
+                    dst = removed_dir / f"{stem}_{counter}{suffix}"
+                    counter += 1
+                try:
+                    src.rename(dst)
+                    removed_files.append(str(dst.relative_to(assets_dir.parent)))
+                except OSError:
+                    pass  # If move fails, just leave it in place
+    
+    return cleaned_markdown, removed_files
 
 
-def ensure_relevant_images_present(markdown: str, relevant_images: set[str]) -> str:
+def ensure_relevant_images_present(
+    markdown: str, 
+    relevant_images: set[str], 
+    assets_dir: Path | None = None
+) -> str:
     """Ensure all relevant images are present in the markdown.
 
     If the AI text rewrite accidentally dropped some relevant images, append them
@@ -265,9 +300,46 @@ def ensure_relevant_images_present(markdown: str, relevant_images: set[str]) -> 
         normalized = url.lstrip("./")
         present_images.add(normalized)
 
+    # Check if any referenced images are missing from assets/ but exist in removed/
+    def _try_restore_from_removed(image_path: str) -> bool:
+        """Try to restore a single image from removed/ directory."""
+        if assets_dir is None:
+            return False
+        removed_dir = assets_dir.parent / "removed"
+        if not removed_dir.exists():
+            return False
+        normalized = image_path.lstrip("./")
+        filename = Path(normalized).name
+        removed_file = removed_dir / filename
+        if not removed_file.exists():
+            for f in removed_dir.iterdir():
+                if f.stem.startswith(Path(filename).stem) and f.suffix == Path(filename).suffix:
+                    removed_file = f
+                    break
+        if removed_file.exists():
+            dst = assets_dir / filename
+            try:
+                removed_file.rename(dst)
+                return True
+            except OSError:
+                pass
+        return False
+
+    # Restore any missing referenced images from removed/
+    for img in present_images:
+        normalized = img.lstrip("./")
+        image_path = assets_dir.parent / normalized if assets_dir else None
+        if image_path and not image_path.exists():
+            _try_restore_from_removed(img)
+
     missing = relevant_images - present_images
     if not missing:
         return markdown
+
+    # Also restore missing images from removed/ if they were moved there
+    for img in list(missing):
+        if _try_restore_from_removed(img):
+            missing.discard(img)
 
     # Append missing images at the end
     append_lines = ["", "### Additional Images", ""]
