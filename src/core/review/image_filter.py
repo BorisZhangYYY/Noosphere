@@ -425,13 +425,18 @@ def _load_default_image_review_prompt() -> str:
         )
 
 
-def update_manifest_with_image_filter(manifest_path: Path, filter_result: ImageFilterResult) -> None:
+def update_manifest_with_image_filter(
+    manifest_path: Path,
+    filter_result: ImageFilterResult,
+    removed_files: list[str] | None = None,
+) -> None:
     """Update manifest.json with image filtering results."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["image_filter"] = {
         "promotion_images": sorted(filter_result.promotion_images),
         "relevant_images": sorted(filter_result.relevant_images),
         "filtered_count": len(filter_result.promotion_images),
+        "removed_files": removed_files or [],
         "image_descriptions": filter_result.image_descriptions,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")

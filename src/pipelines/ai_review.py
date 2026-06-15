@@ -82,6 +82,7 @@ async def run_ai_review(path: Path, max_attempts: int | None = None, client: Tex
 
     feedback = ""
     validation = ValidationResult(path, [])
+    removed_files: list[str] = []
     for attempt in range(1, attempts + 1):
         # Build user prompt with image inventory if available
         user_prompt = build_rewrite_user_prompt(
@@ -102,15 +103,17 @@ async def run_ai_review(path: Path, max_attempts: int | None = None, client: Tex
         if image_filter_result is not None:
             # Remove promotion images from the reviewed markdown
             if image_filter_result.has_promotions:
-                reviewed_markdown, _removed = remove_promotion_images_from_markdown(
+                reviewed_markdown, removed_files = remove_promotion_images_from_markdown(
                     reviewed_markdown,
                     image_filter_result.get_promotion_paths(),
+                    assets_dir=assets_dir,
                 )
 
             # Ensure relevant images that the AI accidentally dropped are restored
             reviewed_markdown = ensure_relevant_images_present(
                 reviewed_markdown,
                 image_filter_result.get_relevant_paths(),
+                assets_dir=assets_dir,
             )
 
         path.write_text(reviewed_markdown, encoding="utf-8")
@@ -118,7 +121,7 @@ async def run_ai_review(path: Path, max_attempts: int | None = None, client: Tex
         validation = validate_reviewed_markdown(path, prompt_metadata)
         if validation.ok:
             if image_filter_result is not None:
-                update_manifest_with_image_filter(manifest_path, image_filter_result)
+                update_manifest_with_image_filter(manifest_path, image_filter_result, removed_files=removed_files)
             write_completed_review_report(
                 path,
                 manifest_path,
