@@ -19,6 +19,7 @@ Noosphere is an article web extraction, AI review, sharing and storing tool.
 - Keep commits grouped by intent: implementation, docs, and small corrections separately.
 - Never commit `config.json`, `outputs/`, API keys, SiYuan tokens, or generated caches.
 - Never commit **superpowers-related** plans, keeping them local.
+- **All commits, pull request creation, and pull request merges must be approved by the user. Do not push branches, open PRs, or merge PRs without explicit user approval.**
 
 ## Changelog
 
