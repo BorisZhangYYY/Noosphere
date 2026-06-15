@@ -149,9 +149,14 @@ async def _run_ai_review(path: Path):
     return await run_ai_review(path)
 
 
-async def _run_upload(path: Path) -> str:
+async def _run_upload(path: Path) -> tuple[str, str]:
+    """Upload a reviewed Markdown file and return (hpath, platform_name)."""
+    from src.core.upload.factory import create_adapter
     from src.pipelines.upload import upload_markdown_file
-    return await upload_markdown_file(path)
+
+    adapter = create_adapter()
+    hpath = await upload_markdown_file(path)
+    return hpath, adapter.platform_name
 
 
 async def _run_pipeline(url: str) -> str:
@@ -159,7 +164,9 @@ async def _run_pipeline(url: str) -> str:
     result = await _run_ai_review(reviewed_path)
     if not result.ok:
         raise RuntimeError(f"AI review failed after {result.attempts} attempts")
-    return await _run_upload(reviewed_path)
+    hpath, platform = await _run_upload(reviewed_path)
+    _record_upload(reviewed_path, platform, hpath)
+    return hpath
 
 
 def _resolve_reviewed_path(value: Path) -> Path:
@@ -291,11 +298,11 @@ async def _main_async(args: argparse.Namespace) -> int:
             return 0
 
         try:
-            hpath = await _run_upload(reviewed_path)
+            hpath, platform = await _run_upload(reviewed_path)
         except Exception as exc:
             console.print(f"[red]Upload failed: {exc}[/red]")
             return 1
-        _record_upload(reviewed_path, "SiYuan", hpath)
+        _record_upload(reviewed_path, platform, hpath)
         console.print(f"[green]Uploaded:[/green] {hpath}")
         return 0
 
