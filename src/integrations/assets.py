@@ -71,6 +71,37 @@ def _extension_from_content_type(content_type: str | None) -> str:
     return mimetypes.guess_extension(media_type) or ""
 
 
+def _looks_like_image_url(url: str) -> bool:
+    """Return True if the URL is likely a real image resource.
+
+    Filters out article-page URLs that are mis-identified as images by
+    crawlers (e.g. WeChat 'follow' widget links).
+    """
+    parsed = urllib.parse.urlparse(url)
+    path = parsed.path.lower()
+
+    # 1) Path ends with a known image extension
+    if any(path.endswith(ext) for ext in {
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg",
+    }):
+        return True
+
+    # 2) WeChat CDN query-string format (e.g. ?wx_fmt=jpeg)
+    query = urllib.parse.parse_qs(parsed.query)
+    if query.get("wx_fmt", [""])[0].lower() in {
+        "jpeg", "jpg", "png", "gif", "webp", "bmp", "svg",
+    }:
+        return True
+
+    # 3) Known image CDN hosts
+    if parsed.hostname and parsed.hostname in {
+        "mmbiz.qpic.cn", "mmbiz.qlogo.cn",
+    }:
+        return True
+
+    return False
+
+
 async def download_images(
     markdown: str, asset_dir: Path
 ) -> tuple[str, ImageDownloadResult]:
@@ -92,7 +123,7 @@ async def download_images(
     urls = []
     for match in MARKDOWN_IMAGE_RE.finditer(markdown):
         url, _ = split_image_target(match.group(2))
-        if is_remote_url(url) and url not in urls:
+        if is_remote_url(url) and url not in urls and _looks_like_image_url(url):
             urls.append(url)
 
     semaphore = asyncio.Semaphore(5)
@@ -103,7 +134,7 @@ async def download_images(
     for downloaded in download_results:
         if downloaded is None:
             continue
-        rel_path = Path(os.path.relpath(downloaded.local_path, asset_dir)).as_posix()
+        rel_path = Path(os.path.relpath(downloaded.local_path, asset_dir.parent)).as_posix()
         replacements[downloaded.source_url] = rel_path
         result.downloaded.append(downloaded)
 
@@ -152,6 +183,7 @@ async def _download_one(
                     if not data:
                         raise ValueError("empty image response")
                     content_extension = _extension_from_content_type(response.headers.get("Content-Type"))
+
                     final_extension = extension or content_extension or ".bin"
                     final_path = asset_dir / f"image_{index:02d}_{digest}{final_extension}"
                     final_path.write_bytes(data)

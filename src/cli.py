@@ -39,6 +39,38 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     email_parser.add_argument("article_id", help="Article ID to send as email.")
     email_parser.add_argument("--to", required=True, help="Recipient email address (must be in allowed_recipients).")
 
+    # --- Image Review / Recovery command ---
+    review_images_parser = subparsers.add_parser(
+        "review-images", 
+        help="Review and optionally recover images removed by AI filtering."
+    )
+    review_images_parser.add_argument(
+        "article_dir", 
+        type=Path, 
+        help="Path to article output directory (e.g., outputs/article_id/)."
+    )
+    review_images_parser.add_argument(
+        "--restore", 
+        nargs="+", 
+        metavar="IMAGE",
+        help="Restore specific removed images by name (e.g., image_02.webp)."
+    )
+    review_images_parser.add_argument(
+        "--restore-all", 
+        action="store_true",
+        help="Restore all removed images back to the article."
+    )
+    review_images_parser.add_argument(
+        "--list", 
+        action="store_true",
+        help="List removed images with descriptions."
+    )
+    review_images_parser.add_argument(
+        "--preview", 
+        action="store_true",
+        help="Generate an HTML preview page for removed images."
+    )
+
     return parser.parse_args(argv)
 
 
@@ -169,8 +201,276 @@ async def _main_async(args: argparse.Namespace) -> int:
         print(f"Error: {result.message}")
         return 1
 
+    if args.command == "review-images":
+        return await _run_review_images(args)
+
     print(f"Error: unsupported command: {args.command}")
     return 1
+
+
+def _generate_removed_preview_html(
+    article_dir: Path,
+    removed_files: list[str],
+    descriptions: dict[str, str],
+    removed_dir: Path,
+    assets_dir: Path,
+) -> int:
+    """Generate an HTML preview page for removed images."""
+    if not removed_files:
+        print("No images were removed by AI filtering.")
+        return 0
+
+    import html
+    
+    html_path = article_dir / "removed-preview.html"
+    
+    # Build image cards
+    image_cards = []
+    for i, removed_path in enumerate(removed_files, 1):
+        filename = Path(removed_path).name
+        desc = descriptions.get(removed_path, descriptions.get(f"assets/{filename}", "No description"))
+        
+        # Check if file actually exists in removed/
+        removed_file = removed_dir / filename
+        if not removed_file.exists():
+            for f in removed_dir.iterdir():
+                if f.stem.startswith(Path(filename).stem):
+                    removed_file = f
+                    filename = f.name
+                    break
+        
+        if not removed_file.exists():
+            continue
+            
+        # Use relative path for HTML
+        img_src = f"removed/{filename}"
+        
+        # Escape values for safe HTML/JS insertion
+        safe_filename = html.escape(filename, quote=True)
+        safe_desc = html.escape(desc, quote=True)
+        safe_img_src = html.escape(img_src, quote=True)
+        
+        card_html = f"""    <div class="image-card">
+      <div class="image-preview">
+        <a href="{safe_img_src}" target="_blank">
+          <img src="{safe_img_src}" alt="{safe_filename}" loading="lazy">
+        </a>
+      </div>
+      <div class="image-info">
+        <div class="image-header">
+          <span class="image-number">#{i}</span>
+          <span class="image-name">{safe_filename}</span>
+        </div>
+        <div class="image-description">
+          <strong>AI Description:</strong><br>
+          {safe_desc}
+        </div>
+        <div class="image-actions">
+          <button onclick="restoreImage({repr(filename)})" class="btn-restore">♻️ Restore</button>
+          <a href="{safe_img_src}" target="_blank" class="btn-open">🔍 Open Full Size</a>
+        </div>
+      </div>
+    </div>"""
+        image_cards.append(card_html)
+
+    if not image_cards:
+        print("No removed image files found in removed/ directory.")
+        return 0
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Removed Images Preview - {html.escape(article_dir.name)}</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }}
+    .container {{ max-width: 1200px; margin: 0 auto; }}
+    .header {{ background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+    .header h1 {{ font-size: 24px; color: #333; margin-bottom: 8px; }}
+    .header p {{ color: #666; font-size: 14px; }}
+    .stats {{ display: flex; gap: 16px; margin-top: 12px; }}
+    .stat {{ background: #e3f2fd; padding: 8px 16px; border-radius: 20px; font-size: 13px; color: #1976d2; }}
+    .gallery {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; }}
+    .image-card {{ background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.2s; }}
+    .image-card:hover {{ transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.15); }}
+    .image-preview {{ padding: 16px; background: #fafafa; border-bottom: 1px solid #eee; }}
+    .image-preview img {{ max-width: 100%; max-height: 300px; object-fit: contain; border-radius: 4px; cursor: pointer; }}
+    .image-info {{ padding: 16px; }}
+    .image-header {{ display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }}
+    .image-number {{ background: #ff5722; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; }}
+    .image-name {{ font-weight: 600; color: #333; font-size: 14px; word-break: break-all; }}
+    .image-description {{ color: #555; font-size: 13px; line-height: 1.5; margin-bottom: 16px; padding: 12px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #2196f3; }}
+    .image-actions {{ display: flex; gap: 10px; }}
+    .btn-restore, .btn-open {{ padding: 8px 16px; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }}
+    .btn-restore {{ background: #4caf50; color: white; }}
+    .btn-restore:hover {{ background: #45a049; }}
+    .btn-open {{ background: #e3f2fd; color: #1976d2; }}
+    .btn-open:hover {{ background: #bbdefb; }}
+    .footer {{ margin-top: 20px; text-align: center; color: #999; font-size: 12px; padding: 20px; }}
+    .restore-all {{ margin-bottom: 20px; text-align: center; }}
+    .btn-restore-all {{ background: #ff5722; color: white; padding: 12px 32px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: 600; }}
+    .btn-restore-all:hover {{ background: #e64a19; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🗑️ Removed Images Preview</h1>
+      <p>These images were identified as promotional or irrelevant by AI and removed from the article.</p>
+      <div class="stats">
+        <div class="stat">📁 {len(removed_files)} images removed</div>
+        <div class="stat">📂 {article_dir.name}</div>
+      </div>
+    </div>
+    
+    <div class="restore-all">
+      <button onclick="restoreAll()" class="btn-restore-all">♻️ Restore All Images</button>
+    </div>
+    
+    <div class="gallery">
+{chr(10).join(image_cards)}
+    </div>
+    
+    <div class="footer">
+      <p>Generated by Noosphere AI Review System</p>
+      <p>CLI: <code>python -m src.cli review-images {article_dir} --restore &lt;image&gt;</code></p>
+    </div>
+  </div>
+  
+  <script>
+    function restoreImage(filename) {{
+      if (confirm('Restore ' + filename + ' to the article?')) {{
+        alert('Run this command in terminal:\n\npython -m src.cli review-images {repr(str(article_dir))} --restore ' + filename);
+      }}
+    }}
+    
+    function restoreAll() {{
+      if (confirm('Restore ALL removed images to the article?')) {{
+        alert('Run this command in terminal:\n\npython -m src.cli review-images {repr(str(article_dir))} --restore-all');
+      }}
+    }}
+  </script>
+</body>
+</html>"""
+
+    html_path.write_text(html_content, encoding="utf-8")
+    print(f"✅ HTML preview generated: {html_path}")
+    print(f"   Open in browser: file://{html_path}")
+    print(f"\n   Images: {len(image_cards)}")
+    print(f"   Directory: {article_dir}")
+    return 0
+
+
+async def _run_review_images(args: argparse.Namespace) -> int:
+    """Handle review-images command: list and optionally restore removed images."""
+    import json
+    from shutil import move
+
+    article_dir = args.article_dir
+    if not article_dir.exists() or not article_dir.is_dir():
+        print(f"Error: Article directory not found: {article_dir}")
+        return 1
+
+    manifest_path = article_dir / "manifest.json"
+    if not manifest_path.exists():
+        print(f"Error: manifest.json not found in {article_dir}")
+        return 1
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    image_filter = manifest.get("image_filter", {})
+    removed_files = image_filter.get("removed_files", [])
+    descriptions = image_filter.get("image_descriptions", {})
+
+    removed_dir = article_dir / "removed"
+    assets_dir = article_dir / "assets"
+
+    # --list: Display removed images
+    if args.list or not (args.restore or args.restore_all or args.preview):
+        if not removed_files:
+            print("No images were removed by AI filtering.")
+            return 0
+
+        print(f"\nRemoved images in {removed_dir}:")
+        print("=" * 60)
+        for i, removed_path in enumerate(removed_files, 1):
+            filename = Path(removed_path).name
+            desc = descriptions.get(removed_path, descriptions.get(f"assets/{filename}", "No description"))
+            print(f"\n{i}. {filename}")
+            print(f"   Description: {desc}")
+            # Check if file actually exists in removed/
+            removed_file = removed_dir / filename
+            if not removed_file.exists():
+                # Try with numbered suffix
+                for f in removed_dir.iterdir():
+                    if f.stem.startswith(Path(filename).stem):
+                        removed_file = f
+                        break
+            status = "✓ Available" if removed_file.exists() else "✗ Missing"
+            print(f"   Status: {status}")
+        print(f"\n{'=' * 60}")
+        print(f"Total: {len(removed_files)} removed images")
+        print(f"\nTo restore an image: python -m src.cli review-images {article_dir} --restore image_02.webp")
+        print(f"To restore all:       python -m src.cli review-images {article_dir} --restore-all")
+        print(f"To generate preview:  python -m src.cli review-images {article_dir} --preview")
+        return 0
+
+    # --preview: Generate HTML preview page
+    if args.preview:
+        return _generate_removed_preview_html(article_dir, removed_files, descriptions, removed_dir, assets_dir)
+
+    # --restore: Restore specific images
+    if args.restore:
+        restored = []
+        failed = []
+        for img_name in args.restore:
+            src = removed_dir / img_name
+            if not src.exists():
+                # Try with numbered suffixes
+                for f in removed_dir.iterdir():
+                    if f.stem.startswith(Path(img_name).stem):
+                        src = f
+                        break
+            if src.exists():
+                dst = assets_dir / img_name
+                try:
+                    src.rename(dst)
+                    restored.append(img_name)
+                except OSError as e:
+                    failed.append(f"{img_name}: {e}")
+            else:
+                failed.append(f"{img_name}: not found in removed/")
+
+        if restored:
+            print(f"Restored: {', '.join(restored)}")
+        if failed:
+            print(f"Failed: {', '.join(failed)}")
+        return 0 if not failed else 1
+
+    # --restore-all: Restore all removed images
+    if args.restore_all:
+        if not removed_dir.exists():
+            print("No removed/ directory found.")
+            return 0
+
+        restored = []
+        for src in removed_dir.iterdir():
+            if src.is_file():
+                dst = assets_dir / src.name
+                try:
+                    src.rename(dst)
+                    restored.append(src.name)
+                except OSError as e:
+                    print(f"Failed to restore {src.name}: {e}")
+
+        if restored:
+            print(f"Restored {len(restored)} images: {', '.join(restored)}")
+        else:
+            print("No images to restore.")
+        return 0
+
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
