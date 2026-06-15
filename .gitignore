@@ -9,4 +9,5 @@ superpowers/
 # cache
 __pycache__/
 .crawl4ai-runtime/
+.noosphere/
 outputs/

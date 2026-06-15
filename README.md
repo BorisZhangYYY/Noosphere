@@ -29,14 +29,27 @@ See [SKILL.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md) fo
 ## Commands
 
 ```bash
-# Manual endpoint: extract article → outputs/ARTICLE_ID/
+# Extract one article
 python -m src.cli extract URL
 
+# Extract multiple articles from a file (one URL per line, # for comments)
+python -m src.cli extract --batch urls.txt
+
 # Optional AI rewrite + review after extraction
-python -m src.cli ai-review outputs/ARTICLE_ID/reviewed.md
+# Accepts a file, article directory, or article ID
+python -m src.cli ai-review outputs/ARTICLE_ID/
+python -m src.cli ai-review ARTICLE_ID
+
+# Force re-run AI review even if review.json already exists
+python -m src.cli ai-review ARTICLE_ID --force
 
 # Manual endpoint: upload the Markdown you provide
-python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
+# Accepts a file, article directory, or article ID
+python -m src.cli upload outputs/ARTICLE_ID/
+python -m src.cli upload ARTICLE_ID
+
+# Force re-upload even if manifest.json already records an upload
+python -m src.cli upload ARTICLE_ID --force
 
 # Send reviewed article as HTML email (requires SMTP config in config.json)
 python -m src.cli email ARTICLE_ID --to recipient@example.com
