@@ -41,6 +41,12 @@ python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
 # Send reviewed article as HTML email (requires SMTP config in config.json)
 python -m src.cli email ARTICLE_ID --to recipient@example.com
 
+# Review images removed by AI filtering (list, preview HTML, restore)
+python -m src.cli review-images outputs/ARTICLE_ID/ --list
+python -m src.cli review-images outputs/ARTICLE_ID/ --preview
+python -m src.cli review-images outputs/ARTICLE_ID/ --restore image_02.webp
+python -m src.cli review-images outputs/ARTICLE_ID/ --restore-all
+
 # One-command: extract → ai-review → upload
 python -m src.cli run URL
 ```

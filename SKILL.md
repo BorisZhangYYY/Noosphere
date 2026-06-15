@@ -67,7 +67,7 @@ Key fields in `config.json`:
 
    The first-round crawler output is kept as `raw.md` in the same article directory and should not be edited. Each extraction also writes `manifest.json` with source metadata, output paths, crawl status, image download results, and platform information.
 
-   Any remote images found in the Markdown are downloaded under the article `assets/` directory and rewritten to local relative links.
+   Any remote images found in the Markdown are downloaded under the article `assets/` directory and rewritten to local relative links. During AI review, promotional images (QR codes, ads, logos, banners) are identified by vision AI and removed to a `removed/` directory; content images (screenshots, diagrams, photos) are preserved.
 
 3. Either edit `reviewed.md` manually, or let the CLI AI review workflow handle Markdown rewrite decisions.
 
@@ -112,7 +112,23 @@ Key fields in `config.json`:
 
    On success, a lightweight `review.json` is written with model/provider info for traceability.
 
-6. Report the review result to the user:
+6. **Optional: Review removed images**. AI review may move promotional images to `removed/`. You can inspect them:
+
+   ```bash
+   # List removed images with AI descriptions
+   python -m src.cli review-images outputs/ARTICLE_ID/ --list
+
+   # Generate an HTML preview page to view removed images in browser
+   python -m src.cli review-images outputs/ARTICLE_ID/ --preview
+
+   # Restore a specific image if it was incorrectly removed
+   python -m src.cli review-images outputs/ARTICLE_ID/ --restore image_02.webp
+
+   # Restore all removed images
+   python -m src.cli review-images outputs/ARTICLE_ID/ --restore-all
+   ```
+
+7. Report the review result to the user:
 
    - Modified content: list important deletions, rewrites, and structure changes.
    - Preserved content: list important sections that were kept.
@@ -120,7 +136,7 @@ Key fields in `config.json`:
    - Target platform: report which note-taking platform or upload adapter will be used.
    - Ask for confirmation before uploading.
 
-7. After confirmation, upload or import the Markdown:
+8. After confirmation, upload or import the Markdown:
 
    ```bash
    python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
@@ -136,6 +152,7 @@ Key fields in `config.json`:
 |---------|--------|-------------|
 | `extract URL` | CLI/crawl4ai | Crawl one article and save raw, reviewed, asset, manifest, and review-context files. |
 | `ai-review FILE` | AI | Use the configured AI provider to rewrite the article, with machine-validation feedback and retry. |
+| `review-images ARTICLE_DIR` | CLI | Review images removed by AI filtering: list, preview HTML gallery, or restore individual/all images. |
 | `upload FILE` | CLI/platform adapter | Upload or import the provided Markdown file to the configured note-taking platform without review gating. |
 | `email ARTICLE_ID --to RECIPIENT` | CLI/SMTP | Send the reviewed article as an HTML email to the specified recipient (must be in allowed_recipients). |
 | `run URL` | Mixed | Run the full workflow from extraction through review and final upload/import. |
