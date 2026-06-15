@@ -102,7 +102,7 @@ async def run_ai_review(path: Path, max_attempts: int | None = None, client: Tex
         if image_filter_result is not None:
             # Remove promotion images from the reviewed markdown
             if image_filter_result.has_promotions:
-                reviewed_markdown = remove_promotion_images_from_markdown(
+                reviewed_markdown, _removed = remove_promotion_images_from_markdown(
                     reviewed_markdown,
                     image_filter_result.get_promotion_paths(),
                 )
