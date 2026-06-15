@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import re
 from pathlib import Path
 
@@ -47,11 +48,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Re-extract URLs that have already been extracted.",
     )
 
-    upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file to SiYuan.")
-    upload_parser.add_argument("file", type=Path, help="Markdown file to upload.")
+    upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file, article directory, or article ID to SiYuan.")
+    upload_parser.add_argument("file", type=Path, help="Markdown file, article directory, or article ID to upload.")
+    upload_parser.add_argument("--force", "-f", action="store_true", help="Re-upload even if the article was already uploaded.")
 
-    ai_review_parser = subparsers.add_parser("ai-review", help="Use the configured AI model to rewrite and check one reviewed Markdown file.")
-    ai_review_parser.add_argument("file", type=Path, help="Reviewed Markdown file to rewrite.")
+    ai_review_parser = subparsers.add_parser("ai-review", help="Use the configured AI model to rewrite and check one reviewed Markdown file, article directory, or article ID.")
+    ai_review_parser.add_argument("file", type=Path, help="Reviewed Markdown file, article directory, or article ID.")
+    ai_review_parser.add_argument("--force", "-f", action="store_true", help="Re-run AI review even if review.json is already marked completed.")
 
     run_parser = subparsers.add_parser("run", help="Extract one URL, AI-review it, then upload it to SiYuan.")
     run_parser.add_argument("url", help="Article URL to extract.")
@@ -159,6 +162,77 @@ async def _run_pipeline(url: str) -> str:
     return await _run_upload(reviewed_path)
 
 
+def _resolve_reviewed_path(value: Path) -> Path:
+    """Resolve a user-supplied file, directory, or article ID to reviewed.md."""
+    from src.core.paths.paths import get_paths
+
+    # Direct file path
+    if value.exists() and value.is_file():
+        return value
+
+    # Directory containing reviewed.md
+    if value.exists() and value.is_dir():
+        candidate = value / "reviewed.md"
+        if candidate.exists():
+            return candidate
+        raise ValueError(f"Directory does not contain reviewed.md: {value}")
+
+    # Treat as article ID
+    article_id = str(value)
+    candidate = get_paths().article_reviewed_path(article_id)
+    if candidate.exists():
+        return candidate
+    raise ValueError(f"Article not found: {article_id}")
+
+
+def _is_review_complete(reviewed_path: Path) -> bool:
+    """Return True if review.json exists and status is 'reviewed'."""
+    import json
+
+    report_path = reviewed_path.with_name("review.json")
+    if not report_path.exists():
+        return False
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        return report.get("status") == "reviewed"
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
+def _record_upload(reviewed_path: Path, platform: str, hpath: str) -> None:
+    """Record upload result in manifest.json."""
+    import json
+    from datetime import datetime
+
+    manifest_path = reviewed_path.with_name("manifest.json")
+    if not manifest_path.exists():
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["uploaded"] = {
+            "platform": platform,
+            "hpath": hpath,
+            "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except (OSError, json.JSONDecodeError):
+        pass
+
+
+def _is_uploaded(reviewed_path: Path) -> bool:
+    """Return True if manifest.json has a non-empty uploaded record."""
+    import json
+
+    manifest_path = reviewed_path.with_name("manifest.json")
+    if not manifest_path.exists():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        return bool(manifest.get("uploaded", {}).get("hpath"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+
 async def _main_async(args: argparse.Namespace) -> int:
     if args.command == "extract":
         urls: list[str] = []
@@ -200,21 +274,49 @@ async def _main_async(args: argparse.Namespace) -> int:
         return 0 if failed == 0 else 1
 
     if args.command == "upload":
-        if not args.file.exists():
-            print(f"Error: Markdown file not found: {args.file}")
+        try:
+            reviewed_path = _resolve_reviewed_path(args.file)
+        except ValueError as exc:
+            console.print(f"[red]Error: {exc}[/red]")
             return 1
-        hpath = await _run_upload(args.file)
-        print(f"Uploaded: {hpath}")
+
+        if not args.force and _is_uploaded(reviewed_path):
+            manifest_path = reviewed_path.with_name("manifest.json")
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                hpath = manifest.get("uploaded", {}).get("hpath", "unknown")
+            except (OSError, json.JSONDecodeError):
+                hpath = "unknown"
+            console.print(f"[yellow]Skip[/yellow] already uploaded: {hpath}")
+            return 0
+
+        try:
+            hpath = await _run_upload(reviewed_path)
+        except Exception as exc:
+            console.print(f"[red]Upload failed: {exc}[/red]")
+            return 1
+        _record_upload(reviewed_path, "SiYuan", hpath)
+        console.print(f"[green]Uploaded:[/green] {hpath}")
         return 0
 
     if args.command == "ai-review":
         from src.core.review.review_validation import format_validation_issues
-        result = await _run_ai_review(args.file)
-        if result.ok:
-            print(f"AI reviewed: {result.reviewed_path}")
+        try:
+            reviewed_path = _resolve_reviewed_path(args.file)
+        except ValueError as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            return 1
+
+        if not args.force and _is_review_complete(reviewed_path):
+            console.print(f"[yellow]Skip[/yellow] AI review already completed for {reviewed_path}")
             return 0
-        print(f"AI review failed after {result.attempts} attempt(s).")
-        print(format_validation_issues(result.validation.issues))
+
+        result = await _run_ai_review(reviewed_path)
+        if result.ok:
+            console.print(f"[green]AI reviewed:[/green] {result.reviewed_path}")
+            return 0
+        console.print(f"[red]AI review failed after {result.attempts} attempt(s).[/red]")
+        console.print(format_validation_issues(result.validation.issues))
         return 1
 
     if args.command == "run":

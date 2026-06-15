@@ -101,11 +101,19 @@ class ExtractorRegistry:
     def classify_url(self, url: str) -> str:
         """Classify a URL into a registered platform key.
 
-        Raises ValueError if no extractor matches.
+        Raises ValueError if no extractor matches. The error message includes the
+        list of supported platforms and their URL patterns so users know why a
+        URL was rejected.
         """
         platform = self._find_platform(url)
         if platform is None:
-            raise ValueError(f"Unsupported URL: {url}")
+            supported = [
+                f"{meta.label} ({', '.join(meta.url_patterns)})"
+                for meta in self._extractors.values()
+            ]
+            lines = [f"Unsupported URL: {url}", "", "Supported platforms:"]
+            lines.extend(f"  - {item}" for item in supported)
+            raise ValueError("\n".join(lines))
         return platform
 
     def get_extractor(self, platform: str) -> ArticleExtractor:
