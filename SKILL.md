@@ -15,11 +15,14 @@ cd /path/to/Noosphere
 # 2. Install Python dependencies
 pip install -r requirements.txt
 
-# 3. Copy example config and customize
+# 3. Install Playwright browser for Crawl4AI
+playwright install chromium
+
+# 4. Copy example config and customize
 cp config.json.example config.json
 # Edit config.json — add your API keys and endpoints
 
-# 4. Verify installation
+# 5. Verify installation
 python -m src.cli --help
 ```
 
@@ -57,11 +60,17 @@ Key fields in `config.json`:
 
 ## Workflow
 
-1. Extract one URL:
+1. Extract one or more URLs:
 
    ```bash
+   # Single URL
    python -m src.cli extract URL
+
+   # Batch file: one URL per line, lines starting with # are ignored
+   python -m src.cli extract --batch urls.txt
    ```
+
+   Already-extracted URLs are automatically skipped unless `--force` is used.
 
 2. Read the generated Markdown file at `outputs/ARTICLE_ID/reviewed.md`.
 
@@ -105,7 +114,12 @@ Key fields in `config.json`:
    > **Note on AI provider compatibility:** The `ai.provider` field accepts `openai` or `anthropic`. The `anthropic` option is actually **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi (`https://api.kimi.com/coding/`), MiniMax (`https://api.minimaxi.com/anthropic`), or any other compatible endpoint without code changes.
 
    ```bash
-   python -m src.cli ai-review outputs/ARTICLE_ID/reviewed.md
+   # File path, article directory, or article ID are all accepted
+   python -m src.cli ai-review outputs/ARTICLE_ID/
+   python -m src.cli ai-review ARTICLE_ID
+
+   # Force re-review even if review.json is already marked completed
+   python -m src.cli ai-review ARTICLE_ID --force
    ```
 
    This command sends the raw Markdown to the configured AI provider with a rewrite prompt, writes the response to `outputs/ARTICLE_ID/reviewed.md`, then runs deterministic machine validation. If validation fails, the issues are fed back to the AI as a correction prompt and the rewrite is retried (up to `ai.max_attempts`).
@@ -139,7 +153,12 @@ Key fields in `config.json`:
 8. After confirmation, upload or import the Markdown:
 
    ```bash
-   python -m src.cli upload outputs/ARTICLE_ID/reviewed.md
+   # File path, article directory, or article ID are all accepted
+   python -m src.cli upload outputs/ARTICLE_ID/
+   python -m src.cli upload ARTICLE_ID
+
+   # Force re-upload even if manifest.json already records an upload
+   python -m src.cli upload ARTICLE_ID --force
    ```
 
    `upload` is a manual endpoint. It does not require AI review, `review.json`, or deterministic validation to pass.
@@ -151,8 +170,9 @@ Key fields in `config.json`:
 | Command | Driver | Description |
 |---------|--------|-------------|
 | `extract URL` | CLI/crawl4ai | Crawl one article and save raw, reviewed, asset, manifest, and review-context files. |
-| `ai-review FILE` | AI | Use the configured AI provider to rewrite the article, with machine-validation feedback and retry. |
+| `extract --batch FILE` | CLI/crawl4ai | Crawl multiple URLs from a file; shows progress and skips already-extracted URLs. |
+| `ai-review FILE|DIR|ID` | AI | Use the configured AI provider to rewrite the article, with machine-validation feedback and retry. Accepts a reviewed Markdown file, article directory, or article ID. |
 | `review-images ARTICLE_DIR` | CLI | Review images removed by AI filtering: list, preview HTML gallery, or restore individual/all images. |
-| `upload FILE` | CLI/platform adapter | Upload or import the provided Markdown file to the configured note-taking platform without review gating. |
+| `upload FILE|DIR|ID` | CLI/platform adapter | Upload or import the provided Markdown file to the configured note-taking platform without review gating. |
 | `email ARTICLE_ID --to RECIPIENT` | CLI/SMTP | Send the reviewed article as an HTML email to the specified recipient (must be in allowed_recipients). |
 | `run URL` | Mixed | Run the full workflow from extraction through review and final upload/import. |
