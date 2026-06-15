@@ -15,11 +15,14 @@ cd /path/to/Noosphere
 # 2. Install Python dependencies
 pip install -r requirements.txt
 
-# 3. Copy example config and customize
+# 3. Install Playwright browser for Crawl4AI
+playwright install chromium
+
+# 4. Copy example config and customize
 cp config.json.example config.json
 # Edit config.json — add your API keys and endpoints
 
-# 4. Verify installation
+# 5. Verify installation
 python -m src.cli --help
 ```
 
