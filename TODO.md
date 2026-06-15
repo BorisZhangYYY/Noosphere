@@ -8,6 +8,9 @@ Items are grouped by effort / strategic value. Checked items are already done.
 1. Batch URL input for `extract` (`--batch FILE` / single URL).
 2. Deduplication before extraction (skip already-extracted URLs unless `--force`).
 3. Rich-based progress bars and extraction summary table.
+5. Reduce vision API calls in image filtering (file-hash cache + skip description for PROMOTION images).
+7. Add `--force` to `ai-review` and `upload`; both now accept a file, directory, or article ID.
+8. Better error messages for unsupported URLs (list supported platforms/patterns).
 
 ---
 
