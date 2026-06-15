@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- **Batch extraction**: `extract` command now accepts `--batch FILE` with one URL per line, or a single positional URL. (`src/cli.py`)
+- Rich-based progress bars and an extraction summary table for batch mode. (`src/cli.py`)
+
+### Changed
+- `extract` help text updated to reflect single-URL and batch-URL support.
+
+### Fixed
+- Deduplication before extraction: URLs already present in an existing `manifest.json` are skipped unless `--force` is used. (`src/cli.py`, `src/core/paths/output_paths.py`)
+
 ## [0.1.1] - 2026-06-12
 
 ### Added
