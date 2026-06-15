@@ -1,6 +1,6 @@
 """
 CLI command definitions and entry points. Currently supported:
-- extract: Extract an article from a website.
+- extract: Extract an article from a website (single URL or batch file).
 - upload: Upload a Markdown file to Siyuan.
 - ai-review: AI-powered rewrite and format validation.
 - run: Pipeline of extract -> ai-review -> upload.
@@ -13,8 +13,16 @@ import asyncio
 import re
 from pathlib import Path
 
+from rich.console import Console
+from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+from rich.table import Table
+
 from src.core.config.config import load_config
+from src.core.paths.output_paths import find_existing_article_dir
 from src.core.paths.paths import get_paths
+
+
+console = Console()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -23,8 +31,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    extract_parser = subparsers.add_parser("extract", help="Extract one article URL into outputs/ARTICLE_ID/.")
-    extract_parser.add_argument("url", help="Article URL to extract.")
+    extract_parser = subparsers.add_parser("extract", help="Extract one or more article URLs into outputs/ARTICLE_ID/.")
+    extract_parser.add_argument("url", nargs="?", help="Article URL to extract.")
+    extract_parser.add_argument(
+        "--batch",
+        "-b",
+        type=Path,
+        metavar="FILE",
+        help="File containing one URL per line (lines starting with # are ignored).",
+    )
+    extract_parser.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Re-extract URLs that have already been extracted.",
+    )
 
     upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file to SiYuan.")
     upload_parser.add_argument("file", type=Path, help="Markdown file to upload.")
@@ -79,6 +100,47 @@ async def _run_extract(url: str) -> Path:
     return await extract_to_output(url, get_paths().output_dir)
 
 
+async def _run_extract_batch(urls: list[str], *, force: bool = False) -> list[tuple[str, Path | None, str | None]]:
+    """Extract multiple URLs with progress reporting and optional deduplication.
+
+    Returns a list of (url, output_path_or_existing_dir, error_message).
+    ``error_message`` is ``None`` on success; for skipped duplicates it is
+    ``"skipped"``.
+    """
+    output_dir = get_paths().output_dir
+    results: list[tuple[str, Path | None, str | None]] = []
+
+    progress_columns = [
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+    ]
+
+    with Progress(*progress_columns, console=console, transient=True) as progress:
+        task = progress.add_task("Extracting articles...", total=len(urls))
+        for url in urls:
+            try:
+                if not force:
+                    existing = find_existing_article_dir(output_dir, url)
+                    if existing is not None:
+                        progress.console.print(f"[yellow]Skip[/yellow] {url} (already extracted at {existing})")
+                        results.append((url, existing, "skipped"))
+                        progress.advance(task)
+                        continue
+
+                with console.status(f"[cyan]Extracting[/cyan] {url}..."):
+                    path = await _run_extract(url)
+                progress.console.print(f"[green]Done[/green]   {url} -> {path}")
+                results.append((url, path, None))
+            except Exception as exc:
+                progress.console.print(f"[red]Fail[/red]   {url}: {exc}")
+                results.append((url, None, str(exc)))
+            progress.advance(task)
+
+    return results
+
+
 async def _run_ai_review(path: Path):
     from src.pipelines.ai_review import run_ai_review
     return await run_ai_review(path)
@@ -99,10 +161,43 @@ async def _run_pipeline(url: str) -> str:
 
 async def _main_async(args: argparse.Namespace) -> int:
     if args.command == "extract":
-        path = await _run_extract(args.url)
-        print(f"Reviewed draft: {path}")
-        print(f"Next: edit manually and upload, or run: python -m src.cli ai-review {path}")
-        return 0
+        urls: list[str] = []
+        if args.url:
+            urls.append(args.url)
+        if args.batch:
+            if not args.batch.exists():
+                console.print(f"[red]Error: Batch file not found: {args.batch}[/red]")
+                return 1
+            text = args.batch.read_text(encoding="utf-8")
+            urls.extend(
+                line.strip()
+                for line in text.splitlines()
+                if line.strip() and not line.strip().startswith("#")
+            )
+
+        if not urls:
+            console.print("[red]Error: provide a URL or --batch FILE[/red]")
+            return 1
+
+        if len(urls) == 1 and not args.batch:
+            path = await _run_extract(urls[0])
+            console.print(f"Reviewed draft: {path}")
+            console.print(f"Next: edit manually and upload, or run: python -m src.cli ai-review {path}")
+            return 0
+
+        results = await _run_extract_batch(urls, force=args.force)
+        done = sum(1 for _, _, err in results if err is None)
+        skipped = sum(1 for _, _, err in results if err == "skipped")
+        failed = len(results) - done - skipped
+
+        table = Table(title="Extraction Summary")
+        table.add_column("Status", style="cyan")
+        table.add_column("Count", justify="right")
+        table.add_row("Successful", str(done), style="green")
+        table.add_row("Skipped (already extracted)", str(skipped), style="yellow")
+        table.add_row("Failed", str(failed), style="red")
+        console.print(table)
+        return 0 if failed == 0 else 1
 
     if args.command == "upload":
         if not args.file.exists():

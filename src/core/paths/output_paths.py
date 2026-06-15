@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,3 +56,20 @@ def article_output_paths(output_dir: Path, article: Article) -> ArticleOutputPat
         asset_dir=article_dir / "assets",
         manifest_path=article_dir / "manifest.json",
     )
+
+
+def find_existing_article_dir(output_dir: Path, url: str) -> Path | None:
+    """Return the article workspace directory if *url* was already extracted.
+
+    Scans existing ``manifest.json`` files under *output_dir* and compares the
+    stored ``article.url``. This is more reliable than guessing the directory
+    name, which includes a title-derived component that may change.
+    """
+    for manifest_path in output_dir.rglob("manifest.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest.get("article", {}).get("url") == url:
+                return manifest_path.parent
+        except (OSError, json.JSONDecodeError):
+            continue
+    return None
