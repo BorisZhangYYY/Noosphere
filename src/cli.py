@@ -583,6 +583,14 @@ async def _run_review_images(args: argparse.Namespace) -> int:
     removed_dir = article_dir / "removed"
     assets_dir = article_dir / "assets"
 
+    # Fallback: scan removed/ directory if manifest has no removed_files record.
+    if not removed_files and removed_dir.exists() and removed_dir.is_dir():
+        removed_files = [
+            str(p.relative_to(article_dir))
+            for p in removed_dir.iterdir()
+            if p.is_file()
+        ]
+
     # --list: Display removed images
     if args.list or not (args.restore or args.restore_all or args.preview):
         if not removed_files:
