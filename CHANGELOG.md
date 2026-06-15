@@ -9,12 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - **Batch extraction**: `extract` command now accepts `--batch FILE` with one URL per line, or a single positional URL. (`src/cli.py`)
 - Rich-based progress bars and an extraction summary table for batch mode. (`src/cli.py`)
+- `--force` flag for `ai-review` and `upload`; both commands now accept a Markdown file, article directory, or article ID. (`src/cli.py`)
+- Upload result tracking: successful uploads record `uploaded` metadata in `manifest.json`. (`src/cli.py`)
+- Persistent file-hash cache for image classification results in `.noosphere/image_filter_cache.json`. (`src/core/review/image_filter.py`)
 
 ### Changed
 - `extract` help text updated to reflect single-URL and batch-URL support.
+- `upload` and `ai-review` help text updated to reflect file / directory / article-ID support.
+- Image filtering now skips the description Vision API call for images classified as `PROMOTION`, cutting API usage roughly in half for promotional content. (`src/core/review/image_filter.py`)
+- Unsupported URL errors now list all supported platforms and their URL patterns. (`src/core/registry.py`)
 
 ### Fixed
 - Deduplication before extraction: URLs already present in an existing `manifest.json` are skipped unless `--force` is used. (`src/cli.py`, `src/core/paths/output_paths.py`)
+- `ai-review` and `upload` skip already-completed work unless `--force` is used. (`src/cli.py`)
 
 ## [0.1.1] - 2026-06-12
 

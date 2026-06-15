@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import mimetypes
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.core.paths import resolve_project_path
+from src.core.paths import resolve_project_path, runtime_home
 from src.core.review.prompt_metadata import parse_prompt_file
 from src.integrations.assets import MARKDOWN_IMAGE_RE, split_image_target
 
@@ -95,13 +96,15 @@ async def analyze_images_before_review(
 
     # Analyze all images in parallel
     semaphore = asyncio.Semaphore(5)
+    cache = _load_image_filter_cache()
     tasks = [
         _analyze_single_image_with_description(
-            image_path, article_title, article_summary, client, image_review_prompt, semaphore
+            image_path, article_title, article_summary, client, image_review_prompt, semaphore, cache
         )
         for image_path in image_files
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
+    _save_image_filter_cache(cache)
 
     promotions: set[str] = set()
     relevant: set[str] = set()
@@ -136,14 +139,24 @@ async def _analyze_single_image_with_description(
     client: AIClient,
     system_prompt: str,
     semaphore: asyncio.Semaphore,
+    cache: dict[str, dict[str, str]],
 ) -> tuple[str, str]:
     """Analyze a single image and return (classification, description).
 
     Classification is either RELEVANT or PROMOTION.
     Description is a brief summary of what the image contains.
+
+    Results are cached by file SHA-256 to avoid repeating vision API calls for
+    identical images. Promotional images skip the description call entirely.
     """
     async with semaphore:
         image_data = image_path.read_bytes()
+        file_hash = hashlib.sha256(image_data).hexdigest()
+
+        cached = cache.get(file_hash)
+        if cached is not None:
+            return cached["classification"], cached["description"]
+
         base64_data = base64.b64encode(image_data).decode("utf-8")
         media_type = _guess_media_type(image_path)
 
@@ -173,7 +186,13 @@ async def _analyze_single_image_with_description(
         except Exception:
             classification = "RELEVANT"  # Conservative fallback
 
-        # Second call: get description
+        # Promotional images do not need a detailed description; skip the second call.
+        if classification == "PROMOTION":
+            description = "Promotional content (filtered)"
+            cache[file_hash] = {"classification": classification, "description": description}
+            return classification, description
+
+        # Second call: get description for relevant images only
         describe_content = [
             {
                 "type": "image",
@@ -196,6 +215,7 @@ async def _analyze_single_image_with_description(
         except Exception:
             pass  # Use default description
 
+        cache[file_hash] = {"classification": classification, "description": description}
         return classification, description
 
 
@@ -423,6 +443,33 @@ def _load_default_image_review_prompt() -> str:
             "- PROMOTION: QR codes, ads, brand logos, promotional banners, 'follow us' graphics\n\n"
             "Respond with ONLY one word: RELEVANT or PROMOTION"
         )
+
+
+def _image_filter_cache_path() -> Path:
+    """Return the path to the persistent image classification cache."""
+    cache_dir = runtime_home()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / "image_filter_cache.json"
+
+
+def _load_image_filter_cache() -> dict[str, dict[str, str]]:
+    """Load the on-disk cache of image classifications keyed by SHA-256 hash."""
+    path = _image_filter_cache_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _save_image_filter_cache(cache: dict[str, dict[str, str]]) -> None:
+    """Persist the image classification cache to disk."""
+    path = _image_filter_cache_path()
+    path.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def update_manifest_with_image_filter(
