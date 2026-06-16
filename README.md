@@ -30,38 +30,38 @@ See [SKILL.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md) fo
 
 ```bash
 # Extract one article
-python -m src.cli extract URL
+nsphr extract URL
 
 # Extract multiple articles from a file (one URL per line, # for comments)
-python -m src.cli extract --batch urls.txt
+nsphr extract --batch urls.txt
 
 # Optional AI rewrite + review after extraction
 # Accepts a file, article directory, or article ID
-python -m src.cli ai-review outputs/ARTICLE_ID/
-python -m src.cli ai-review ARTICLE_ID
+nsphr ai-review outputs/ARTICLE_ID/
+nsphr ai-review ARTICLE_ID
 
 # Force re-run AI review even if review.json already exists
-python -m src.cli ai-review ARTICLE_ID --force
+nsphr ai-review ARTICLE_ID --force
 
 # Manual endpoint: upload the Markdown you provide
 # Accepts a file, article directory, or article ID
-python -m src.cli upload outputs/ARTICLE_ID/
-python -m src.cli upload ARTICLE_ID
+nsphr upload outputs/ARTICLE_ID/
+nsphr upload ARTICLE_ID
 
 # Force re-upload even if manifest.json already records an upload
-python -m src.cli upload ARTICLE_ID --force
+nsphr upload ARTICLE_ID --force
 
 # Send reviewed article as HTML email (requires SMTP config in config.json)
-python -m src.cli email ARTICLE_ID --to recipient@example.com
+nsphr email ARTICLE_ID --to recipient@example.com
 
 # Review images removed by AI filtering (list, preview HTML, restore)
-python -m src.cli review-images outputs/ARTICLE_ID/ --list
-python -m src.cli review-images outputs/ARTICLE_ID/ --preview
-python -m src.cli review-images outputs/ARTICLE_ID/ --restore image_02.webp
-python -m src.cli review-images outputs/ARTICLE_ID/ --restore-all
+nsphr review-images outputs/ARTICLE_ID/ --list
+nsphr review-images outputs/ARTICLE_ID/ --preview
+nsphr review-images outputs/ARTICLE_ID/ --restore image_02.webp
+nsphr review-images outputs/ARTICLE_ID/ --restore-all
 
 # One-command: extract → ai-review → upload
-python -m src.cli run URL
+nsphr run URL
 ```
 
 ## AI Review Flow
@@ -82,8 +82,8 @@ Output: `outputs/ARTICLE_ID/` contains `raw.md`, `reviewed.md`, `manifest.json`,
 # 1. Clone and enter
 cd /path/to/Noosphere
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Install package in editable mode
+pip install -e .
 
 # 3. Install Playwright browser for Crawl4AI
 playwright install chromium
@@ -93,7 +93,7 @@ cp config.json.example config.json
 # Edit config.json with your API keys and endpoints
 
 # 5. Verify
-python -m src.cli --help
+nsphr --help
 ```
 
 ### Config Fields

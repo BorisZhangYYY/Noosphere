@@ -29,6 +29,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- **TUI**: interactive terminal UI launched via `nsphr tui`. Includes dashboard, extract, AI review, upload, email, image review, pipeline, and prompt management screens. (`src/tui/`)
+- **Local archive upload adapter**: writes reviewed Markdown and assets to a dated local folder structure. (`src/core/upload/adapters/local_adapter.py`)
+- `--target` flag for the `upload` CLI command, supporting `local` or `siyuan` upload targets.
+- `local_archive` configuration section in `config.json`.
+- **`nsphr` console command**: package now exposes the `nsphr` system command via `pyproject.toml`. Install with `pip install -e .` and invoke `nsphr --help` instead of `python -m src.cli`.
+
+### Changed
+- `create_adapter()` now supports explicit `target` selection and auto-selects between local archive and SiYuan based on configuration.
+
+### Fixed
+- `LocalAdapter` asset copy now uses `dirs_exist_ok=True` to avoid `FileExistsError` on re-upload.
+
+### Fixed
+- TUI colour consistency: `markdown_viewer` and `progress_panel` now use `ERROR` and `ACCENT` theme constants instead of hard-coded `[red]` / `[cyan]`.
+- Removed unused `status_colour()` helper and its import.
+- Windows `open` action in TUI now passes `shell=True` to `explorer`.
+- `open_in_editor()` now reports a clear error when `EDITOR` is not found instead of silently failing.
+- `LocalAdapter` asset copy now uses `dirs_exist_ok=True` to avoid `FileExistsError` on re-upload.
+
+### Added
 - **Image Filter**: AI-powered vision analysis to classify downloaded images as RELEVANT or PROMOTION before text rewrite. Promotion images (QR codes, logos, banners, ads) are removed; content images (screenshots, diagrams, photos) are preserved. (`src/core/review/image_filter.py`, `prompts/image_review.md`)
 - `generate_vision()` method in `AIClient` supporting both Anthropic and OpenAI vision APIs for image content analysis. (`src/integrations/ai_client.py`)
 - `review-images ARTICLE_DIR` CLI command for reviewing, listing, and restoring images removed by AI filtering. Supports `--list`, `--preview` (HTML gallery), `--restore IMAGE`, and `--restore-all`. (`src/cli.py`, `src/core/review/image_filter.py`)

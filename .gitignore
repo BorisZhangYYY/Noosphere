@@ -2,6 +2,11 @@
 .venv/
 config.json
 
+# build artifacts
+build/
+dist/
+*.egg-info/
+
 # AI
 .claude/
 superpowers/

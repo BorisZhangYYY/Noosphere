@@ -48,9 +48,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Re-extract URLs that have already been extracted.",
     )
 
-    upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file, article directory, or article ID to SiYuan.")
+    upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file, article directory, or article ID to SiYuan or local archive.")
     upload_parser.add_argument("file", type=Path, help="Markdown file, article directory, or article ID to upload.")
     upload_parser.add_argument("--force", "-f", action="store_true", help="Re-upload even if the article was already uploaded.")
+    upload_parser.add_argument("--target", "-t", choices=["local", "siyuan"], default=None, help="Upload target platform (default: auto-select from config).")
 
     ai_review_parser = subparsers.add_parser("ai-review", help="Use the configured AI model to rewrite and check one reviewed Markdown file, article directory, or article ID.")
     ai_review_parser.add_argument("file", type=Path, help="Reviewed Markdown file, article directory, or article ID.")
@@ -90,11 +91,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="List removed images with descriptions."
     )
     review_images_parser.add_argument(
-        "--preview", 
+        "--preview",
         action="store_true",
         help="Generate an HTML preview page for removed images."
     )
 
+    tui_parser = subparsers.add_parser("tui", help="Launch the interactive terminal UI.")
     return parser.parse_args(argv)
 
 
@@ -149,13 +151,13 @@ async def _run_ai_review(path: Path):
     return await run_ai_review(path)
 
 
-async def _run_upload(path: Path) -> tuple[str, str]:
+async def _run_upload(path: Path, target: str | None = None) -> tuple[str, str]:
     """Upload a reviewed Markdown file and return (hpath, platform_name)."""
     from src.core.upload.factory import create_adapter
     from src.pipelines.upload import upload_markdown_file
 
-    adapter = create_adapter()
-    hpath = await upload_markdown_file(path)
+    adapter = create_adapter(target=target)
+    hpath = await upload_markdown_file(path, adapter=adapter)
     return hpath, adapter.platform_name
 
 
@@ -298,7 +300,7 @@ async def _main_async(args: argparse.Namespace) -> int:
             return 0
 
         try:
-            hpath, platform = await _run_upload(reviewed_path)
+            hpath, platform = await _run_upload(reviewed_path, target=args.target)
         except Exception as exc:
             console.print(f"[red]Upload failed: {exc}[/red]")
             return 1
@@ -407,6 +409,11 @@ async def _main_async(args: argparse.Namespace) -> int:
 
     if args.command == "review-images":
         return await _run_review_images(args)
+
+    if args.command == "tui":
+        from src.tui import launch_tui
+        await launch_tui()
+        return 0
 
     print(f"Error: unsupported command: {args.command}")
     return 1
