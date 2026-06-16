@@ -4,7 +4,7 @@ Noosphere is an article web extraction, AI review, sharing and storing tool.
 
 ## Project Rules
 
-- Read `README.md`, `SKILL.md`, and `CHANGELOG.md` before changing workflow behavior.
+- Read `README.md`, `skills/noosphere/SKILL.md`, and `CHANGELOG.md` before changing workflow behavior.
 - `references/` contains Crawl4AI and SiYuan documentation that can be used as reference when developing new features.
 - Preserve clear output boundaries inside `outputs/<article_id>/`: do not edit or rewrite `raw.md`, and perform all review, editing, and AI rewriting based on `reviewed.md`. Keep `manifest.json`, `review.json`, and `assets/` tied to the same article workspace.
 - Keep long prompts in `prompts/`; keep `config.json.example` easy and human-readable.
