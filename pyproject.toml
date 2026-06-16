@@ -7,6 +7,7 @@ name = "noosphere"
 version = "0.1.3.dev0"
 description = "Article extraction, AI review, and note-import tool"
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     "aiohttp>=3.8",
