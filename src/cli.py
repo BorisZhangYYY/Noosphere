@@ -157,7 +157,7 @@ async def _run_upload(path: Path, target: str | None = None) -> tuple[str, str]:
     from src.pipelines.upload import upload_markdown_file
 
     adapter = create_adapter(target=target)
-    hpath = await upload_markdown_file(path)
+    hpath = await upload_markdown_file(path, adapter=adapter)
     return hpath, adapter.platform_name
 
 

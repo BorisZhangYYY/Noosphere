@@ -81,7 +81,7 @@ async def show_upload(console: Console) -> None:
 
     try:
         with console.status(f"[{ACCENT}]Uploading to {adapter.platform_name}…[/{ACCENT}]", spinner="dots"):
-            hpath = await upload_markdown_file(reviewed_path)
+            hpath = await upload_markdown_file(reviewed_path, adapter=adapter)
         console.print(f"[{SUCCESS}]Uploaded to {adapter.platform_name}:[/{SUCCESS}] {hpath}")
 
         manifest_path = art.dir_path / "manifest.json"

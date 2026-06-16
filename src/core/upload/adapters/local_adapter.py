@@ -10,8 +10,9 @@ from datetime import datetime
 from pathlib import Path
 
 from src.core.config.schema import LocalArchiveConfig
-from src.core.markdown.upload_preparer import read_markdown_for_upload
+from src.core.markdown.upload_preparer import title_from_markdown
 from src.core.paths import resolve_project_path
+from src.core.paths.output_paths import safe_filename
 from src.core.upload.adapter import UploadAdapter
 
 
@@ -37,7 +38,10 @@ class LocalAdapter(UploadAdapter):
         return "Local Archive"
 
     async def upload(self, path: Path, title: str | None = None) -> str:
-        resolved_title, markdown = read_markdown_for_upload(path, title)
+        # Preserve the full reviewed Markdown (including H1) in the local archive.
+        markdown = path.read_text(encoding="utf-8")
+        fallback = safe_filename(path.stem, fallback="Untitled Article")
+        resolved_title = title or title_from_markdown(markdown, fallback)
 
         safe_title = _safe_dir_name(resolved_title)
         date_prefix = datetime.now().strftime("%Y-%m-%d")
