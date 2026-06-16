@@ -29,10 +29,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- **TUI**: interactive terminal UI launched via `python -m src.cli tui`. Includes dashboard, extract, AI review, upload, email, image review, pipeline, and prompt management screens. (`src/tui/`)
+- **TUI**: interactive terminal UI launched via `nsphr tui`. Includes dashboard, extract, AI review, upload, email, image review, pipeline, and prompt management screens. (`src/tui/`)
 - **Local archive upload adapter**: writes reviewed Markdown and assets to a dated local folder structure. (`src/core/upload/adapters/local_adapter.py`)
 - `--target` flag for the `upload` CLI command, supporting `local` or `siyuan` upload targets.
 - `local_archive` configuration section in `config.json`.
+- **`nsphr` console command**: package now exposes the `nsphr` system command via `pyproject.toml`. Install with `pip install -e .` and invoke `nsphr --help` instead of `python -m src.cli`.
 
 ### Changed
 - `create_adapter()` now supports explicit `target` selection and auto-selects between local archive and SiYuan based on configuration.

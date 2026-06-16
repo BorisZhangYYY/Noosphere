@@ -13,7 +13,7 @@ This workflow is designed to be platform-extensible. The current implementation 
 cd /path/to/Noosphere
 
 # 2. Install Python dependencies
-pip install -r requirements.txt
+pip install -e .
 
 # 3. Install Playwright browser for Crawl4AI
 playwright install chromium
@@ -23,7 +23,7 @@ cp config.json.example config.json
 # Edit config.json — add your API keys and endpoints
 
 # 5. Verify installation
-python -m src.cli --help
+nsphr --help
 ```
 
 ### Config Overview
@@ -64,10 +64,10 @@ Key fields in `config.json`:
 
    ```bash
    # Single URL
-   python -m src.cli extract URL
+   nsphr extract URL
 
    # Batch file: one URL per line, lines starting with # are ignored
-   python -m src.cli extract --batch urls.txt
+   nsphr extract --batch urls.txt
    ```
 
    Already-extracted URLs are automatically skipped unless `--force` is used.
@@ -115,11 +115,11 @@ Key fields in `config.json`:
 
    ```bash
    # File path, article directory, or article ID are all accepted
-   python -m src.cli ai-review outputs/ARTICLE_ID/
-   python -m src.cli ai-review ARTICLE_ID
+   nsphr ai-review outputs/ARTICLE_ID/
+   nsphr ai-review ARTICLE_ID
 
    # Force re-review even if review.json is already marked completed
-   python -m src.cli ai-review ARTICLE_ID --force
+   nsphr ai-review ARTICLE_ID --force
    ```
 
    This command sends the raw Markdown to the configured AI provider with a rewrite prompt, writes the response to `outputs/ARTICLE_ID/reviewed.md`, then runs deterministic machine validation. If validation fails, the issues are fed back to the AI as a correction prompt and the rewrite is retried (up to `ai.max_attempts`).
@@ -130,16 +130,16 @@ Key fields in `config.json`:
 
    ```bash
    # List removed images with AI descriptions
-   python -m src.cli review-images outputs/ARTICLE_ID/ --list
+   nsphr review-images outputs/ARTICLE_ID/ --list
 
    # Generate an HTML preview page to view removed images in browser
-   python -m src.cli review-images outputs/ARTICLE_ID/ --preview
+   nsphr review-images outputs/ARTICLE_ID/ --preview
 
    # Restore a specific image if it was incorrectly removed
-   python -m src.cli review-images outputs/ARTICLE_ID/ --restore image_02.webp
+   nsphr review-images outputs/ARTICLE_ID/ --restore image_02.webp
 
    # Restore all removed images
-   python -m src.cli review-images outputs/ARTICLE_ID/ --restore-all
+   nsphr review-images outputs/ARTICLE_ID/ --restore-all
    ```
 
 7. Report the review result to the user:
@@ -154,11 +154,11 @@ Key fields in `config.json`:
 
    ```bash
    # File path, article directory, or article ID are all accepted
-   python -m src.cli upload outputs/ARTICLE_ID/
-   python -m src.cli upload ARTICLE_ID
+   nsphr upload outputs/ARTICLE_ID/
+   nsphr upload ARTICLE_ID
 
    # Force re-upload even if manifest.json already records an upload
-   python -m src.cli upload ARTICLE_ID --force
+   nsphr upload ARTICLE_ID --force
    ```
 
    `upload` is a manual endpoint. It does not require AI review, `review.json`, or deterministic validation to pass.
