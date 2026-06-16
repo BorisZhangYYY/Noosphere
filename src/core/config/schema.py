@@ -79,6 +79,11 @@ class CrawlerConfig(BaseModel):
         return str(self.fallback or "").lower() == "firecrawl" and bool(self.firecrawl.api_key)
 
 
+class LocalArchiveConfig(BaseModel):
+    enabled: bool = False
+    output_dir: str = "archive"
+
+
 class SMTPConfig(BaseModel):
     host: str
     port: int = 587
@@ -105,6 +110,7 @@ class Config(BaseModel):
     siyuan: SiyuanConfig | None = None
     crawler: CrawlerConfig = Field(default_factory=CrawlerConfig)
     smtp: SMTPConfig | None = None
+    local_archive: LocalArchiveConfig | None = None
     article: dict[str, PlatformConfig] = Field(default_factory=dict)
     social_post: dict[str, PlatformConfig] = Field(default_factory=dict)
     proxy: ProxyConfig | None = None
