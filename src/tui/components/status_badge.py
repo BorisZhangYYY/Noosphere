@@ -15,9 +15,3 @@ def status_label(status: str) -> str:
     """
     info = STATUS_TOKEN.get(status, {"label": status.upper(), "colour": "white"})
     return f"[bold {info['colour']}]{info['label']}[/bold {info['colour']}]"
-
-
-def status_colour(status: str) -> str:
-    """Return the Rich colour name for a given status."""
-    info = STATUS_TOKEN.get(status, {"colour": "white"})
-    return info["colour"]

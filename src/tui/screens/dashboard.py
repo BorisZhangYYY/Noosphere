@@ -179,7 +179,7 @@ def _open_path(path: Path) -> None:
         if system == "Darwin":
             subprocess.run(["open", str(path)])
         elif system == "Windows":
-            subprocess.run(["explorer", str(path)])
+            subprocess.run(["explorer", str(path)], shell=True)
         else:
             subprocess.run(["xdg-open", str(path)])
     except Exception as exc:

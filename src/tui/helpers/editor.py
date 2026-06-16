@@ -31,7 +31,11 @@ def open_in_editor(path: Path) -> bool:
     cmd.append(str(path))
 
     original_hash = _file_hash(path) if path.exists() else ""
-    subprocess.run(cmd, check=False)
+    try:
+        subprocess.run(cmd, check=False)
+    except FileNotFoundError:
+        print(f"Editor not found: {editor!r}. Set the EDITOR environment variable.")
+        return False
     new_hash = _file_hash(path) if path.exists() else ""
 
     if not original_hash:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from rich.table import Table
 from rich.text import Text
 
-from src.tui.components.status_badge import status_label, status_colour
+from src.tui.components.status_badge import status_label
 from src.tui.helpers.scanner import DashboardSnapshot
 from src.tui.theme import SUCCESS, INFO, WARNING, ERROR, MUTED, HEADING
 
