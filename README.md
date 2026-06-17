@@ -8,7 +8,17 @@ Noosphere is designed for exactly this purpose. Based on `crawl4ai` with a `fire
 
 In one sentence: Noosphere turns scattered, lengthy, and hard-to-read articles on the internet into clean, structured, understandable, saveable, and shareable knowledge content.
 
-See [SKILL.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md) for agent usage.
+For agent usage, install the skill with:
+
+```bash
+npx skills add https://github.com/BorisZhangYYY/Noosphere
+```
+
+Or source the local skill manually:
+
+```bash
+source ./skill.sh noosphere
+```
 
 ## Supported Sources
 
@@ -28,41 +38,24 @@ See [SKILL.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/SKILL.md) fo
 
 ## Commands
 
-```bash
-# Extract one article
-nsphr extract URL
+### Core Pipeline
 
-# Extract multiple articles from a file (one URL per line, # for comments)
-nsphr extract --batch urls.txt
+| Command | Description |
+|---|---|
+| `nsphr extract URL` | Extract one article. |
+| `nsphr extract --batch urls.txt` | Extract multiple URLs from a file. |
+| `nsphr ai-review ARTICLE_ID` | AI rewrite + validation. |
+| `nsphr upload ARTICLE_ID` | Upload reviewed article. |
+| `nsphr upload ARTICLE_ID --target local` | Save to local archive instead of SiYuan. |
+| `nsphr run URL` | One-command extract → ai-review → upload. |
 
-# Optional AI rewrite + review after extraction
-# Accepts a file, article directory, or article ID
-nsphr ai-review outputs/ARTICLE_ID/
-nsphr ai-review ARTICLE_ID
+### Utility Commands
 
-# Force re-run AI review even if review.json already exists
-nsphr ai-review ARTICLE_ID --force
-
-# Manual endpoint: upload the Markdown you provide
-# Accepts a file, article directory, or article ID
-nsphr upload outputs/ARTICLE_ID/
-nsphr upload ARTICLE_ID
-
-# Force re-upload even if manifest.json already records an upload
-nsphr upload ARTICLE_ID --force
-
-# Send reviewed article as HTML email (requires SMTP config in config.json)
-nsphr email ARTICLE_ID --to recipient@example.com
-
-# Review images removed by AI filtering (list, preview HTML, restore)
-nsphr review-images outputs/ARTICLE_ID/ --list
-nsphr review-images outputs/ARTICLE_ID/ --preview
-nsphr review-images outputs/ARTICLE_ID/ --restore image_02.webp
-nsphr review-images outputs/ARTICLE_ID/ --restore-all
-
-# One-command: extract → ai-review → upload
-nsphr run URL
-```
+| Command | Description |
+|---|---|
+| `nsphr review-images ARTICLE_DIR --list` | Review images removed by AI filtering. |
+| `nsphr email ARTICLE_ID --to recipient@example.com` | Send reviewed article as HTML email. |
+| `nsphr tui` | Launch interactive terminal UI. |
 
 ## AI Review Flow
 
@@ -102,9 +95,27 @@ nsphr --help
 - `social_post`: social post source platforms (x)
 - `proxy`: optional HTTP/HTTPS proxy configuration
 - `siyuan`: API base, parent ID, token
+- `local_archive`: `base_dir`, `date_format` for local filesystem archive output
 - `ai`: provider (`openai`, `anthropic`, or `compatible`), max_attempts, prompt paths, platform-specific prompt overrides
 - `ai_providers`: model, API base, API key, token limit, temperature
 - `crawler`: fallback strategy (`firecrawl`) and Firecrawl API credentials
+
+### Local Archive
+
+To write reviewed Markdown and assets to a local dated folder instead of uploading to SiYuan:
+
+1. Add a `local_archive` section to `config.json`:
+
+   ```json
+   {
+     "local_archive": {
+       "base_dir": "/path/to/archive",
+       "date_format": "%Y-%m-%d"
+     }
+   }
+   ```
+
+2. Use `nsphr upload ARTICLE_ID --target local` or make `local_archive` the only configured target to make it the default.
 
 Supported AI providers currently include:
 

@@ -1,0 +1,19 @@
+{
+  "name": "noosphere",
+  "description": "Article extraction, AI review, and note-import skill for Noosphere",
+  "version": "0.1.3.dev0",
+  "author": {
+    "name": "BorisZhangYYY"
+  },
+  "homepage": "https://github.com/BorisZhangYYY/Noosphere",
+  "repository": "https://github.com/BorisZhangYYY/Noosphere",
+  "license": "MIT",
+  "keywords": [
+    "noosphere",
+    "article",
+    "extraction",
+    "ai-review",
+    "siyuan",
+    "knowledge-base"
+  ]
+}

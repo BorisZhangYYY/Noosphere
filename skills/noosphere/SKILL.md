@@ -1,3 +1,8 @@
+---
+name: noosphere
+description: Extract web articles, run AI review, and import them into note-taking platforms like SiYuan or a local archive.
+---
+
 # Web Article To Notes
 
 Use this skill when the user wants to extract one article from a supported platform, clean it into a structured Markdown article, and import or upload it into a configured note-taking or knowledge-management platform.
@@ -36,6 +41,7 @@ Key fields in `config.json`:
 | `social_post` | `x` | Social post source platforms with `label` and `url_patterns` |
 | `proxy` | `http`, `https` | Optional HTTP/HTTPS proxy URLs |
 | `siyuan` | `api_base`, `default_parent_id`, `token` | SiYuan note platform connection |
+| `local_archive` | `base_dir`, `date_format` | Optional local filesystem archive target for `upload --target local`. |
 | `ai` | `provider`, `max_attempts`, `*_prompt_path`, `platform_prompts` | Provider: `openai`, `anthropic`, or `compatible`; `platform_prompts` overrides prompts per platform |
 | `ai_providers` | `model`, `api_base`, `api_key`, `max_output_tokens`, `temperature` | Per-provider model settings |
 
@@ -56,6 +62,7 @@ Key fields in `config.json`:
 ### Note-taking Platforms
 
 - SiYuan
+- Local archive (via `upload --target local`)
 - More platforms may be added in the future
 
 ## Workflow
@@ -157,6 +164,9 @@ Key fields in `config.json`:
    nsphr upload outputs/ARTICLE_ID/
    nsphr upload ARTICLE_ID
 
+   # Save to local archive instead of the default platform
+   nsphr upload ARTICLE_ID --target local
+
    # Force re-upload even if manifest.json already records an upload
    nsphr upload ARTICLE_ID --force
    ```
@@ -165,14 +175,42 @@ Key fields in `config.json`:
 
    It reads the Markdown file, uploads or resolves local assets when referenced, and sends the document to the configured note-taking platform through the active upload adapter.
 
+## Interactive TUI Workflow
+
+For a guided, screen-based experience, use `nsphr tui`. This is useful when you want to:
+
+- Browse existing articles and their status (extracted / reviewed / uploaded).
+- Run extract / ai-review / upload / email from a keyboard-driven interface.
+- Review removed images or re-run the full pipeline without typing IDs.
+
+Typical flow:
+
+1. Launch: `nsphr tui`
+2. Use arrow keys / `j` `k` to navigate screens.
+3. On **Extract**, enter a URL or batch file path.
+4. On **AI Review**, select an article directory or ID.
+5. On **Upload**, choose the target adapter (`local` or `siyuan`) if both are configured.
+6. On **Image Review**, list/restore removed images as needed.
+
+The TUI writes the same `outputs/<article_id>/` files as the CLI commands, so manual CLI editing remains possible.
+
 ## Commands
+
+### Core Pipeline
 
 | Command | Driver | Description |
 |---------|--------|-------------|
 | `extract URL` | CLI/crawl4ai | Crawl one article and save raw, reviewed, asset, manifest, and review-context files. |
 | `extract --batch FILE` | CLI/crawl4ai | Crawl multiple URLs from a file; shows progress and skips already-extracted URLs. |
 | `ai-review FILE|DIR|ID` | AI | Use the configured AI provider to rewrite the article, with machine-validation feedback and retry. Accepts a reviewed Markdown file, article directory, or article ID. |
-| `review-images ARTICLE_DIR` | CLI | Review images removed by AI filtering: list, preview HTML gallery, or restore individual/all images. |
 | `upload FILE|DIR|ID` | CLI/platform adapter | Upload or import the provided Markdown file to the configured note-taking platform without review gating. |
-| `email ARTICLE_ID --to RECIPIENT` | CLI/SMTP | Send the reviewed article as an HTML email to the specified recipient (must be in allowed_recipients). |
+| `upload ARTICLE_ID --target local` | CLI/platform adapter | Save to local archive instead of the default platform. |
 | `run URL` | Mixed | Run the full workflow from extraction through review and final upload/import. |
+
+### Utility Commands
+
+| Command | Driver | Description |
+|---------|--------|-------------|
+| `review-images ARTICLE_DIR` | CLI | Review images removed by AI filtering: list, preview HTML gallery, or restore individual/all images. |
+| `email ARTICLE_ID --to RECIPIENT` | CLI/SMTP | Send the reviewed article as an HTML email to the specified recipient (must be in allowed_recipients). |
+| `tui` | CLI | Launch interactive terminal UI for browsing articles and running pipeline steps. |
