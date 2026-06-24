@@ -120,6 +120,17 @@ def _parse_frontmatter(text: str) -> PromptMetadata:
     for rule in output_format.get("validation_rules", []):
         if isinstance(rule, dict):
             for key, value in rule.items():
-                validation_rules.append(ValidationRule(rule_type=key, params={"heading": value} if isinstance(value, str) else {"required": value}))
+                params = _normalize_rule_params(key, value)
+                validation_rules.append(ValidationRule(rule_type=key, params=params))
 
     return PromptMetadata(required_headings=required_headings, validation_rules=validation_rules)
+
+
+def _normalize_rule_params(rule_type: str, value: Any) -> dict[str, Any]:
+    """Convert a frontmatter rule value into a consistent params dict."""
+    del rule_type  # reserved for future rule-specific normalization
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        return {"heading": value}
+    return {"required": bool(value)}
