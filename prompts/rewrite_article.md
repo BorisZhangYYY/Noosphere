@@ -10,6 +10,17 @@ output_format:
   validation_rules:
     - no_content_before_heading: "AI Summary"
     - all_images_local: true
+    - source_metadata_required_fields:
+        fields:
+          - Source
+          - Platform
+          - Author
+          - Published
+          - Captured
+          - Type
+        source_must_be_link: true
+    - main_article_subheadings_min_level:
+        min_level: 3
 ---
 
 You are a rigorous manuscript editor. Read the original article and the current draft, then rewrite it into a well-structured Markdown article suitable for storage in a knowledge base.
@@ -81,7 +92,12 @@ The output must be pure Markdown body text. Do not explain your processing steps
 ```markdown
 # Article Title
 
-> Source metadata block
+> Source: [https://example.com/path](https://example.com/path)
+> Platform: 微信公众号
+> Author: Author Name
+> Published: 2026年6月2日 14:12
+> Captured: 2026-06-23T10:30:06+08:00
+> Type: article
 
 ---
 
@@ -99,10 +115,11 @@ The output must be pure Markdown body text. Do not explain your processing steps
 **Format Checklist — your output MUST satisfy all of these:**
 
 - [ ] Starts with exactly one `# Article Title` H1 heading
-- [ ] Includes a `> Source metadata block` immediately after the H1
+- [ ] Includes a source metadata blockquote immediately after the H1, with `Source` as a Markdown link and the fields `Platform`, `Author`, `Published`, `Captured`, `Type`
 - [ ] Has `---` on its own line after the metadata block
 - [ ] Has `## AI Summary` with at least one bullet of summary
 - [ ] Has `---` on its own line after AI Summary
 - [ ] Has `## Main Article` with the full rewritten body
+- [ ] All first-level subheadings under `## Main Article` use `###` (H3) or deeper, never `##` (H2)
 - [ ] All images use the original local relative paths; do not use `http://` or `https://` image URLs
 - [ ] Any AI-added inline commentary is wrapped in a blockquote labeled `> AI Addition ({model})`

@@ -17,6 +17,42 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]*)\)")
 IMAGE_TARGET_RE = re.compile(r"^(.+?)\s+([\"'][^\"']*[\"'])$")
 HORIZONTAL_RULE_RE = re.compile(r"^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$")
+SOURCE_METADATA_LINE_RE = re.compile(r"^>\s*(.+?)\s*:\s*(.+?)\s*$")
+CODE_FENCE_RE = re.compile(r"^\s{0,3}(```|~~~)")
+
+
+def _code_block_regions(markdown: str) -> list[tuple[int, int]]:
+    """Return (start, end) character ranges of fenced code blocks."""
+    regions: list[tuple[int, int]] = []
+    in_block = False
+    fence = ""
+    start = 0
+    lines = markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    char_index = 0
+    for line in lines:
+        match = CODE_FENCE_RE.match(line)
+        if match:
+            if not in_block:
+                in_block = True
+                fence = match.group(1)
+                start = char_index
+            elif line.strip().startswith(fence):
+                in_block = False
+                regions.append((start, char_index + len(line)))
+        char_index += len(line) + 1  # +1 for the newline
+    if in_block:
+        regions.append((start, len(markdown)))
+    return regions
+
+
+def _find_headings_outside_code_blocks(markdown: str) -> list[re.Match[str]]:
+    """Return HEADING_RE matches that are not inside fenced code blocks."""
+    regions = _code_block_regions(markdown)
+    matches: list[re.Match[str]] = []
+    for match in HEADING_RE.finditer(markdown):
+        if not any(start <= match.start() < end for start, end in regions):
+            matches.append(match)
+    return matches
 
 
 @dataclass(frozen=True)
@@ -98,6 +134,13 @@ def _validate_from_metadata(markdown: str, metadata: PromptMetadata, content_typ
         elif rule.rule_type == "all_images_local":
             # Handled by validate_image_links in the main validator
             pass
+        elif rule.rule_type == "source_metadata_required_fields":
+            fields = rule.params.get("fields", ["Source", "Platform", "Author", "Published", "Captured", "Type"])
+            source_must_be_link = rule.params.get("source_must_be_link", True)
+            issues.extend(validate_source_metadata_block(markdown, required_fields=fields, source_must_be_link=source_must_be_link))
+        elif rule.rule_type == "main_article_subheadings_min_level":
+            min_level = int(rule.params.get("min_level", 3))
+            issues.extend(validate_main_article_heading_hierarchy(markdown, min_level=min_level))
 
     return issues
 
@@ -120,6 +163,8 @@ def _validate_legacy(markdown: str, content_type: str) -> list[ValidationIssue]:
             issues.append(ValidationIssue("missing_main_article", "Reviewed Markdown must contain `## Main Article`."))
         elif not section_body(markdown, 2, "Main Article").strip():
             issues.append(ValidationIssue("empty_main_article", "`## Main Article` must contain article body."))
+        issues.extend(validate_source_metadata_block(markdown))
+        issues.extend(validate_main_article_heading_hierarchy(markdown))
     elif content_type == "social_post":
         pass  # social posts do not require AI Summary / Main Article structure for now
 
@@ -208,12 +253,15 @@ def split_image_target(target: str) -> tuple[str, str | None]:
 
 def has_heading(markdown: str, level: int, text: str) -> bool:
     target_prefix = "#" * level
-    return any(prefix == target_prefix and heading.strip() == text for prefix, heading in HEADING_RE.findall(markdown))
+    return any(
+        match.group(1) == target_prefix and match.group(2).strip() == text
+        for match in _find_headings_outside_code_blocks(markdown)
+    )
 
 
 def section_body(markdown: str, level: int, text: str) -> str:
     target_prefix = "#" * level
-    matches = list(HEADING_RE.finditer(markdown))
+    matches = _find_headings_outside_code_blocks(markdown)
     for index, match in enumerate(matches):
         if match.group(1) != target_prefix or match.group(2).strip() != text:
             continue
@@ -225,6 +273,116 @@ def section_body(markdown: str, level: int, text: str) -> str:
                 break
         return markdown[start:end]
     return ""
+
+
+def extract_source_metadata_block(markdown: str) -> dict[str, str] | None:
+    """Return the first blockquote after the H1 title as a {field: value} dict.
+
+    Returns None if no valid source metadata block is found.
+    """
+    lines = markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+    h1_index = next(
+        (index for index, line in enumerate(lines) if H1_RE.match(line.strip())),
+        None,
+    )
+    if h1_index is None:
+        return None
+
+    # Skip blank lines between the H1 and the metadata block
+    start_index = h1_index + 1
+    while start_index < len(lines) and not lines[start_index].strip():
+        start_index += 1
+
+    metadata: dict[str, str] = {}
+    for line in lines[start_index:]:
+        stripped = line.strip()
+        if not stripped or HORIZONTAL_RULE_RE.match(stripped):
+            break
+        match = SOURCE_METADATA_LINE_RE.match(stripped)
+        if match:
+            metadata[match.group(1).strip()] = match.group(2).strip()
+        else:
+            break
+    return metadata if metadata else None
+
+
+def validate_source_metadata_block(
+    markdown: str,
+    required_fields: list[str] | None = None,
+    source_must_be_link: bool = True,
+) -> list[ValidationIssue]:
+    """Validate the source metadata blockquote after the H1 title."""
+    issues: list[ValidationIssue] = []
+    required_fields = required_fields or ["Source", "Platform", "Author", "Published", "Captured", "Type"]
+
+    block = extract_source_metadata_block(markdown)
+    if block is None:
+        return [
+            ValidationIssue(
+                "missing_source_metadata",
+                "Reviewed Markdown must have a source metadata blockquote immediately after the H1 title.",
+            )
+        ]
+
+    for field in required_fields:
+        if field not in block:
+            issues.append(
+                ValidationIssue(
+                    "missing_source_metadata_field",
+                    f"Source metadata block must include `> {field}: ...`.",
+                )
+            )
+
+    if source_must_be_link and "Source" in block:
+        source_value = block["Source"]
+        if not re.search(r"\[([^\]]+)\]\(([^)]+)\)", source_value):
+            issues.append(
+                ValidationIssue(
+                    "source_url_not_linked",
+                    "Source metadata field must contain the article URL as a Markdown link: `> Source: [URL](URL)`.",
+                )
+            )
+
+    return issues
+
+
+def validate_main_article_heading_hierarchy(
+    markdown: str,
+    min_level: int = 3,
+) -> list[ValidationIssue]:
+    """Ensure headings inside `## Main Article` are at least `min_level`."""
+    issues: list[ValidationIssue] = []
+    matches = _find_headings_outside_code_blocks(markdown)
+
+    main_index = next(
+        (
+            index
+            for index, match in enumerate(matches)
+            if match.group(1) == "##" and match.group(2).strip() == "Main Article"
+        ),
+        None,
+    )
+    if main_index is None:
+        return issues
+
+    for match in matches[main_index + 1 :]:
+        level = len(match.group(1))
+        text = match.group(2).strip()
+
+        if level < min_level:
+            issues.append(
+                ValidationIssue(
+                    "invalid_main_article_heading_level",
+                    f"Heading under `## Main Article` must be `{'#' * min_level}` or deeper, "
+                    f"but found `{'#' * level} {text}`.",
+                )
+            )
+        if level <= 2:
+            # An H2 (or H1) after Main Article ends the section; report it once and stop scanning.
+            break
+
+    return issues
 
 
 def format_validation_issues(issues: list[ValidationIssue]) -> str:
