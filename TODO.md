@@ -29,6 +29,12 @@ Items are grouped by effort / strategic value. Checked items are already done.
    - Write `.md` + assets directly into an Obsidian vault folder.
    - Files: `src/core/upload/adapters/obsidian_adapter.py`, `src/core/upload/factory.py`.
 
+3. **Configurable output templates with matching mechanical validation**
+   - Let users define a custom Markdown template in config (required headings, metadata block fields, heading hierarchy rules).
+   - AI rewrites according to the configured template; the same template drives deterministic post-rewrite validation.
+   - Builds on the metadata-driven validator introduced in `src/core/review/prompt_metadata.py` and `src/core/review/review_validation.py`.
+   - Files: `src/core/config/schema.py`, `src/core/review/prompt_metadata.py`, `src/core/review/review_validation.py`, `prompts/`.
+
 ---
 
 ## 🟡 Medium Bets (moderate effort, significant value)
