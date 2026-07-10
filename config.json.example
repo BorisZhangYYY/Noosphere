@@ -43,7 +43,7 @@
   "ai": {
     "provider": "anthropic",
     "max_attempts": 2,
-    "rewrite_prompt_path": "prompts/rewrite_article.md",
+    "rewrite_prompt_path": "prompts/edit_article.md",
     "platform_prompts": {
       "x": {
         "rewrite_prompt_path": "prompts/rewrite_social_post.md"
@@ -68,6 +68,7 @@
     }
   },
   "crawler": {
+    "primary": "crawl4ai",
     "fallback": "firecrawl",
     "firecrawl": {
       "api_key": "your-firecrawl-api-key-here",

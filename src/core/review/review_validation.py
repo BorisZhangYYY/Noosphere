@@ -99,6 +99,7 @@ def validate_reviewed_markdown(path: Path, prompt_metadata: PromptMetadata | Non
     else:
         issues.extend(_validate_legacy(markdown, content_type))
 
+    issues.extend(validate_disallowed_headings(markdown))
     issues.extend(validate_bare_urls(markdown))
     issues.extend(validate_image_links(markdown, path.parent))
 
@@ -142,6 +143,9 @@ def _validate_from_metadata(markdown: str, metadata: PromptMetadata, content_typ
             min_level = int(rule.params.get("min_level", 3))
             issues.extend(validate_main_article_heading_hierarchy(markdown, min_level=min_level))
 
+    # Always enforce disallowed headings regardless of prompt metadata
+    issues.extend(validate_disallowed_headings(markdown))
+
     return issues
 
 
@@ -165,8 +169,11 @@ def _validate_legacy(markdown: str, content_type: str) -> list[ValidationIssue]:
             issues.append(ValidationIssue("empty_main_article", "`## Main Article` must contain article body."))
         issues.extend(validate_source_metadata_block(markdown))
         issues.extend(validate_main_article_heading_hierarchy(markdown))
+        issues.extend(validate_disallowed_headings(markdown))
     elif content_type == "social_post":
         pass  # social posts do not require AI Summary / Main Article structure for now
+
+    issues.extend(validate_disallowed_headings(markdown))
 
     return issues
 
@@ -382,6 +389,24 @@ def validate_main_article_heading_hierarchy(
             # An H2 (or H1) after Main Article ends the section; report it once and stop scanning.
             break
 
+    return issues
+
+
+def validate_disallowed_headings(markdown: str) -> list[ValidationIssue]:
+    """Reject headings that serve as image dumping grounds or appendices."""
+    issues: list[ValidationIssue] = []
+    disallowed = {"Additional Images", "Appendix", "Supplementary Images", "Extra Images"}
+    for match in _find_headings_outside_code_blocks(markdown):
+        text = match.group(2).strip()
+        if text in disallowed:
+            issues.append(
+                ValidationIssue(
+                    "disallowed_heading",
+                    f"Heading `{match.group(1)} {text}` is not allowed. "
+                    f"Images must remain in their original narrative positions; "
+                    f"do not create dumping sections for images that could not be placed.",
+                )
+            )
     return issues
 
 

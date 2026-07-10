@@ -44,7 +44,12 @@ class CrawledPage:
     cleaned_html: str
     markdown: str
     error: str | None = None
-    fallback_used: str | None = None
+    crawler_used: str | None = None
+
+    @property
+    def fallback_used(self) -> str | None:
+        """Backward compatibility: returns the same as crawler_used."""
+        return self.crawler_used
 
 
 def _markdown_text(raw: object) -> str:
@@ -235,7 +240,7 @@ async def _crawl_page_firecrawl(
                     cleaned_html="",
                     markdown=markdown,
                     error=None,
-                    fallback_used="firecrawl",
+                    crawler_used="firecrawl",
                 )
 
     except asyncio.TimeoutError:
@@ -283,10 +288,38 @@ async def crawl_page(
     pruning_threshold: float = 0.45,
     word_count_threshold: int = 8,
 ) -> CrawledPage:
-    """Try Crawl4AI first, fall back to Firecrawl on failure."""
+    """Crawl a URL using the configured primary crawler, falling back on failure.
+
+    The order is determined by ``crawler.primary`` in config.json:
+    - ``"crawl4ai"`` (default): try Crawl4AI first, then Firecrawl
+    - ``"firecrawl"``: try Firecrawl first, then Crawl4AI
+
+    If the fallback crawler is disabled or not configured, the primary
+    result is returned even on failure.
+    """
+    config = load_config()
+    primary = config.crawler.primary_crawler
+    fallback = config.crawler.fallback_crawler
+
+    # Map crawler names to their callables
+    _crawlers: dict[str, Any] = {
+        "crawl4ai": _crawl_page_crawl4ai,
+        "firecrawl": _crawl_page_firecrawl,
+    }
+
+    resolved_url = _resolve_xiaoheihe_url(url)
+
+    # Try primary crawler
+    primary_fn = _crawlers.get(primary)
+    if primary_fn is None:
+        sys.stderr.write(f"[crawler] Unknown primary crawler '{primary}', defaulting to Crawl4AI\n")
+        primary_fn = _crawl_page_crawl4ai
+
+    primary_name = "firecrawl" if primary_fn is _crawl_page_firecrawl else "crawl4ai"
+
     try:
-        page = await _crawl_page_crawl4ai(
-            url,
+        page = await primary_fn(
+            resolved_url,
             css_selector=css_selector,
             target_elements=target_elements,
             excluded_tags=excluded_tags,
@@ -299,40 +332,60 @@ async def crawl_page(
         )
     except Exception as exc:
         page = CrawledPage(
-            url=url,
+            url=resolved_url,
             success=False,
             status_code=None,
             html="",
             cleaned_html="",
             markdown="",
-            error=f"Crawl4AI: {exc}",
+            error=f"{primary_name}: {exc}",
         )
 
     if page.success:
+        page.crawler_used = primary_name
         return page
 
-    config = load_config()
-    if not config.crawler.firecrawl_enabled:
+    # Primary failed — try fallback if available
+    if not fallback:
+        sys.stderr.write(f"[crawler] {primary_name} failed and no fallback configured\n")
         return page
 
-    resolved_url = _resolve_xiaoheihe_url(url)
-    sys.stderr.write(f"[crawler] Crawl4AI failed for {url}, trying Firecrawl fallback...\n")
+    fallback_fn = _crawlers.get(fallback)
+    if fallback_fn is None:
+        sys.stderr.write(f"[crawler] {primary_name} failed and unknown fallback '{fallback}'\n")
+        return page
 
-    firecrawl_page = await _crawl_page_firecrawl(
-        resolved_url,
-        css_selector=css_selector,
-        target_elements=target_elements,
-        excluded_tags=excluded_tags,
-        excluded_selector=excluded_selector,
-        wait_for=wait_for,
-        page_timeout=page_timeout,
-        delay_before_return_html=delay_before_return_html,
-        pruning_threshold=pruning_threshold,
-        word_count_threshold=word_count_threshold,
-    )
-    if firecrawl_page.success:
-        sys.stderr.write(f"[crawler] Firecrawl fallback succeeded for {resolved_url}\n")
-        return firecrawl_page
+    fallback_name = "firecrawl" if fallback_fn is _crawl_page_firecrawl else "crawl4ai"
+    sys.stderr.write(f"[crawler] {primary_name} failed for {url}, trying {fallback_name} fallback...\n")
 
-    sys.stderr.write(f"[crawler] Firecrawl fallback also failed: {firecrawl_page.error}\n")
-    return firecrawl_page
+    try:
+        fallback_page = await fallback_fn(
+            resolved_url,
+            css_selector=css_selector,
+            target_elements=target_elements,
+            excluded_tags=excluded_tags,
+            excluded_selector=excluded_selector,
+            wait_for=wait_for,
+            page_timeout=page_timeout,
+            delay_before_return_html=delay_before_return_html,
+            pruning_threshold=pruning_threshold,
+            word_count_threshold=word_count_threshold,
+        )
+    except Exception as exc:
+        fallback_page = CrawledPage(
+            url=resolved_url,
+            success=False,
+            status_code=None,
+            html="",
+            cleaned_html="",
+            markdown="",
+            error=f"{fallback_name}: {exc}",
+        )
+
+    if fallback_page.success:
+        fallback_page.crawler_used = fallback_name
+        sys.stderr.write(f"[crawler] {fallback_name} fallback succeeded for {resolved_url}\n")
+        return fallback_page
+
+    sys.stderr.write(f"[crawler] {fallback_name} fallback also failed: {fallback_page.error}\n")
+    return fallback_page

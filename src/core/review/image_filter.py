@@ -297,21 +297,26 @@ def remove_promotion_images_from_markdown(
 
 
 def ensure_relevant_images_present(
-    markdown: str, 
-    relevant_images: set[str], 
-    assets_dir: Path | None = None
+    markdown: str,
+    relevant_images: set[str],
+    assets_dir: Path | None = None,
+    raw_markdown: str | None = None,
 ) -> str:
     """Ensure all relevant images are present in the markdown.
 
-    If the AI text rewrite accidentally dropped some relevant images, append them
-    at the end of the article so they are not lost.
+    If the AI text rewrite accidentally dropped some relevant images, restore them
+    to their original positions based on the raw markdown. Images that cannot be
+    restored to their original positions are silently skipped — never dumped into
+    an "Additional Images" appendix.
 
     Args:
         markdown: The reviewed markdown content.
         relevant_images: Set of relative image paths that should be present.
+        assets_dir: Optional directory for restoring files from removed/.
+        raw_markdown: Optional original raw markdown for position-aware restoration.
 
     Returns:
-        Markdown with missing relevant images appended if needed.
+        Markdown with missing relevant images restored to their original positions.
     """
     present_images = set()
     for match in MARKDOWN_IMAGE_RE.finditer(markdown):
@@ -361,14 +366,80 @@ def ensure_relevant_images_present(
         if _try_restore_from_removed(img):
             missing.discard(img)
 
-    # Append missing images at the end
-    append_lines = ["", "### Additional Images", ""]
-    for img in sorted(missing):
-        # Use the filename as alt text, or a generic label
+    if not missing:
+        return markdown
+
+    # Position-aware restoration: try to restore images to their original positions
+    if raw_markdown:
+        markdown = _restore_images_to_original_positions(markdown, raw_markdown, missing)
+    else:
+        # No raw reference available: insert missing images at end of Main Article
+        # without creating a new section header
+        markdown = _append_images_without_section(markdown, missing)
+
+    return markdown
+
+
+def _restore_images_to_original_positions(
+    reviewed_md: str, raw_md: str, missing_images: set[str]
+) -> str:
+    """Restore missing images to positions in reviewed_md that match their raw_md context."""
+    result = reviewed_md
+
+    for img in sorted(missing_images):
+        # Find where this image appeared in raw_md
+        raw_pos = _find_image_context_in_raw(raw_md, img)
+        if raw_pos is None:
+            continue
+
+        # Search for the context text in reviewed_md
+        insert_pos = _find_context_in_reviewed(result, raw_pos)
+        if insert_pos is not None:
+            image_line = f"\n\n![{Path(img).stem.replace('_', ' ').replace('-', ' ')}]({img})\n"
+            result = result[:insert_pos] + image_line + result[insert_pos:]
+
+    return result
+
+
+def _find_image_context_in_raw(raw_md: str, image_path: str) -> str | None:
+    """Extract the text immediately preceding an image in raw markdown."""
+    lines = raw_md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    for i, line in enumerate(lines):
+        if image_path in line or Path(image_path).name in line:
+            # Look for the nearest non-empty, non-image line before this image
+            for j in range(i - 1, max(i - 10, -1), -1):
+                candidate = lines[j].strip()
+                if candidate and not candidate.startswith("!") and not candidate.startswith("#"):
+                    return candidate
+    return None
+
+
+def _find_context_in_reviewed(reviewed_md: str, context_text: str) -> int | None:
+    """Find the position of the context text in reviewed markdown."""
+    if not context_text:
+        return None
+    # Try exact match first
+    pos = reviewed_md.find(context_text)
+    if pos != -1:
+        return pos + len(context_text)
+    # Try a shorter substring (first 50 chars) for fuzzy matching
+    short = context_text[:50]
+    if len(short) > 10:
+        pos = reviewed_md.find(short)
+        if pos != -1:
+            return pos + len(short)
+    return None
+
+
+def _append_images_without_section(markdown: str, missing_images: set[str]) -> str:
+    """Append missing images at the end without creating a section header."""
+    append_lines = [""]
+    for img in sorted(missing_images):
         alt = Path(img).stem.replace("_", " ").replace("-", " ")
         append_lines.append(f"![{alt}]({img})")
-
+    append_lines.append("")
     return markdown.rstrip() + "\n" + "\n".join(append_lines) + "\n"
+
 
 
 def _collect_local_images(markdown: str, assets_dir: Path) -> list[Path]:

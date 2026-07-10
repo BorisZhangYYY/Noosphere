@@ -21,7 +21,7 @@ class AIProviderConfig(BaseModel):
 class AIConfig(BaseModel):
     provider: str = "anthropic"
     max_attempts: int = Field(default=2, ge=1, le=10)
-    rewrite_prompt_path: str = "prompts/rewrite_article.md"
+    rewrite_prompt_path: str = "prompts/edit_article.md"
     image_review_prompt_path: str = "prompts/image_review.md"
     platform_prompts: dict[str, dict[str, str]] = Field(default_factory=dict)
 
@@ -71,12 +71,29 @@ class FirecrawlConfig(BaseModel):
 
 
 class CrawlerConfig(BaseModel):
+    primary: str = "crawl4ai"
     fallback: str | None = None
     firecrawl: FirecrawlConfig = Field(default_factory=FirecrawlConfig)
 
     @property
     def firecrawl_enabled(self) -> bool:
-        return str(self.fallback or "").lower() == "firecrawl" and bool(self.firecrawl.api_key)
+        return bool(self.firecrawl.api_key)
+
+    @property
+    def primary_crawler(self) -> str:
+        return str(self.primary).lower()
+
+    @property
+    def fallback_crawler(self) -> str | None:
+        if self.fallback is not None:
+            return str(self.fallback).lower()
+        # Auto-derive fallback if not set
+        primary = self.primary_crawler
+        if primary == "crawl4ai":
+            return "firecrawl" if self.firecrawl_enabled else None
+        if primary == "firecrawl":
+            return "crawl4ai"
+        return None
 
 
 class LocalArchiveConfig(BaseModel):

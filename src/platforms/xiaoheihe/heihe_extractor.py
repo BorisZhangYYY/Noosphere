@@ -74,7 +74,7 @@ class XiaoheiheExtractor(BaseArticleExtractor):
             or title_from_redirect_data(url)
             or self.fallback_title
         )
-        if page.fallback_used == "firecrawl" and len(page.markdown) >= self.body_min_length:
+        if page.crawler_used == "firecrawl" and len(page.markdown) >= self.body_min_length:
             markdown = page.markdown
         else:
             markdown = extract_post_markdown(soup)
@@ -99,7 +99,7 @@ class XiaoheiheExtractor(BaseArticleExtractor):
             extra={
                 "crawl_success": page.success,
                 "crawl_error": page.error,
-                "fallback_used": page.fallback_used,
+                "crawler_used": page.crawler_used,
             },
         )
 

@@ -113,6 +113,7 @@ async def run_ai_review(path: Path, max_attempts: int | None = None, client: Tex
                 reviewed_markdown,
                 image_filter_result.get_relevant_paths(),
                 assets_dir=assets_dir,
+                raw_markdown=raw_markdown,
             )
 
         path.write_text(reviewed_markdown, encoding="utf-8")
