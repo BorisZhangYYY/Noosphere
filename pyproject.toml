@@ -11,6 +11,7 @@ license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     "aiohttp>=3.8",
+    "aiosqlite>=0.20.0",
     "beautifulsoup4>=4.10",
     "crawl4ai>=0.8.0",
     "langchain-core>=0.3.0",

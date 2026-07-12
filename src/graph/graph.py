@@ -17,6 +17,7 @@ from src.core.paths import resolve_project_path
 from src.core.review.image_filter import (
     ensure_relevant_images_present,
     remove_promotion_images_from_markdown,
+    update_manifest_with_image_filter,
 )
 from src.core.review.review_report import inferred_manifest_path
 from src.core.review.review_validation import ValidationResult
@@ -90,8 +91,11 @@ async def _crawl_node(state: ArticleState) -> dict[str, object]:
 
     return {
         "platform": article.platform,
+        "platform_label": article.platform_label,
         "content_type": article.content_type,
         "title": article.title,
+        "article_author": article.author or "",
+        "article_published_at": article.published_at or "",
         "raw_markdown": article.to_review_markdown(),
         "output_dir": str(output_dir),
         "reviewed_path": str(paths.reviewed_path),
@@ -123,11 +127,13 @@ async def _download_node(state: ArticleState) -> dict[str, object]:
 
     article = Article(
         platform=state["platform"],
-        platform_label=state["platform"],
+        platform_label=state.get("platform_label", state["platform"]),
         url=state["url"],
         title=state.get("title", ""),
         markdown=state["raw_markdown"],
         content_type=state["content_type"],
+        author=state.get("article_author") or None,
+        published_at=state.get("article_published_at") or None,
     )
     image_result = ImageDownloadResult(
         asset_dir=asset_dir,
@@ -164,14 +170,22 @@ async def _filter_images_node(state: ArticleState) -> dict[str, object]:
             "status": "image_filtered",
         }
 
-    result = await filter_images.ainvoke(
-        {
-            "raw_markdown": state["raw_markdown"],
-            "article_title": state.get("title", ""),
-            "article_summary": "",
-            "assets_dir": assets_dir,
+    try:
+        result = await filter_images.ainvoke(
+            {
+                "raw_markdown": state["raw_markdown"],
+                "article_title": state.get("title", ""),
+                "article_summary": "",
+                "assets_dir": assets_dir,
+            }
+        )
+    except Exception:
+        # Gracefully degrade to unfiltered review, same as legacy pipeline.
+        return {
+            "image_filter_result": None,
+            "status": "image_filtered",
         }
-    )
+
     return {
         "image_filter_result": result,
         "status": "image_filtered",
@@ -215,7 +229,7 @@ def _after_human_review_router(state: ArticleState) -> str:
 
 async def _upload_node(state: ArticleState) -> dict[str, object]:
     """Upload the reviewed Markdown file to the configured target."""
-    upload_result = await upload_article.ainvoke(
+    result = await upload_article.ainvoke(
         {
             "reviewed_path": state["reviewed_path"],
             "title": None,
@@ -223,7 +237,8 @@ async def _upload_node(state: ArticleState) -> dict[str, object]:
         }
     )
     return {
-        "upload_result": upload_result,
+        "upload_result": result["upload_result"],
+        "upload_platform": result.get("platform_name", ""),
         "status": "uploaded",
     }
 
@@ -231,7 +246,10 @@ async def _upload_node(state: ArticleState) -> dict[str, object]:
 def _export_upload_node(state: ArticleState) -> dict[str, object]:
     """Record upload result in manifest.json for backward compatibility."""
     import json
+    import logging
     from datetime import datetime
+
+    logger = logging.getLogger(__name__)
 
     manifest_path = Path(state["reviewed_path"]).with_name("manifest.json")
     if not manifest_path.exists():
@@ -241,14 +259,16 @@ def _export_upload_node(state: ArticleState) -> dict[str, object]:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         upload_result = state.get("upload_result")
         hpath = upload_result.hpath if upload_result else ""
+        # Use the adapter's platform_name (upload target), not the article source platform.
+        upload_platform = state.get("upload_platform") or state["platform"]
         manifest["uploaded"] = {
-            "platform": state["platform"],
+            "platform": upload_platform,
             "hpath": hpath,
             "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
         manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    except (OSError, json.JSONDecodeError):
-        pass
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to persist upload result to manifest: %s", exc)
 
     return {}
 
@@ -291,17 +311,19 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
 
     image_filter_result = state.get("image_filter_result")
     assets_dir = state.get("assets_dir")
+    removed_files: list[str] = []
     if image_filter_result is not None and assets_dir:
+        assets_path = Path(assets_dir)
         if image_filter_result.has_promotions:
-            reviewed_markdown, _ = remove_promotion_images_from_markdown(
+            reviewed_markdown, removed_files = remove_promotion_images_from_markdown(
                 reviewed_markdown,
                 image_filter_result.get_promotion_paths(),
-                assets_dir=Path(assets_dir),
+                assets_dir=assets_path,
             )
         reviewed_markdown = ensure_relevant_images_present(
             reviewed_markdown,
             image_filter_result.get_relevant_paths(),
-            assets_dir=Path(assets_dir) if assets_dir else None,
+            assets_dir=assets_path if assets_dir else None,
             raw_markdown=state["raw_markdown"],
         )
 
@@ -314,6 +336,7 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
         "attempts": attempts,
         "review_model": edit_result.get("model", ""),
         "review_provider": edit_result.get("provider", ""),
+        "removed_files": removed_files,
         "status": "reviewing",
     }
 
@@ -357,7 +380,7 @@ def _review_router(state: ArticleState) -> str:
 
 
 def _write_success_report(state: ArticleState) -> None:
-    """Write the review report when validation succeeds."""
+    """Write the review report and persist image filter results when validation succeeds."""
     reviewed_path = Path(state["reviewed_path"])
     manifest_path = inferred_manifest_path(reviewed_path)
     if not manifest_path.exists():
@@ -369,6 +392,31 @@ def _write_success_report(state: ArticleState) -> None:
         model=state.get("review_model", ""),
         provider=state.get("review_provider", ""),
     )
+
+    # Persist image filter results to manifest so review-images CLI can read them.
+    _persist_image_filter_to_manifest(state, manifest_path)
+
+
+def _persist_image_filter_to_manifest(state: ArticleState, manifest_path: Path) -> None:
+    """Write image filter result to manifest.json if filtering was performed."""
+    image_filter_result = state.get("image_filter_result")
+    if image_filter_result is None:
+        return
+
+    # Collect removed_files across retries, same as the legacy pipeline.
+    assets_dir = state.get("assets_dir")
+    removed_files = list(state.get("removed_files") or [])
+    if assets_dir:
+        removed_dir = Path(assets_dir).parent / "removed"
+        if removed_dir.exists():
+            assets_parent = Path(assets_dir).parent
+            for p in removed_dir.iterdir():
+                if p.is_file():
+                    rel = str(p.relative_to(assets_parent))
+                    if rel not in removed_files:
+                        removed_files.append(rel)
+
+    update_manifest_with_image_filter(manifest_path, image_filter_result, removed_files=removed_files)
 
 
 def build_extract_graph() -> StateGraph:
@@ -406,44 +454,71 @@ def build_upload_graph() -> StateGraph:
     return builder
 
 
-def _get_checkpointer():
-    """Return an in-memory checkpointer for graph execution helpers."""
-    from langgraph.checkpoint.memory import MemorySaver
-    return MemorySaver()
+async def _get_checkpointer():
+    """Return a LangGraph checkpointer based on the current configuration.
 
-
-def _get_checkpointer():
-    """Return a LangGraph checkpointer based on the current configuration."""
+    The returned tuple is ``(checkpointer, close_callback)`` where *close_callback*
+    is an async callable that tears down the underlying connection/pool when called.
+    Callers MUST await the close callback after the graph run completes, otherwise
+    SQLite connections leak and Postgres pools accumulate idle connections.
+    """
+    from contextlib import asynccontextmanager
     from langgraph.checkpoint.memory import MemorySaver
 
     checkpoint_config = load_config().checkpoint
     backend = checkpoint_config.backend.lower()
 
     if backend == "memory":
-        return MemorySaver()
+        _saver = MemorySaver()
+
+        async def _close():
+            pass
+
+        return _saver, _close
 
     if backend == "sqlite":
-        import sqlite3
-        from langgraph.checkpoint.sqlite import SqliteSaver
+        import aiosqlite
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
         path = resolve_project_path(Path(checkpoint_config.sqlite_path))
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(path), check_same_thread=False)
-        return SqliteSaver(conn)
+        conn = await aiosqlite.connect(str(path))
+        _saver = AsyncSqliteSaver(conn)
+
+        async def _close():
+            await conn.close()
+
+        return _saver, _close
 
     if backend == "postgres":
-        from langgraph.checkpoint.postgres import PostgresSaver
-        from psycopg_pool import ConnectionPool
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        from psycopg_pool import AsyncConnectionPool
 
         connection_string = checkpoint_config.postgres_connection_string
         if not connection_string:
             raise ValueError(
                 "checkpoint.backend is 'postgres' but checkpoint.postgres_connection_string is not set"
             )
-        pool = ConnectionPool(connection_string)
-        return PostgresSaver(pool)
+        pool = AsyncConnectionPool(connection_string, open=False)
+        await pool.open()
+        _saver = AsyncPostgresSaver(pool)
+        await _saver.setup()
+
+        async def _close():
+            await pool.close()
+
+        return _saver, _close
 
     raise ValueError(f"Unsupported checkpoint backend: {checkpoint_config.backend}")
+
+
+async def _get_checkpointer_ctx():
+    """Async context manager for checkpointer lifecycle."""
+    saver, close_callback = await _get_checkpointer()
+    try:
+        yield saver
+    finally:
+        await close_callback()
 
 
 def _default_initial_state() -> ArticleState:
@@ -452,8 +527,11 @@ def _default_initial_state() -> ArticleState:
         "article_id": "",
         "url": "",
         "platform": "",
+        "platform_label": "",
         "content_type": "article",
         "title": "",
+        "article_author": "",
+        "article_published_at": "",
         "output_dir": "",
         "reviewed_path": "",
         "assets_dir": "",
@@ -470,7 +548,9 @@ def _default_initial_state() -> ArticleState:
         "review_model": "",
         "review_provider": "",
         "upload_target": None,
+        "removed_files": [],
         "upload_result": None,
+        "upload_platform": "",
         "error": None,
         "status": "pending",
     }
@@ -484,8 +564,12 @@ async def run_extract_graph(url: str, output_dir: Path | str | None = None) -> P
     initial_state["output_dir"] = str(output_dir) if output_dir else str(config.output_dir_path)
     initial_state["max_attempts"] = config.ai.max_attempts
 
-    graph = build_extract_graph().compile(checkpointer=_get_checkpointer())
-    final_state = await graph.ainvoke(initial_state, config={"configurable": {"thread_id": f"extract:{url}"}})
+    checkpointer, close_cb = await _get_checkpointer()
+    try:
+        graph = build_extract_graph().compile(checkpointer=checkpointer)
+        final_state = await graph.ainvoke(initial_state, config={"configurable": {"thread_id": f"extract:{url}"}})
+    finally:
+        await close_cb()
     return Path(final_state["reviewed_path"])
 
 
@@ -527,11 +611,15 @@ async def run_ai_review_graph(reviewed_path: Path, max_attempts: int | None = No
         }
     )
 
-    graph = build_ai_review_graph().compile(checkpointer=_get_checkpointer())
-    final_state = await graph.ainvoke(
-        initial_state,
-        config={"configurable": {"thread_id": f"ai-review:{reviewed_path}"}},
-    )
+    checkpointer, close_cb = await _get_checkpointer()
+    try:
+        graph = build_ai_review_graph().compile(checkpointer=checkpointer)
+        final_state = await graph.ainvoke(
+            initial_state,
+            config={"configurable": {"thread_id": f"ai-review:{reviewed_path}"}},
+        )
+    finally:
+        await close_cb()
     validation_result = final_state.get("validation_result")
     if validation_result is None:
         raise RuntimeError("AI review graph did not produce a validation result")
@@ -539,37 +627,65 @@ async def run_ai_review_graph(reviewed_path: Path, max_attempts: int | None = No
 
 
 async def run_upload_graph(reviewed_path: Path, target: str | None = None) -> UploadResult:
-    """Run the upload graph starting from an existing reviewed.md path."""
-    reviewed_path = Path(reviewed_path)
-    manifest_path = reviewed_path.with_name("manifest.json")
-    if not manifest_path.exists():
-        raise ValueError(f"Manifest not found: {manifest_path}")
+    """Run the upload graph starting from an existing reviewed.md path.
 
+    When a manifest.json exists alongside *reviewed_path*, article metadata
+    and the assets directory are read from it.  When no manifest is present a
+    standalone Markdown file is uploaded directly (useful with ``--target local``).
+    """
     import json
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    article_data = manifest.get("article", {})
+    reviewed_path = Path(reviewed_path)
+    manifest_path = reviewed_path.with_name("manifest.json")
 
-    initial_state = _default_initial_state()
-    initial_state.update(
-        {
-            "article_id": manifest.get("article_id", manifest_path.parent.name),
-            "url": article_data.get("url", ""),
-            "platform": article_data.get("platform", ""),
-            "content_type": article_data.get("content_type", "article"),
-            "title": article_data.get("title", ""),
-            "output_dir": str(manifest_path.parent.parent),
-            "reviewed_path": str(reviewed_path),
-            "assets_dir": str(manifest_path.parent / "assets"),
-            "upload_target": target,
-        }
-    )
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        article_data = manifest.get("article", {})
+        paths_data = manifest.get("paths", {})
+        assets_rel = paths_data.get("assets", "assets")
+        assets_dir = str(manifest_path.parent / assets_rel)
+        initial_state = _default_initial_state()
+        initial_state.update(
+            {
+                "article_id": manifest.get("article_id", manifest_path.parent.name),
+                "url": article_data.get("url", ""),
+                "platform": article_data.get("platform", ""),
+                "platform_label": article_data.get("platform_label", article_data.get("platform", "")),
+                "content_type": article_data.get("content_type", "article"),
+                "title": article_data.get("title", ""),
+                "output_dir": str(manifest_path.parent.parent),
+                "reviewed_path": str(reviewed_path),
+                "assets_dir": assets_dir,
+                "upload_target": target,
+            }
+        )
+    else:
+        # Standalone Markdown file — upload without manifest context.
+        assets_dir = str(reviewed_path.with_name("assets"))
+        initial_state = _default_initial_state()
+        initial_state.update(
+            {
+                "article_id": reviewed_path.parent.name,
+                "url": "",
+                "platform": "unknown",
+                "content_type": "article",
+                "title": reviewed_path.stem,
+                "output_dir": str(reviewed_path.parent.parent),
+                "reviewed_path": str(reviewed_path),
+                "assets_dir": assets_dir,
+                "upload_target": target,
+            }
+        )
 
-    graph = build_upload_graph().compile(checkpointer=_get_checkpointer())
-    final_state = await graph.ainvoke(
-        initial_state,
-        config={"configurable": {"thread_id": f"upload:{reviewed_path}"}},
-    )
+    checkpointer, close_cb = await _get_checkpointer()
+    try:
+        graph = build_upload_graph().compile(checkpointer=checkpointer)
+        final_state = await graph.ainvoke(
+            initial_state,
+            config={"configurable": {"thread_id": f"upload:{reviewed_path}"}},
+        )
+    finally:
+        await close_cb()
     upload_result = final_state.get("upload_result")
     if upload_result is None:
         raise RuntimeError("Upload graph did not produce an upload result")
@@ -593,16 +709,20 @@ async def run_pipeline_graph(
     initial_state["output_dir"] = str(output_dir) if output_dir else str(config.output_dir_path)
     initial_state["max_attempts"] = config.ai.max_attempts
 
-    graph = build_pipeline_graph().compile(checkpointer=_get_checkpointer())
-    final_state = await graph.ainvoke(
-        initial_state,
-        config={
-            "configurable": {
-                "thread_id": f"pipeline:{url}",
-                "auto_confirm": auto_confirm,
-            }
-        },
-    )
+    checkpointer, close_cb = await _get_checkpointer()
+    try:
+        graph = build_pipeline_graph().compile(checkpointer=checkpointer)
+        final_state = await graph.ainvoke(
+            initial_state,
+            config={
+                "configurable": {
+                    "thread_id": f"pipeline:{url}",
+                    "auto_confirm": auto_confirm,
+                }
+            },
+        )
+    finally:
+        await close_cb()
     upload_result = final_state.get("upload_result")
     if upload_result is None:
         raise RuntimeError("Pipeline graph did not produce an upload result")

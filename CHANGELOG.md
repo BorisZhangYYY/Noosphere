@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Image Filter**: AI-powered vision analysis to classify downloaded images as RELEVANT or PROMOTION before text rewrite. Promotion images (QR codes, logos, banners, ads) are removed; content images (screenshots, diagrams, photos) are preserved. (`src/core/review/image_filter.py`, `prompts/image_review.md`)
 - `generate_vision()` method in `AIClient` supporting both Anthropic and OpenAI vision APIs for image content analysis. (`src/integrations/ai_client.py`)
 - `review-images ARTICLE_DIR` CLI command for reviewing, listing, and restoring images removed by AI filtering. Supports `--list`, `--preview` (HTML gallery), `--restore IMAGE`, and `--restore-all`. (`src/cli.py`, `src/core/review/image_filter.py`)
+- **LangGraph runtime parity test**: `tests/test_graph.py` now verifies that `run_ai_review_graph` produces identical `reviewed.md` output to the legacy `run_ai_review` pipeline under identical mocked AI responses. (`tests/test_graph.py`)
 
 ### Changed
 - Updated README.md to reflect the configurable crawler architecture and AI copy-editing workflow, replacing outdated "crawl4ai with firecrawl fallback" and "AI rewrite" language.
@@ -46,6 +47,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `LocalAdapter` asset copy now uses `dirs_exist_ok=True` to avoid `FileExistsError` on re-upload.
 - `_collect_local_images()` in `image_filter.py` now correctly resolves image paths relative to the `assets/` directory, fixing a bug where image filtering silently found zero images and had no effect.
 - AI review pipeline now physically moves identified promotion images to `removed/` and records `removed_files` in `manifest.json`, making them visible to the `review-images` restore CLI. (`src/pipelines/ai_review.py`, `src/core/review/image_filter.py`)
+- **LangGraph SQLite checkpoint**: `_get_checkpointer()` now returns `AsyncSqliteSaver` (using `aiosqlite`) instead of the sync `SqliteSaver`, so async graph runners (`run_*_graph`) no longer fail with `NotImplementedError` when `checkpoint.backend` is `sqlite`. Added `aiosqlite` as a direct dependency. (`src/graph/graph.py`, `pyproject.toml`)
+- **LangGraph — article metadata preservation**: `_crawl_node` now passes `platform_label`, `author`, and `published_at` through graph state so `_download_node` writes a complete `manifest.json`. (`src/graph/graph.py`, `src/graph/state.py`)
+- **LangGraph — image filter manifest**: the AI review graph now calls `update_manifest_with_image_filter` on success, so `nsphr review-images --list` can read the filter inventory. (`src/graph/graph.py`)
+- **LangGraph — graceful image-filter degradation**: `_filter_images_node` now catches vision AI exceptions and falls back to unfiltered review, matching legacy behaviour. (`src/graph/graph.py`)
+- **LangGraph — upload platform recording**: `uploaded.platform` in `manifest.json` now records the upload adapter's `platform_name` instead of the article source platform. (`src/graph/graph.py`, `src/graph/tools.py`)
+- **LangGraph — upload adapters return `UploadResult`**: `UploadAdapter.upload()` now returns `UploadResult` with `doc_id`/`notebook_id`/`created` fields preserved from `SiyuanClient`. (`src/core/upload/adapter.py`, adapters)
+- **LangGraph — standalone Markdown uploads**: `run_upload_graph` no longer requires `manifest.json` next to the Markdown file. (`src/graph/graph.py`)
+- **LangGraph — checkpointer lifecycle**: `_get_checkpointer()` returns a `(saver, close_callback)` tuple; graph runners await the close callback to prevent aiosqlite connection leaks. Postgres backend now uses `AsyncPostgresSaver` + `AsyncConnectionPool`. (`src/graph/graph.py`)
+- **LangGraph — surfaced manifest write errors**: `_export_upload_node` logs OSError/JSONDecodeError at WARNING instead of silently passing. (`src/graph/graph.py`)
 
 ### Architecture
 - **Extractor registry**: replaced hardcoded `EXTRACTORS` dict with `@register_extractor` decorator and dynamic discovery. New platforms add a directory + decorator; zero changes to existing code. (`src/core/registry.py`)

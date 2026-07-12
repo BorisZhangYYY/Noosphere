@@ -256,8 +256,15 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
         s = platform.system()
         if s == "Darwin": subprocess.run(["open", str(html_path)])
         elif s == "Windows": subprocess.run(["start", str(html_path)], shell=True)
+        elif _is_wsl(): subprocess.run(["wslview", str(html_path)])
         else: subprocess.run(["xdg-open", str(html_path)])
     except Exception:
         pass
     console.print(f"[{SUCCESS}]HTML preview: {html_path}[/{SUCCESS}]")
     Prompt.ask(f"[{MUTED}]Press any key to continue[/{MUTED}]", default="")
+
+
+def _is_wsl() -> bool:
+    """Return True when running inside Windows Subsystem for Linux."""
+    release = platform.release().lower()
+    return "microsoft" in release or "wsl" in release

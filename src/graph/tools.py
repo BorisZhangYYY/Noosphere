@@ -133,23 +133,20 @@ def validate_article(reviewed_path: str, platform: str) -> ValidationResult:
 
 
 @tool
-async def upload_article(reviewed_path: str, title: str | None = None, target: str | None = None) -> UploadResult:
+async def upload_article(reviewed_path: str, title: str | None = None, target: str | None = None) -> dict:
     """Upload a reviewed Markdown file to the configured target platform.
 
     Use *target* ("local" or "siyuan") to override the configured default.
+
+    Returns a dict with ``upload_result`` (UploadResult) and ``platform_name``
+    (the adapter's human-readable platform name).
     """
     adapter = create_adapter(target=target)
-    identifier = await adapter.upload(Path(reviewed_path), title=title)
-
-    # Adapters currently return a platform-specific string identifier.
-    # Normalize it into UploadResult for graph state; core fields are filled
-    # when available from the adapter return value.
-    return UploadResult(
-        doc_id=identifier,
-        notebook_id="",
-        hpath=identifier,
-        created=True,
-    )
+    result = await adapter.upload(Path(reviewed_path), title=title)
+    return {
+        "upload_result": result,
+        "platform_name": adapter.platform_name,
+    }
 
 
 def _downloaded_image_to_asset(image: DownloadedImage) -> Asset:

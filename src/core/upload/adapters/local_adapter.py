@@ -37,7 +37,9 @@ class LocalAdapter(UploadAdapter):
     def platform_name(self) -> str:
         return "Local Archive"
 
-    async def upload(self, path: Path, title: str | None = None) -> str:
+    async def upload(self, path: Path, title: str | None = None) -> "UploadResult":
+        from src.core.models.article import UploadResult
+
         # Preserve the full reviewed Markdown (including H1) in the local archive.
         markdown = path.read_text(encoding="utf-8")
         fallback = safe_filename(path.stem, fallback="Untitled Article")
@@ -60,7 +62,12 @@ class LocalAdapter(UploadAdapter):
             assets_dst = dest_dir / "assets"
             shutil.copytree(assets_src, assets_dst, dirs_exist_ok=True)
 
-        return str(dest_dir)
+        return UploadResult(
+            doc_id=str(dest_dir),
+            notebook_id="local",
+            hpath=str(dest_dir),
+            created=True,
+        )
 
 
 def _safe_dir_name(text: str, max_len: int = 60) -> str:

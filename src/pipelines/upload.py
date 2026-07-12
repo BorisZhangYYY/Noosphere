@@ -25,4 +25,5 @@ async def upload_markdown_file(
     selects one from the current configuration.
     """
     adapter = adapter or create_adapter()
-    return await adapter.upload(path, title)
+    result = await adapter.upload(path, title)
+    return result.hpath

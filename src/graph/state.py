@@ -26,8 +26,13 @@ class ArticleState(TypedDict):
     article_id: str
     url: str
     platform: str
+    platform_label: str
     content_type: str
     title: str
+
+    # Crawl / extract metadata (preserved from the Article extractor)
+    article_author: str
+    article_published_at: str
 
     # Workspace paths
     output_dir: str
@@ -51,8 +56,12 @@ class ArticleState(TypedDict):
     review_provider: str
     upload_target: str | None
 
+    # Image filter tracking (persisted to manifest on success)
+    removed_files: list[str]
+
     # Upload outputs
     upload_result: UploadResult | None
+    upload_platform: str  # adapter.platform_name (target, not source platform)
 
     # Error / status
     error: str | None
