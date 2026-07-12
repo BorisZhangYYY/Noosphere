@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+warnings.warn(
+    "src.pipelines.ai_review is deprecated; use src.graph.graph.run_ai_review_graph instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from src.core.config.config import load_config
 from src.core.markdown.links import normalize_markdown_links

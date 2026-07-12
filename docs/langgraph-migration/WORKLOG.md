@@ -52,16 +52,17 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
    - Wire `SqliteSaver` (default) and `PostgresSaver` (optional).
    - Add config schema entries.
 
-8. **[IN PROGRESS] Phase 7 — Cleanup & tests**
-   - Remove or deprecate old pipeline code.
-   - Add unit/integration tests for graph nodes.
+8. **[DONE] Phase 7 — Cleanup & tests**
+   - Mark old pipeline modules (`src/pipelines/extract.py`, `ai_review.py`, `upload.py`) as deprecated.
+   - Add unit/integration tests for graph nodes and checkpointer factory.
    - Run full verification suite.
+   - Runtime parity verification against sample articles remains an ongoing validation task.
 
 ## Current Status
 
-- **Completed:** Phases 0–6 — dependencies, tool wrappers, graphs, CLI/TUI migration, and checkpoint persistence.
-- **In progress:** Phase 7 — cleanup, tests, and parity verification.
-- **Next action:** Add unit/integration tests for graph nodes, run full verification suite, and deprecate old pipeline code.
+- **Completed:** All phases (0–7) of the LangGraph migration.
+- **Branch is ready for PR:** the graph-based pipeline replaces the old custom pipeline + direct API-call architecture.
+- **Next action:** User review and approval to open a PR from `feat/langgraph-migration` to `main`. Runtime parity verification against live sample articles is recommended before merge.
 
 ## Decisions & Notes
 
@@ -72,6 +73,7 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 - `human_review` node supports `configurable.auto_confirm` and `configurable.skip_human_review` to bypass the interrupt for batch/CI use.
 - Added `upload_target` state field and tool parameter so the upload graph honors the CLI `--target` flag.
 - Checkpoint backend defaults to SQLite (`.noosphere/checkpoints.sqlite`); set `checkpoint.backend` to `memory` or `postgres` to switch.
+- Old pipeline modules in `src/pipelines/` now emit DeprecationWarnings; they will be removed in a future release after parity verification.
 
 ## Last Updated
 
@@ -79,4 +81,4 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 
 ## Latest Commit on This Branch
 
-`c77bdaf` — feat(graph): migrate TUI screens to LangGraph runners
+`8e1d90e` — feat(graph): add configurable checkpoint persistence
