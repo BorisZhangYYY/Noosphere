@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- **LangGraph migration**: new `src/graph/` package with `ArticleState` TypedDict, LangChain `@tool` wrappers, an AI review sub-graph (`edit → validate → retry`), a full `extract → ai-review → upload` pipeline graph, and graph-based `extract`/`ai-review`/`upload`/`run` CLI commands. Includes a `human_review` interrupt with config-driven auto-confirm. (`src/graph/state.py`, `src/graph/tools.py`, `src/graph/graph.py`, `src/cli.py`)
+- **LangGraph migration**: new `src/graph/` package with `ArticleState` TypedDict, LangChain `@tool` wrappers, an AI review sub-graph (`edit → validate → retry`), a full `extract → ai-review → upload` pipeline graph, and graph-based `extract`/`ai-review`/`upload`/`run` CLI and TUI flows. Includes a `human_review` interrupt with config-driven auto-confirm. (`src/graph/state.py`, `src/graph/tools.py`, `src/graph/graph.py`, `src/cli.py`, `src/tui/screens/`)
 - **Source metadata validation**: `ai-review` now mechanically validates that the blockquote after the H1 title includes `Source` as a Markdown link plus `Platform`, `Author`, `Published`, `Captured`, and `Type` fields. (`src/core/review/review_validation.py`, `prompts/edit_article.md`)
 - **Main Article heading hierarchy validation**: `ai-review` now rejects H1 or H2 subheadings under `## Main Article`; first-level subheadings must be `###` (H3) or deeper. (`src/core/review/review_validation.py`, `prompts/edit_article.md`)
 - **TUI**: interactive terminal UI launched via `nsphr tui`. Includes dashboard, extract, AI review, upload, email, image review, pipeline, and prompt management screens. (`src/tui/`)

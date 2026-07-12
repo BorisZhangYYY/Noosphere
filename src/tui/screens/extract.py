@@ -41,12 +41,12 @@ async def _extract_single(console: Console) -> None:
     if not url:
         return
 
-    from src.pipelines.extract import extract_to_output
+    from src.graph.graph import run_extract_graph
 
     output_dir = get_paths().output_dir
     try:
         with console.status(f"[{ACCENT}]Extracting {url[:60]}…[/{ACCENT}]", spinner="dots"):
-            path = await extract_to_output(url, output_dir)
+            path = await run_extract_graph(url, output_dir)
         console.print(f"[{SUCCESS}]Extracted:[/{SUCCESS}] {path}")
     except Exception as exc:
         console.print(f"[{ERROR}]Failed: {exc}[/{ERROR}]")
@@ -81,7 +81,7 @@ async def _extract_batch(console: Console) -> None:
 
 
 async def _run_batch_extract(console: Console, urls: list[str]) -> None:
-    from src.pipelines.extract import extract_to_output
+    from src.graph.graph import run_extract_graph
 
     output_dir = get_paths().output_dir
     ok = skip = fail = 0
@@ -104,7 +104,7 @@ async def _run_batch_extract(console: Console, urls: list[str]) -> None:
                     skip += 1
                     progress.advance(task)
                     continue
-                await extract_to_output(url, output_dir)
+                await run_extract_graph(url, output_dir)
                 ok += 1
                 progress.console.print(f"[{SUCCESS}]Done[/{SUCCESS}]  {url}")
             except Exception as exc:

@@ -44,11 +44,11 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
    - Update `src/cli.py` commands to invoke the graph.
    - Preserve existing CLI UX (progress messages, error handling).
 
-6. **[IN PROGRESS] Phase 5 — TUI migration**
+6. **[DONE] Phase 5 — TUI migration**
    - Update `src/tui/screens/extract.py`, `review.py`, `upload.py`, `pipeline.py` to use graph.
    - Handle graph progress/status in TUI.
 
-7. **Phase 6 — Checkpoint persistence**
+7. **[IN PROGRESS] Phase 6 — Checkpoint persistence**
    - Wire `SqliteSaver` (default) and `PostgresSaver` (optional).
    - Add config schema entries.
 
@@ -59,9 +59,9 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 
 ## Current Status
 
-- **Completed:** Phases 0–4 — dependencies, tool wrappers, AI review sub-graph, full pipeline graph, and CLI migration.
-- **In progress:** Phase 5 — TUI migration.
-- **Next action:** Update `src/tui/screens/extract.py`, `review.py`, `upload.py`, and `pipeline.py` to invoke the LangGraph runners while preserving TUI progress/status UX.
+- **Completed:** Phases 0–5 — dependencies, tool wrappers, AI review sub-graph, full pipeline graph, CLI migration, and TUI migration.
+- **In progress:** Phase 6 — checkpoint persistence.
+- **Next action:** Replace in-memory `MemorySaver` with configurable `SqliteSaver` (default) and optional `PostgresSaver`, and add config schema entries for checkpoint persistence.
 
 ## Decisions & Notes
 
@@ -78,4 +78,4 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 
 ## Latest Commit on This Branch
 
-`f3cf259` — feat(graph): implement AI review sub-graph and full pipeline graph
+`8703656` — feat(graph): migrate CLI commands to LangGraph runners
