@@ -19,6 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `review-images ARTICLE_DIR` CLI command for reviewing, listing, and restoring images removed by AI filtering. Supports `--list`, `--preview` (HTML gallery), `--restore IMAGE`, and `--restore-all`. (`src/cli.py`, `src/core/review/image_filter.py`)
 
 ### Changed
+- Updated README.md to reflect the configurable crawler architecture and AI copy-editing workflow, replacing outdated "crawl4ai with firecrawl fallback" and "AI rewrite" language.
+- Restructured `skills/noosphere/` to follow Claude Code / OpenClaw skill conventions: added `references/`, `scripts/`, and `assets/`, and rewrote `SKILL.md` with standard sections and clearer trigger conditions.
+- Updated `skill.sh` to act as a local development helper (`validate`, `noosphere`, `update`, `help`) and documented the correct standard installation command `npx skills add BorisZhangYYY/Noosphere --skill noosphere --agent claude-code`.
 - `PromptMetadata` parser now preserves nested dict values in validation rules, enabling richer rule definitions such as field lists and minimum heading levels. (`src/core/review/prompt_metadata.py`)
 - **Configurable crawler priority**: `crawler.primary` and `crawler.fallback` in `config.json` allow swapping the default extraction order without code changes. Set `"primary": "firecrawl"` to use Firecrawl first (fixes WeChat GIF extraction) and fall back to Crawl4AI, or keep `"primary": "crawl4ai"` for the original behavior. (`src/core/config/schema.py`, `src/integrations/crawler.py`)
 - **AI Review prompt refactoring**: `prompts/edit_article.md` (formerly `rewrite_article.md`) now instructs the AI to act as a **copy editor** rather than a full rewriter. The AI must preserve the original article structure, section order, and image positions; only remove platform noise, fix formatting, and improve readability. (`prompts/edit_article.md`)
