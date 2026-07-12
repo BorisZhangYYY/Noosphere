@@ -48,20 +48,20 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
    - Update `src/tui/screens/extract.py`, `review.py`, `upload.py`, `pipeline.py` to use graph.
    - Handle graph progress/status in TUI.
 
-7. **[IN PROGRESS] Phase 6 — Checkpoint persistence**
+7. **[DONE] Phase 6 — Checkpoint persistence**
    - Wire `SqliteSaver` (default) and `PostgresSaver` (optional).
    - Add config schema entries.
 
-8. **Phase 7 — Cleanup & tests**
+8. **[IN PROGRESS] Phase 7 — Cleanup & tests**
    - Remove or deprecate old pipeline code.
    - Add unit/integration tests for graph nodes.
    - Run full verification suite.
 
 ## Current Status
 
-- **Completed:** Phases 0–5 — dependencies, tool wrappers, AI review sub-graph, full pipeline graph, CLI migration, and TUI migration.
-- **In progress:** Phase 6 — checkpoint persistence.
-- **Next action:** Replace in-memory `MemorySaver` with configurable `SqliteSaver` (default) and optional `PostgresSaver`, and add config schema entries for checkpoint persistence.
+- **Completed:** Phases 0–6 — dependencies, tool wrappers, graphs, CLI/TUI migration, and checkpoint persistence.
+- **In progress:** Phase 7 — cleanup, tests, and parity verification.
+- **Next action:** Add unit/integration tests for graph nodes, run full verification suite, and deprecate old pipeline code.
 
 ## Decisions & Notes
 
@@ -71,6 +71,7 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 - `edit_article` tool returns `{markdown, model, provider}` so the review report can record the actual AI model/provider used.
 - `human_review` node supports `configurable.auto_confirm` and `configurable.skip_human_review` to bypass the interrupt for batch/CI use.
 - Added `upload_target` state field and tool parameter so the upload graph honors the CLI `--target` flag.
+- Checkpoint backend defaults to SQLite (`.noosphere/checkpoints.sqlite`); set `checkpoint.backend` to `memory` or `postgres` to switch.
 
 ## Last Updated
 
@@ -78,4 +79,4 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 
 ## Latest Commit on This Branch
 
-`8703656` — feat(graph): migrate CLI commands to LangGraph runners
+`c77bdaf` — feat(graph): migrate TUI screens to LangGraph runners

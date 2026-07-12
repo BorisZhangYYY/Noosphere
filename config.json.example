@@ -75,6 +75,11 @@
       "api_base": "https://api.firecrawl.dev/v1"
     }
   },
+  "checkpoint": {
+    "backend": "sqlite",
+    "sqlite_path": ".noosphere/checkpoints.sqlite",
+    "postgres_connection_string": null
+  },
   "smtp": {
     "host": "smtp.example.com",
     "port": 587,

@@ -13,6 +13,7 @@ from src.core.review.ai_review_data import (
 from src.core.config.config import load_config
 from src.core.models.manifest import write_article_manifest
 from src.core.paths.output_paths import article_output_paths
+from src.core.paths import resolve_project_path
 from src.core.review.image_filter import (
     ensure_relevant_images_present,
     remove_promotion_images_from_markdown,
@@ -405,10 +406,44 @@ def build_upload_graph() -> StateGraph:
     return builder
 
 
-def _default_checkpointer():
+def _get_checkpointer():
     """Return an in-memory checkpointer for graph execution helpers."""
     from langgraph.checkpoint.memory import MemorySaver
     return MemorySaver()
+
+
+def _get_checkpointer():
+    """Return a LangGraph checkpointer based on the current configuration."""
+    from langgraph.checkpoint.memory import MemorySaver
+
+    checkpoint_config = load_config().checkpoint
+    backend = checkpoint_config.backend.lower()
+
+    if backend == "memory":
+        return MemorySaver()
+
+    if backend == "sqlite":
+        import sqlite3
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        path = resolve_project_path(Path(checkpoint_config.sqlite_path))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(path), check_same_thread=False)
+        return SqliteSaver(conn)
+
+    if backend == "postgres":
+        from langgraph.checkpoint.postgres import PostgresSaver
+        from psycopg_pool import ConnectionPool
+
+        connection_string = checkpoint_config.postgres_connection_string
+        if not connection_string:
+            raise ValueError(
+                "checkpoint.backend is 'postgres' but checkpoint.postgres_connection_string is not set"
+            )
+        pool = ConnectionPool(connection_string)
+        return PostgresSaver(pool)
+
+    raise ValueError(f"Unsupported checkpoint backend: {checkpoint_config.backend}")
 
 
 def _default_initial_state() -> ArticleState:
@@ -449,7 +484,7 @@ async def run_extract_graph(url: str, output_dir: Path | str | None = None) -> P
     initial_state["output_dir"] = str(output_dir) if output_dir else str(config.output_dir_path)
     initial_state["max_attempts"] = config.ai.max_attempts
 
-    graph = build_extract_graph().compile(checkpointer=_default_checkpointer())
+    graph = build_extract_graph().compile(checkpointer=_get_checkpointer())
     final_state = await graph.ainvoke(initial_state, config={"configurable": {"thread_id": f"extract:{url}"}})
     return Path(final_state["reviewed_path"])
 
@@ -492,7 +527,7 @@ async def run_ai_review_graph(reviewed_path: Path, max_attempts: int | None = No
         }
     )
 
-    graph = build_ai_review_graph().compile(checkpointer=_default_checkpointer())
+    graph = build_ai_review_graph().compile(checkpointer=_get_checkpointer())
     final_state = await graph.ainvoke(
         initial_state,
         config={"configurable": {"thread_id": f"ai-review:{reviewed_path}"}},
@@ -530,7 +565,7 @@ async def run_upload_graph(reviewed_path: Path, target: str | None = None) -> Up
         }
     )
 
-    graph = build_upload_graph().compile(checkpointer=_default_checkpointer())
+    graph = build_upload_graph().compile(checkpointer=_get_checkpointer())
     final_state = await graph.ainvoke(
         initial_state,
         config={"configurable": {"thread_id": f"upload:{reviewed_path}"}},
@@ -558,7 +593,7 @@ async def run_pipeline_graph(
     initial_state["output_dir"] = str(output_dir) if output_dir else str(config.output_dir_path)
     initial_state["max_attempts"] = config.ai.max_attempts
 
-    graph = build_pipeline_graph().compile(checkpointer=_default_checkpointer())
+    graph = build_pipeline_graph().compile(checkpointer=_get_checkpointer())
     final_state = await graph.ainvoke(
         initial_state,
         config={
