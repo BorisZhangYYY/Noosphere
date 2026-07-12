@@ -133,9 +133,12 @@ def validate_article(reviewed_path: str, platform: str) -> ValidationResult:
 
 
 @tool
-async def upload_article(reviewed_path: str, title: str | None = None) -> UploadResult:
-    """Upload a reviewed Markdown file to the configured target platform."""
-    adapter = create_adapter()
+async def upload_article(reviewed_path: str, title: str | None = None, target: str | None = None) -> UploadResult:
+    """Upload a reviewed Markdown file to the configured target platform.
+
+    Use *target* ("local" or "siyuan") to override the configured default.
+    """
+    adapter = create_adapter(target=target)
     identifier = await adapter.upload(Path(reviewed_path), title=title)
 
     # Adapters currently return a platform-specific string identifier.

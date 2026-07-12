@@ -49,6 +49,7 @@ class ArticleState(TypedDict):
     human_approved: bool
     review_model: str
     review_provider: str
+    upload_target: str | None
 
     # Upload outputs
     upload_result: UploadResult | None

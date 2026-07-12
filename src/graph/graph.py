@@ -215,7 +215,11 @@ def _after_human_review_router(state: ArticleState) -> str:
 async def _upload_node(state: ArticleState) -> dict[str, object]:
     """Upload the reviewed Markdown file to the configured target."""
     upload_result = await upload_article.ainvoke(
-        {"reviewed_path": state["reviewed_path"], "title": None}
+        {
+            "reviewed_path": state["reviewed_path"],
+            "title": None,
+            "target": state.get("upload_target"),
+        }
     )
     return {
         "upload_result": upload_result,
@@ -364,3 +368,207 @@ def _write_success_report(state: ArticleState) -> None:
         model=state.get("review_model", ""),
         provider=state.get("review_provider", ""),
     )
+
+
+def build_extract_graph() -> StateGraph:
+    """Return the extract-only graph: classify → crawl → download."""
+    builder = StateGraph(ArticleState)
+    builder.add_node("classify", _classify_node)
+    builder.add_node("crawl", _crawl_node)
+    builder.add_node("download", _download_node)
+    builder.add_edge(START, "classify")
+    builder.add_edge("classify", "crawl")
+    builder.add_edge("crawl", "download")
+    builder.add_edge("download", END)
+    return builder
+
+
+def build_ai_review_graph() -> StateGraph:
+    """Return the AI-review-only graph: filter_images → ai_review sub-graph."""
+    builder = StateGraph(ArticleState)
+    builder.add_node("filter_images", _filter_images_node)
+    builder.add_node("ai_review", build_ai_review_subgraph().compile())
+    builder.add_edge(START, "filter_images")
+    builder.add_edge("filter_images", "ai_review")
+    builder.add_edge("ai_review", END)
+    return builder
+
+
+def build_upload_graph() -> StateGraph:
+    """Return the upload-only graph: upload → export_upload."""
+    builder = StateGraph(ArticleState)
+    builder.add_node("upload", _upload_node)
+    builder.add_node("export_upload", _export_upload_node)
+    builder.add_edge(START, "upload")
+    builder.add_edge("upload", "export_upload")
+    builder.add_edge("export_upload", END)
+    return builder
+
+
+def _default_checkpointer():
+    """Return an in-memory checkpointer for graph execution helpers."""
+    from langgraph.checkpoint.memory import MemorySaver
+    return MemorySaver()
+
+
+def _default_initial_state() -> ArticleState:
+    """Return a skeleton ArticleState with default values."""
+    return {
+        "article_id": "",
+        "url": "",
+        "platform": "",
+        "content_type": "article",
+        "title": "",
+        "output_dir": "",
+        "reviewed_path": "",
+        "assets_dir": "",
+        "raw_markdown": "",
+        "assets": [],
+        "download_failed": {},
+        "reviewed_markdown": "",
+        "image_filter_result": None,
+        "validation_result": None,
+        "feedback": "",
+        "attempts": 0,
+        "max_attempts": 1,
+        "human_approved": False,
+        "review_model": "",
+        "review_provider": "",
+        "upload_target": None,
+        "upload_result": None,
+        "error": None,
+        "status": "pending",
+    }
+
+
+async def run_extract_graph(url: str, output_dir: Path | str | None = None) -> Path:
+    """Run the extract graph and return the article reviewed.md path."""
+    config = load_config()
+    initial_state = _default_initial_state()
+    initial_state["url"] = url
+    initial_state["output_dir"] = str(output_dir) if output_dir else str(config.output_dir_path)
+    initial_state["max_attempts"] = config.ai.max_attempts
+
+    graph = build_extract_graph().compile(checkpointer=_default_checkpointer())
+    final_state = await graph.ainvoke(initial_state, config={"configurable": {"thread_id": f"extract:{url}"}})
+    return Path(final_state["reviewed_path"])
+
+
+async def run_ai_review_graph(reviewed_path: Path, max_attempts: int | None = None) -> ValidationResult:
+    """Run the AI review graph starting from an existing reviewed.md path."""
+    reviewed_path = Path(reviewed_path)
+    manifest_path = reviewed_path.with_name("manifest.json")
+    if not manifest_path.exists():
+        raise ValueError(f"Manifest not found: {manifest_path}")
+
+    import json
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    article_data = manifest.get("article", {})
+    paths_data = manifest.get("paths", {})
+
+    raw_rel = paths_data.get("raw")
+    if not raw_rel:
+        raise ValueError(f"Raw Markdown path not found in manifest: {manifest_path}")
+    raw_path = manifest_path.parent / raw_rel
+    raw_markdown = raw_path.read_text(encoding="utf-8")
+
+    assets_dir = manifest_path.parent / paths_data.get("assets", "assets") if paths_data.get("assets") else manifest_path.parent / "assets"
+
+    config = load_config()
+    initial_state = _default_initial_state()
+    initial_state.update(
+        {
+            "article_id": manifest.get("article_id", manifest_path.parent.name),
+            "url": article_data.get("url", ""),
+            "platform": article_data.get("platform", ""),
+            "content_type": article_data.get("content_type", "article"),
+            "title": article_data.get("title", ""),
+            "output_dir": str(manifest_path.parent.parent),
+            "reviewed_path": str(reviewed_path),
+            "assets_dir": str(assets_dir),
+            "raw_markdown": raw_markdown,
+            "max_attempts": max_attempts if max_attempts is not None else config.ai.max_attempts,
+        }
+    )
+
+    graph = build_ai_review_graph().compile(checkpointer=_default_checkpointer())
+    final_state = await graph.ainvoke(
+        initial_state,
+        config={"configurable": {"thread_id": f"ai-review:{reviewed_path}"}},
+    )
+    validation_result = final_state.get("validation_result")
+    if validation_result is None:
+        raise RuntimeError("AI review graph did not produce a validation result")
+    return validation_result
+
+
+async def run_upload_graph(reviewed_path: Path, target: str | None = None) -> UploadResult:
+    """Run the upload graph starting from an existing reviewed.md path."""
+    reviewed_path = Path(reviewed_path)
+    manifest_path = reviewed_path.with_name("manifest.json")
+    if not manifest_path.exists():
+        raise ValueError(f"Manifest not found: {manifest_path}")
+
+    import json
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    article_data = manifest.get("article", {})
+
+    initial_state = _default_initial_state()
+    initial_state.update(
+        {
+            "article_id": manifest.get("article_id", manifest_path.parent.name),
+            "url": article_data.get("url", ""),
+            "platform": article_data.get("platform", ""),
+            "content_type": article_data.get("content_type", "article"),
+            "title": article_data.get("title", ""),
+            "output_dir": str(manifest_path.parent.parent),
+            "reviewed_path": str(reviewed_path),
+            "assets_dir": str(manifest_path.parent / "assets"),
+            "upload_target": target,
+        }
+    )
+
+    graph = build_upload_graph().compile(checkpointer=_default_checkpointer())
+    final_state = await graph.ainvoke(
+        initial_state,
+        config={"configurable": {"thread_id": f"upload:{reviewed_path}"}},
+    )
+    upload_result = final_state.get("upload_result")
+    if upload_result is None:
+        raise RuntimeError("Upload graph did not produce an upload result")
+    return upload_result
+
+
+async def run_pipeline_graph(
+    url: str,
+    output_dir: Path | str | None = None,
+    *,
+    auto_confirm: bool = False,
+) -> UploadResult:
+    """Run the full extract → ai-review → upload pipeline graph.
+
+    Set *auto_confirm* to True to skip the human_review interrupt (useful for
+    batch/CI runs or the `run` CLI command).
+    """
+    config = load_config()
+    initial_state = _default_initial_state()
+    initial_state["url"] = url
+    initial_state["output_dir"] = str(output_dir) if output_dir else str(config.output_dir_path)
+    initial_state["max_attempts"] = config.ai.max_attempts
+
+    graph = build_pipeline_graph().compile(checkpointer=_default_checkpointer())
+    final_state = await graph.ainvoke(
+        initial_state,
+        config={
+            "configurable": {
+                "thread_id": f"pipeline:{url}",
+                "auto_confirm": auto_confirm,
+            }
+        },
+    )
+    upload_result = final_state.get("upload_result")
+    if upload_result is None:
+        raise RuntimeError("Pipeline graph did not produce an upload result")
+    return upload_result

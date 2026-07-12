@@ -40,11 +40,11 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
    - Add `human_review` interrupt and config-driven auto-confirm.
    - Filesystem exports are handled by `crawl`, `download`, and `export_upload` nodes.
 
-5. **[IN PROGRESS] Phase 4 — CLI migration**
+5. **[DONE] Phase 4 — CLI migration**
    - Update `src/cli.py` commands to invoke the graph.
    - Preserve existing CLI UX (progress messages, error handling).
 
-6. **Phase 5 — TUI migration**
+6. **[IN PROGRESS] Phase 5 — TUI migration**
    - Update `src/tui/screens/extract.py`, `review.py`, `upload.py`, `pipeline.py` to use graph.
    - Handle graph progress/status in TUI.
 
@@ -59,9 +59,9 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 
 ## Current Status
 
-- **Completed:** Phases 0–3 — dependencies, tool wrappers, AI review sub-graph, and full pipeline graph.
-- **In progress:** Phase 4 — CLI migration (`src/cli.py` commands to invoke the graph).
-- **Next action:** Add a graph invocation helper and wire the `extract`, `ai-review`, and `upload` CLI commands to use the LangGraph pipeline while preserving existing UX.
+- **Completed:** Phases 0–4 — dependencies, tool wrappers, AI review sub-graph, full pipeline graph, and CLI migration.
+- **In progress:** Phase 5 — TUI migration.
+- **Next action:** Update `src/tui/screens/extract.py`, `review.py`, `upload.py`, and `pipeline.py` to invoke the LangGraph runners while preserving TUI progress/status UX.
 
 ## Decisions & Notes
 
@@ -70,6 +70,7 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 - Do not auto-merge PRs; user approval required per CLAUDE.md.
 - `edit_article` tool returns `{markdown, model, provider}` so the review report can record the actual AI model/provider used.
 - `human_review` node supports `configurable.auto_confirm` and `configurable.skip_human_review` to bypass the interrupt for batch/CI use.
+- Added `upload_target` state field and tool parameter so the upload graph honors the CLI `--target` flag.
 
 ## Last Updated
 
@@ -77,4 +78,4 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 
 ## Latest Commit on This Branch
 
-`c50fc56` — feat(graph): add LangGraph skeleton and LangChain tool wrappers
+`f3cf259` — feat(graph): implement AI review sub-graph and full pipeline graph
