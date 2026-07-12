@@ -7,8 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- **Source metadata validation**: `ai-review` now mechanically validates that the blockquote after the H1 title includes `Source` as a Markdown link plus `Platform`, `Author`, `Published`, `Captured`, and `Type` fields. (`src/core/review/review_validation.py`, `prompts/rewrite_article.md`)
-- **Main Article heading hierarchy validation**: `ai-review` now rejects H1 or H2 subheadings under `## Main Article`; first-level subheadings must be `###` (H3) or deeper. (`src/core/review/review_validation.py`, `prompts/rewrite_article.md`)
+- **Source metadata validation**: `ai-review` now mechanically validates that the blockquote after the H1 title includes `Source` as a Markdown link plus `Platform`, `Author`, `Published`, `Captured`, and `Type` fields. (`src/core/review/review_validation.py`, `prompts/edit_article.md`)
+- **Main Article heading hierarchy validation**: `ai-review` now rejects H1 or H2 subheadings under `## Main Article`; first-level subheadings must be `###` (H3) or deeper. (`src/core/review/review_validation.py`, `prompts/edit_article.md`)
 - **TUI**: interactive terminal UI launched via `nsphr tui`. Includes dashboard, extract, AI review, upload, email, image review, pipeline, and prompt management screens. (`src/tui/`)
 - **Local archive upload adapter**: writes reviewed Markdown and assets to a dated local folder structure. (`src/core/upload/adapters/local_adapter.py`)
 - **`nsphr` console command**: package now exposes the `nsphr` system command via `pyproject.toml`. Install with `pip install -e .` and invoke `nsphr --help`.
@@ -19,8 +19,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `review-images ARTICLE_DIR` CLI command for reviewing, listing, and restoring images removed by AI filtering. Supports `--list`, `--preview` (HTML gallery), `--restore IMAGE`, and `--restore-all`. (`src/cli.py`, `src/core/review/image_filter.py`)
 
 ### Changed
+- Updated README.md to reflect the configurable crawler architecture and AI copy-editing workflow, replacing outdated "crawl4ai with firecrawl fallback" and "AI rewrite" language.
+- Restructured `skills/noosphere/` to follow Claude Code / OpenClaw skill conventions: added `references/`, `scripts/`, and `assets/`, and rewrote `SKILL.md` with standard sections and clearer trigger conditions.
+- Updated `skill.sh` to act as a local development helper (`validate`, `noosphere`, `update`, `help`) and documented the correct standard installation command `npx skills add BorisZhangYYY/Noosphere --skill noosphere --agent claude-code`.
 - `PromptMetadata` parser now preserves nested dict values in validation rules, enabling richer rule definitions such as field lists and minimum heading levels. (`src/core/review/prompt_metadata.py`)
-- `TODO.md`: added configurable output templates with matching mechanical validation to the backlog.
+- **Configurable crawler priority**: `crawler.primary` and `crawler.fallback` in `config.json` allow swapping the default extraction order without code changes. Set `"primary": "firecrawl"` to use Firecrawl first (fixes WeChat GIF extraction) and fall back to Crawl4AI, or keep `"primary": "crawl4ai"` for the original behavior. (`src/core/config/schema.py`, `src/integrations/crawler.py`)
+- **AI Review prompt refactoring**: `prompts/edit_article.md` (formerly `rewrite_article.md`) now instructs the AI to act as a **copy editor** rather than a full rewriter. The AI must preserve the original article structure, section order, and image positions; only remove platform noise, fix formatting, and improve readability. (`prompts/edit_article.md`)
+- **Disallowed headings validation**: `ai-review` now mechanically rejects headings such as `Additional Images`, `Appendix`, or `Supplementary Images`. Images must remain in their original narrative positions. (`src/core/review/review_validation.py`)
+- **Position-aware image restoration**: `ensure_relevant_images_present()` no longer appends missing images to an `### Additional Images` dumping ground. Instead, it restores them to their original positions based on the raw markdown context, or silently skips them if the original context cannot be matched. (`src/core/review/image_filter.py`, `src/pipelines/ai_review.py`)
 - `create_adapter()` now supports explicit `target` selection and auto-selects between local archive and SiYuan based on configuration.
 - **AI Review Pipeline**: integrated image filtering as a pre-review phase. Before text rewrite, all local images are analyzed by vision AI; the resulting inventory is passed to the rewrite AI so it knows which images to keep or remove. (`src/pipelines/ai_review.py`)
 - `download_images()` now generates relative paths from the article directory (`assets/image_xx.webp`) instead of from the `assets/` subdirectory (`image_xx.webp`), ensuring Markdown image references resolve correctly regardless of file location. (`src/integrations/assets.py`)
@@ -28,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Extracted `rules-review` command and the entire platform-rules / noise-hints system are removed.
 
 ### Fixed
+- **WeChat MP duplicate cover image detection**: `clean_body()` now uses a generic pattern (image-only heading followed by a short publisher heading) instead of a hard-coded list of media names. This correctly removes duplicate cover banners for any publisher, not just a whitelist of known outlets. (`src/platforms/wechat_mp/mp_extractor.py`)
 - Source metadata validator now tolerates blank lines between the H1 title and the metadata blockquote.
 - Main Article heading hierarchy validator now reports the first invalid H2 subheading instead of stopping before it.
 - Heading validators now ignore headings inside fenced code blocks, preventing false positives from code examples.

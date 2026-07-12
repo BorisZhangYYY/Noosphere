@@ -8,9 +8,17 @@ from src.core.registry import register_extractor
 from src.core.markdown.cleaner import first_text, meta_content
 from src.integrations.crawler import CrawledPage
 
+import re
+
 PLATFORM = "wechat_mp"
 PLATFORM_LABEL = "微信公众号"
 FALLBACK_TITLE = "微信公众号文章"
+
+# Heading that contains only an image (no text)
+_HEADING_IMAGE_ONLY_RE = re.compile(r"^#{1,3}\s*!\[.*?\]\([^)]+\)\s*$")
+
+# Short heading that looks like a publisher/source label (<=15 chars, no long text)
+_SHORT_HEADING_RE = re.compile(r"^#{1,3}\s*(?:\*\*)?[^*#\n]{1,15}(?:\*\*)?\s*$")
 
 
 @register_extractor("wechat_mp", url_patterns=["mp.weixin.qq.com/s/"])
@@ -49,3 +57,40 @@ class WechatMpExtractor(BaseArticleExtractor):
 
     def too_short_message(self, page: CrawledPage) -> str:
         return f"WeChat article body is too short; crawl error={page.error!r}"
+
+    def clean_body(self, markdown: str, title: str) -> str:
+        """Remove the platform banner image that duplicates the cover image.
+
+        WeChat MP articles often place the same cover image twice:
+        1. As the actual article cover (outside the body)
+        2. As a platform banner in a heading before the publisher name
+           (e.g. ``### ![](banner.jpg)`` followed by ``### **新智元报道**``)
+
+        This method detects the pattern generically: a heading containing
+        only an image followed by a short heading (publisher label).
+        """
+        lines = markdown.split("\n")
+        result: list[str] = []
+        i = 0
+        while i < len(lines):
+            heading_img = _HEADING_IMAGE_ONLY_RE.match(lines[i])
+            if heading_img:
+                # Look ahead for a short publisher/source heading
+                found_publisher = False
+                for j in range(i + 1, min(i + 6, len(lines))):
+                    next_line = lines[j].strip()
+                    if not next_line:
+                        continue
+                    if _SHORT_HEADING_RE.match(next_line):
+                        found_publisher = True
+                        break
+                    # Stop scanning if we hit a non-empty, non-heading line
+                    if not next_line.startswith("#"):
+                        break
+                if found_publisher:
+                    # Skip this banner image line so it is never downloaded
+                    i += 1
+                    continue
+            result.append(lines[i])
+            i += 1
+        return "\n".join(result)

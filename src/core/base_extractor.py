@@ -99,7 +99,7 @@ class BaseArticleExtractor(ABC):
             extra={
                 "crawl_success": page.success,
                 "crawl_error": page.error,
-                "fallback_used": page.fallback_used,
+                "crawler_used": page.crawler_used,
             },
         )
 

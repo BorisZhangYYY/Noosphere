@@ -1,216 +1,167 @@
 ---
 name: noosphere
-description: Extract web articles, run AI review, and import them into note-taking platforms like SiYuan or a local archive.
+description: Use when the user wants to extract web articles, run AI copy-editing and validation, and import them into SiYuan or a local archive.
 ---
 
-# Web Article To Notes
+# Noosphere
 
-Use this skill when the user wants to extract one article from a supported platform, clean it into a structured Markdown article, and import or upload it into a configured note-taking or knowledge-management platform.
+Extract web articles, clean them with AI-assisted copy-editing, and import them into a note-taking platform or local archive.
 
-This workflow is designed to be platform-extensible. The current implementation may support specific note targets such as SiYuan, but the overall design should not be tied to a single destination. Future note platforms can be added through dedicated upload adapters, platform-specific configuration, and validation rules.
+## When to Use
 
-## Deployment & Configuration
+- The user shares a URL from a supported platform (WeChat, Zhihu, Xiaoheihe, X) and wants it saved as clean Markdown.
+- The user asks to run `extract`, `ai-review`, `upload`, or `run` with Noosphere.
+- The user wants to batch-process URLs, review removed images, or configure the tool.
+- The user asks about Noosphere setup, configuration, supported platforms, or workflow.
 
-### Setup
+## What This Skill Does
+
+1. Guides the user through extracting one or more article URLs.
+2. Helps configure `config.json` and validate the local setup.
+3. Runs the AI review workflow when requested, reporting validation results and retry attempts.
+4. Uploads or archives the reviewed Markdown via the configured adapter.
+5. Explains the output files and how to recover incorrectly removed images.
+
+## Agent Instructions
+
+- **Prefer CLI over direct file edits**: invoke `nsphr extract`, `nsphr ai-review`, and `nsphr upload` and report their results, rather than opening and editing `raw.md`, `reviewed.md`, or `manifest.json` directly.
+- **Report before uploading**: after `ai-review`, summarize important deletions, rewrites, structure changes, and preserved sections; ask the user for confirmation before running `upload`.
+- **`upload` is independent**: `upload` is a manual endpoint and does not require `ai-review`, a completed `review.json`, or validation to pass. You can upload a manually-edited `reviewed.md` directly.
+
+## Setup
 
 ```bash
-# 1. Enter project directory
+# 1. Install the skill for Claude Code
+npx skills add BorisZhangYYY/Noosphere --skill noosphere --agent claude-code
+
+# 2. Enter the cloned project directory for local development
 cd /path/to/Noosphere
 
-# 2. Install Python dependencies
+# 3. Install Python dependencies
 pip install -e .
 
-# 3. Install Playwright browser for Crawl4AI
+# 4. Install Playwright browser for Crawl4AI
 playwright install chromium
 
-# 4. Copy example config and customize
+# 5. Copy example config and customize
 cp config.json.example config.json
 # Edit config.json — add your API keys and endpoints
 
-# 5. Verify installation
+# 6. Verify installation
+bash skills/noosphere/scripts/validate_setup.sh
 nsphr --help
 ```
 
-### Config Overview
+To update the skill later, run from the project root:
 
-Key fields in `config.json`:
+```bash
+./skill.sh update
+```
 
-| Section | Fields | Notes |
-|---------|--------|-------|
-| `article` | `wechat_mp`, `zhihu_zhuanlan`, `xiaoheihe` | Article source platforms with `label` and `url_patterns` |
-| `social_post` | `x` | Social post source platforms with `label` and `url_patterns` |
-| `proxy` | `http`, `https` | Optional HTTP/HTTPS proxy URLs |
-| `siyuan` | `api_base`, `default_parent_id`, `token` | SiYuan note platform connection |
-| `local_archive` | `base_dir`, `date_format` | Optional local filesystem archive target for `upload --target local`. |
-| `ai` | `provider`, `max_attempts`, `*_prompt_path`, `platform_prompts` | Provider: `openai`, `anthropic`, or `compatible`; `platform_prompts` overrides prompts per platform |
-| `ai_providers` | `model`, `api_base`, `api_key`, `max_output_tokens`, `temperature` | Per-provider model settings |
+This re-syncs a **copied** skill at `~/.claude/skills/noosphere` from this repo. If you installed via symlink, run `git pull` in the project directory instead (the symlink always reflects the latest code).
 
-**Provider compatibility note:** `ai.provider: "anthropic"` means **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi (`https://api.kimi.com/coding/`), MiniMax (`https://api.minimaxi.com/anthropic`), or any other compatible endpoint without code changes.
+## Configuration
 
-## Supported Sources
+See `references/config_reference.md` for the full `config.json` schema. Key points:
 
-### Article Platforms
-
-- WeChat public account articles: `mp.weixin.qq.com/s/...`
-- Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
-- Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
-
-### Social Post Platforms
-
-- X (Twitter): `x.com/...` or `twitter.com/...` (text-only via oEmbed MVP; images and videos are not downloaded)
-
-### Note-taking Platforms
-
-- SiYuan
-- Local archive (via `upload --target local`)
-- More platforms may be added in the future
+- `ai.provider` can be `openai`, `anthropic`, or `compatible`.
+- `anthropic` means **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi, MiniMax, or any compatible endpoint.
+- `crawler.primary` and `crawler.fallback` let you swap the extraction order without code changes.
+- Configure at least one upload target: `siyuan` or `local_archive`.
 
 ## Workflow
 
-1. Extract one or more URLs:
+1. **Extract**: `nsphr extract URL` or `nsphr extract --batch urls.txt`
+2. **Optional manual edit**: edit `outputs/<article_id>/reviewed.md`
+3. **AI Review**: `nsphr ai-review <article_id>`
+4. **Upload**: `nsphr upload <article_id>` or `nsphr upload <article_id> --target local`
 
-   ```bash
-   # Single URL
-   nsphr extract URL
-
-   # Batch file: one URL per line, lines starting with # are ignored
-   nsphr extract --batch urls.txt
-   ```
-
-   Already-extracted URLs are automatically skipped unless `--force` is used.
-
-2. Read the generated Markdown file at `outputs/ARTICLE_ID/reviewed.md`.
-
-   The first-round crawler output is kept as `raw.md` in the same article directory and should not be edited. Each extraction also writes `manifest.json` with source metadata, output paths, crawl status, image download results, and platform information.
-
-   Any remote images found in the Markdown are downloaded under the article `assets/` directory and rewritten to local relative links. During AI review, promotional images (QR codes, ads, logos, banners) are identified by vision AI and removed to a `removed/` directory; content images (screenshots, diagrams, photos) are preserved.
-
-3. Either edit `reviewed.md` manually, or let the CLI AI review workflow handle Markdown rewrite decisions.
-
-   The external agent's default job is to invoke the CLI, inspect command results, and report failures rather than directly editing article content.
-
-   The internal AI review should preserve the main content while handling cleanup details such as:
-
-   - Removing duplicated article sections and platform noise.
-   - Keeping meaningful headings, paragraphs, blockquotes, lists, code blocks, tables, images, and Markdown links.
-   - Improving heading hierarchy, spacing, and long article structure when needed.
-   - Keeping meaningful local image links and removing only decorative or duplicate images.
-   - Producing clean Markdown suitable for later import into different note-taking platforms.
-
-4. The reviewed article produced by the AI review workflow should use this structure for **articles**:
-
-   ```markdown
-   # Article Title
-
-   ## AI Summary
-
-   - ...
-   - ...
-
-   ---
-
-   ## Main Article
-
-   ...
-   ```
-
-   For **social posts** (e.g., X/Twitter), the AI review preserves the original post text and adds a `## Context` section with background analysis instead of the `## AI Summary` / `## Main Article` structure.
-
-5. Run the AI review workflow when model credentials are configured and AI assistance is desired:
-
-   > **Note on AI provider compatibility:** The `ai.provider` field accepts `openai` or `anthropic`. The `anthropic` option is actually **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi (`https://api.kimi.com/coding/`), MiniMax (`https://api.minimaxi.com/anthropic`), or any other compatible endpoint without code changes.
-
-   ```bash
-   # File path, article directory, or article ID are all accepted
-   nsphr ai-review outputs/ARTICLE_ID/
-   nsphr ai-review ARTICLE_ID
-
-   # Force re-review even if review.json is already marked completed
-   nsphr ai-review ARTICLE_ID --force
-   ```
-
-   This command sends the raw Markdown to the configured AI provider with a rewrite prompt, writes the response to `outputs/ARTICLE_ID/reviewed.md`, then runs deterministic machine validation. If validation fails, the issues are fed back to the AI as a correction prompt and the rewrite is retried (up to `ai.max_attempts`).
-
-   On success, a lightweight `review.json` is written with model/provider info for traceability.
-
-6. **Optional: Review removed images**. AI review may move promotional images to `removed/`. You can inspect them:
-
-   ```bash
-   # List removed images with AI descriptions
-   nsphr review-images outputs/ARTICLE_ID/ --list
-
-   # Generate an HTML preview page to view removed images in browser
-   nsphr review-images outputs/ARTICLE_ID/ --preview
-
-   # Restore a specific image if it was incorrectly removed
-   nsphr review-images outputs/ARTICLE_ID/ --restore image_02.webp
-
-   # Restore all removed images
-   nsphr review-images outputs/ARTICLE_ID/ --restore-all
-   ```
-
-7. Report the review result to the user:
-
-   - Modified content: list important deletions, rewrites, and structure changes.
-   - Preserved content: list important sections that were kept.
-   - AI review: report whether `ai-review` passed (including attempt count and any validation issues on the final attempt).
-   - Target platform: report which note-taking platform or upload adapter will be used.
-   - Ask for confirmation before uploading.
-
-8. After confirmation, upload or import the Markdown:
-
-   ```bash
-   # File path, article directory, or article ID are all accepted
-   nsphr upload outputs/ARTICLE_ID/
-   nsphr upload ARTICLE_ID
-
-   # Save to local archive instead of the default platform
-   nsphr upload ARTICLE_ID --target local
-
-   # Force re-upload even if manifest.json already records an upload
-   nsphr upload ARTICLE_ID --force
-   ```
-
-   `upload` is a manual endpoint. It does not require AI review, `review.json`, or deterministic validation to pass.
-
-   It reads the Markdown file, uploads or resolves local assets when referenced, and sends the document to the configured note-taking platform through the active upload adapter.
-
-## Interactive TUI Workflow
-
-For a guided, screen-based experience, use `nsphr tui`. This is useful when you want to:
-
-- Browse existing articles and their status (extracted / reviewed / uploaded).
-- Run extract / ai-review / upload / email from a keyboard-driven interface.
-- Review removed images or re-run the full pipeline without typing IDs.
-
-Typical flow:
-
-1. Launch: `nsphr tui`
-2. Use arrow keys / `j` `k` to navigate screens.
-3. On **Extract**, enter a URL or batch file path.
-4. On **AI Review**, select an article directory or ID.
-5. On **Upload**, choose the target adapter (`local` or `siyuan`) if both are configured.
-6. On **Image Review**, list/restore removed images as needed.
-
-The TUI writes the same `outputs/<article_id>/` files as the CLI commands, so manual CLI editing remains possible.
+See `references/workflow_reference.md` for details on each phase and the output directory layout.
 
 ## Commands
 
 ### Core Pipeline
 
-| Command | Driver | Description |
-|---------|--------|-------------|
-| `extract URL` | CLI/crawl4ai | Crawl one article and save raw, reviewed, asset, manifest, and review-context files. |
-| `extract --batch FILE` | CLI/crawl4ai | Crawl multiple URLs from a file; shows progress and skips already-extracted URLs. |
-| `ai-review FILE|DIR|ID` | AI | Use the configured AI provider to rewrite the article, with machine-validation feedback and retry. Accepts a reviewed Markdown file, article directory, or article ID. |
-| `upload FILE|DIR|ID` | CLI/platform adapter | Upload or import the provided Markdown file to the configured note-taking platform without review gating. |
-| `upload ARTICLE_ID --target local` | CLI/platform adapter | Save to local archive instead of the default platform. |
-| `run URL` | Mixed | Run the full workflow from extraction through review and final upload/import. |
+| Command | Description |
+|---|---|
+| `nsphr extract URL` | Extract one article. |
+| `nsphr extract --batch FILE` | Extract multiple URLs from a file. |
+| `nsphr extract --force URL` | Re-extract a URL even if it was already extracted. |
+| `nsphr ai-review FILE / DIR / ID` | AI copy-editing and validation. |
+| `nsphr ai-review ID --force` | Re-run AI review even if `review.json` is already completed. |
+| `nsphr upload FILE / DIR / ID` | Upload reviewed article to the default target. |
+| `nsphr upload ARTICLE_ID --target local` | Save to local archive instead. |
+| `nsphr upload ARTICLE_ID --force` | Re-upload even if the article was already uploaded. |
+| `nsphr run URL` | One-command extract → ai-review → upload. |
 
 ### Utility Commands
 
-| Command | Driver | Description |
-|---------|--------|-------------|
-| `review-images ARTICLE_DIR` | CLI | Review images removed by AI filtering: list, preview HTML gallery, or restore individual/all images. |
-| `email ARTICLE_ID --to RECIPIENT` | CLI/SMTP | Send the reviewed article as an HTML email to the specified recipient (must be in allowed_recipients). |
-| `tui` | CLI | Launch interactive terminal UI for browsing articles and running pipeline steps. |
+| Command | Description |
+|---|---|
+| `nsphr review-images ARTICLE_DIR --list` | List images removed by AI filtering. |
+| `nsphr review-images ARTICLE_DIR --restore IMAGE` | Restore a specific removed image. |
+| `nsphr review-images ARTICLE_DIR --restore-all` | Restore all removed images. |
+| `nsphr review-images ARTICLE_DIR --preview` | Generate an HTML preview of removed images. |
+| `nsphr email ARTICLE_ID --to RECIPIENT` | Send reviewed article as HTML email. |
+| `nsphr tui` | Launch interactive terminal UI. |
+
+## Examples
+
+### Extract a single article
+
+```bash
+nsphr extract "https://mp.weixin.qq.com/s/..."
+```
+
+### Run the full pipeline
+
+```bash
+nsphr run "https://mp.weixin.qq.com/s/..."
+```
+
+### Batch extraction
+
+```bash
+# urls.txt: one URL per line, lines starting with # are ignored
+nsphr extract --batch urls.txt
+```
+
+### AI review then upload
+
+```bash
+nsphr ai-review outputs/wechat_mp_...
+nsphr upload outputs/wechat_mp_...
+```
+
+## Output Structure
+
+Each article gets a workspace at `outputs/<article_id>/`:
+
+- `raw.md` — original crawler output (do not edit).
+- `reviewed.md` — editable draft / AI-reviewed output.
+- `manifest.json` — source metadata, paths, crawl status, upload record.
+- `review.json` — AI review status and provider/model info.
+- `assets/` — downloaded images referenced by the article.
+- `removed/` — images classified as promotional by the image filter.
+
+## Error Handling
+
+- **Config missing**: prompt the user to copy `config.json.example` to `config.json` and add credentials.
+- **Unsupported URL**: list supported platforms and their URL patterns (see `references/platforms_reference.md`).
+- **Crawl failed**: report which crawler was tried and the error; suggest switching `crawler.primary`.
+- **AI review failed**: print validation issues so the user can manually fix `reviewed.md` or run with `--force`.
+- **Upload failed**: check the target config (SiYuan token / local archive path) and retry.
+
+## Notes
+
+- The AI review workflow is **copy-editing**, not full rewriting. The LLM preserves the original article structure, section order, and image positions while removing platform noise and fixing formatting.
+- The crawler stack is configurable. Set `crawler.primary` to `firecrawl` when you need better JavaScript-heavy page support (for example, WeChat GIF extraction).
+- `extract` and `upload` are deliberately manual endpoints. You can run `extract`, edit `reviewed.md` yourself, and upload it directly without `ai-review`.
+
+## Related Files
+
+- `references/config_reference.md` — full `config.json` reference.
+- `references/platforms_reference.md` — supported platforms and URL patterns.
+- `references/workflow_reference.md` — detailed pipeline walkthrough.
+- `assets/article_template.md` — expected post-review Markdown structure.
+- `scripts/validate_setup.sh` — local setup validation script.

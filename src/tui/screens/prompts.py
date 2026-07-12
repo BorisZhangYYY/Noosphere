@@ -76,11 +76,11 @@ def _collect_prompt_entries(console: Console) -> list[PromptEntry]:
     entries: list[PromptEntry] = []
 
     entries.append(_resolve_entry(
-        name="Rewrite Article",
+        name="Edit Article",
         platform="",
         key="rewrite_prompt",
         path_key="rewrite_prompt_path",
-        default_path=Path("prompts/rewrite_article.md"),
+        default_path=Path("prompts/edit_article.md"),
         config=config,
     ))
     entries.append(_resolve_entry(
@@ -100,7 +100,7 @@ def _collect_prompt_entries(console: Console) -> list[PromptEntry]:
                 platform=platform_name,
                 key="rewrite_prompt",
                 path_key="rewrite_prompt_path",
-                default_path=Path("prompts/rewrite_article.md"),
+                default_path=Path("prompts/edit_article.md"),
                 config=config,
             ))
 
