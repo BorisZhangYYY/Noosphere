@@ -43,15 +43,15 @@ async def crawl_url(url: str) -> Article:
 
 
 @tool
-async def download_images(raw_markdown: str, asset_dir: str) -> tuple[str, list[Asset]]:
+async def download_images(raw_markdown: str, asset_dir: str) -> tuple[str, list[Asset], dict[str, str]]:
     """Download remote images referenced in *raw_markdown* into *asset_dir*.
 
-    Returns the updated Markdown with local image paths and a list of downloaded
-    assets.
+    Returns the updated Markdown with local image paths, a list of downloaded
+    assets, and a map of failed URLs to error messages.
     """
     updated_markdown, result = await _download_images(raw_markdown, Path(asset_dir))
     assets = [_downloaded_image_to_asset(image) for image in result.downloaded]
-    return updated_markdown, assets
+    return updated_markdown, assets, result.failed
 
 
 @tool
@@ -88,11 +88,12 @@ async def edit_article(
     platform: str,
     content_type: str,
     image_filter_result: ImageFilterResult | None = None,
-) -> str:
+) -> dict[str, str]:
     """Perform one AI rewrite attempt for the article.
 
-    Returns the rewritten Markdown. The caller (the review sub-graph) is
-    responsible for validation and retry loop management.
+    Returns a dict with the rewritten Markdown and the model/provider used.
+    The caller (the review sub-graph) is responsible for validation and retry
+    loop management.
     """
     config = load_config()
     settings = resolve_ai_settings(config)
@@ -110,7 +111,11 @@ async def edit_article(
     )
 
     response = await client.generate_text(resolved_rewrite_prompt, user_prompt)
-    return normalize_markdown_links(prepare_rewritten_markdown(response.text, content_type))
+    return {
+        "markdown": normalize_markdown_links(prepare_rewritten_markdown(response.text, content_type)),
+        "model": response.model,
+        "provider": response.provider,
+    }
 
 
 @tool

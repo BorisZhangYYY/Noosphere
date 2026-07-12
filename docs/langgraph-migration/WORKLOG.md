@@ -30,17 +30,17 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
      - `validate_article`
      - `upload_article`
 
-3. **[IN PROGRESS] Phase 2 — AI review sub-graph**
+3. **[DONE] Phase 2 — AI review sub-graph**
    - Port `edit → validate → retry` loop from `src/pipelines/ai_review.py` to a StateGraph.
    - Keep filesystem outputs for backward compatibility.
-   - Verify parity against sample articles.
+   - Verify parity against sample articles. **(deferred to Phase 7 runtime validation)**
 
-4. **Phase 3 — Full pipeline graph**
+4. **[DONE] Phase 3 — Full pipeline graph**
    - Model `extract → ai-review → upload` as a single StateGraph.
    - Add `human_review` interrupt and config-driven auto-confirm.
-   - Add `export` node to write `outputs/<article_id>/` files.
+   - Filesystem exports are handled by `crawl`, `download`, and `export_upload` nodes.
 
-5. **Phase 4 — CLI migration**
+5. **[IN PROGRESS] Phase 4 — CLI migration**
    - Update `src/cli.py` commands to invoke the graph.
    - Preserve existing CLI UX (progress messages, error handling).
 
@@ -59,15 +59,17 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 
 ## Current Status
 
-- **Completed:** Phase 1 — tool wrappers.
-- **In progress:** Phase 2 — AI review sub-graph.
-- **Next action:** Build a StateGraph that models `edit → validate → retry` using the Phase 1 tools, with filesystem writes for backward compatibility.
+- **Completed:** Phases 0–3 — dependencies, tool wrappers, AI review sub-graph, and full pipeline graph.
+- **In progress:** Phase 4 — CLI migration (`src/cli.py` commands to invoke the graph).
+- **Next action:** Add a graph invocation helper and wire the `extract`, `ai-review`, and `upload` CLI commands to use the LangGraph pipeline while preserving existing UX.
 
 ## Decisions & Notes
 
 - Keep CLI commands unchanged from user perspective.
 - Keep `outputs/<article_id>/` as protected workspace; checkpoint is for orchestration state.
 - Do not auto-merge PRs; user approval required per CLAUDE.md.
+- `edit_article` tool returns `{markdown, model, provider}` so the review report can record the actual AI model/provider used.
+- `human_review` node supports `configurable.auto_confirm` and `configurable.skip_human_review` to bypass the interrupt for batch/CI use.
 
 ## Last Updated
 
@@ -75,4 +77,4 @@ State is persisted via LangGraph checkpointing (`SqliteSaver` by default, `Postg
 
 ## Latest Commit on This Branch
 
-(None yet — work just started.)
+`c50fc56` — feat(graph): add LangGraph skeleton and LangChain tool wrappers

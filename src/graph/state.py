@@ -27,10 +27,17 @@ class ArticleState(TypedDict):
     url: str
     platform: str
     content_type: str
+    title: str
+
+    # Workspace paths
+    output_dir: str
+    reviewed_path: str
+    assets_dir: str
 
     # Crawl / extract outputs
     raw_markdown: str
     assets: list[Asset]
+    download_failed: dict[str, str]
 
     # AI review outputs
     reviewed_markdown: str
@@ -38,6 +45,10 @@ class ArticleState(TypedDict):
     validation_result: ValidationResult | None
     feedback: str
     attempts: int
+    max_attempts: int
+    human_approved: bool
+    review_model: str
+    review_provider: str
 
     # Upload outputs
     upload_result: UploadResult | None
@@ -50,8 +61,10 @@ class ArticleState(TypedDict):
         "crawled",
         "assets_downloaded",
         "image_filtered",
+        "reviewing",
         "reviewed",
         "validated",
+        "approved",
         "uploaded",
         "failed",
     ]
