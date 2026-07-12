@@ -4,21 +4,25 @@ Noosphere is an article extraction, AI review, and note-import tool designed for
 
 Do you often come across long articles worth saving on platforms such as WeChat, Zhihu, and others, only to find them difficult to understand quickly because they are too long, poorly structured, or cluttered with ads and noise? Do you often want to share an article with friends, but they lack the necessary context, making the sharing ineffective? Or are you a heavy content collector who wants to save valuable articles in a complete, clean, and structured form into your own knowledge base?
 
-Noosphere is designed for exactly this purpose. Based on `crawl4ai` with a `firecrawl` fallback for hard-to-crawl pages, it extracts the main content of articles, then uses large language models to perform structured rewriting, summary generation, noise cleanup, and pre-upload validation. The final Markdown content can then be imported into your note-taking tool.
+Noosphere is designed for exactly this purpose. It uses a configurable crawler stack (`crawl4ai` and `firecrawl`) with selectable primary and fallback order, extracts the main content of articles, then uses large language models to perform copy-editing, structured cleanup, summary generation, and pre-upload validation. The final Markdown content can then be imported into your note-taking tool.
 
 In one sentence: Noosphere turns scattered, lengthy, and hard-to-read articles on the internet into clean, structured, understandable, saveable, and shareable knowledge content.
 
 For agent usage, install the skill with:
 
 ```bash
-npx skills add https://github.com/BorisZhangYYY/Noosphere
+npx skills add BorisZhangYYY/Noosphere --skill noosphere --agent claude-code
 ```
 
-Or source the local skill manually:
+For local development, you can validate the setup or print the skill path:
 
 ```bash
-source ./skill.sh noosphere
+./skill.sh validate   # run setup checks
+./skill.sh noosphere  # print the local skill path
+./skill.sh update     # re-sync a copied skill at ~/.claude/skills/noosphere
 ```
+
+The `source ./skill.sh noosphere` form is also supported for backward compatibility.
 
 ## Supported Sources
 
@@ -44,7 +48,7 @@ source ./skill.sh noosphere
 |---|---|
 | `nsphr extract URL` | Extract one article. |
 | `nsphr extract --batch urls.txt` | Extract multiple URLs from a file. |
-| `nsphr ai-review ARTICLE_ID` | AI rewrite + validation. |
+| `nsphr ai-review ARTICLE_ID` | AI copy-editing + validation. |
 | `nsphr upload ARTICLE_ID` | Upload reviewed article. |
 | `nsphr upload ARTICLE_ID --target local` | Save to local archive instead of SiYuan. |
 | `nsphr run URL` | One-command extract → ai-review → upload. |
@@ -59,13 +63,13 @@ source ./skill.sh noosphere
 
 ## AI Review Flow
 
-1. **Rewrite**: AI rewrites raw markdown into a structured format according to the prompt template.
+1. **Copy-edit**: AI edits the raw markdown to remove platform noise, fix formatting, and improve readability while preserving the original structure, section order, and image positions.
 2. **Validate**: deterministic machine validation checks Markdown structure, links, images, and required sections.
 3. **Feedback loop**: if validation fails, issues are fed back to the AI for correction and retry (up to `ai.max_attempts`).
 
 Output: `outputs/ARTICLE_ID/` contains `raw.md`, `reviewed.md`, `manifest.json`, `assets/`, and a lightweight `review.json`.
 
-`extract` and `upload` are deliberately manual endpoints. You can run `extract`, edit `reviewed.md` yourself, and upload it directly. You can also run `ai-review outputs/ARTICLE_ID/reviewed.md` after extraction when you want the configured AI workflow to rewrite and check the article before upload.
+`extract` and `upload` are deliberately manual endpoints. You can run `extract`, edit `reviewed.md` yourself, and upload it directly. You can also run `ai-review outputs/ARTICLE_ID/reviewed.md` after extraction when you want the configured AI workflow to copy-edit and check the article before upload.
 
 ## Configuration
 
@@ -98,7 +102,7 @@ nsphr --help
 - `local_archive`: `base_dir`, `date_format` for local filesystem archive output
 - `ai`: provider (`openai`, `anthropic`, or `compatible`), max_attempts, prompt paths, platform-specific prompt overrides
 - `ai_providers`: model, API base, API key, token limit, temperature
-- `crawler`: fallback strategy (`firecrawl`) and Firecrawl API credentials
+- `crawler`: primary and fallback crawler selection (`crawl4ai`, `firecrawl`) with per-provider credentials
 
 ### Local Archive
 
