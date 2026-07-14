@@ -59,6 +59,31 @@ class AIConfig(BaseModel):
         raise ValueError(f"ai.{key} or ai.{path_key} is required")
 
 
+class CheckpointConfig(BaseModel):
+    """LangGraph checkpoint persistence configuration."""
+
+    backend: str = "sqlite"
+    """One of ``memory`` (ephemeral), ``sqlite`` (default), or ``postgres``."""
+
+    sqlite_path: str = ".noosphere/checkpoints.sqlite"
+    """Path to the SQLite checkpoint database when backend is ``sqlite``."""
+
+    postgres_connection_string: str | None = None
+    """PostgreSQL connection string when backend is ``postgres``."""
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.backend == "sqlite"
+
+    @property
+    def is_postgres(self) -> bool:
+        return self.backend == "postgres"
+
+    @property
+    def is_memory(self) -> bool:
+        return self.backend == "memory"
+
+
 class SiyuanConfig(BaseModel):
     api_base: str = "http://127.0.0.1:6806"
     default_parent_id: str | None = None
@@ -126,6 +151,7 @@ class Config(BaseModel):
     ai_providers: dict[str, AIProviderConfig] = Field(default_factory=dict)
     siyuan: SiyuanConfig | None = None
     crawler: CrawlerConfig = Field(default_factory=CrawlerConfig)
+    checkpoint: CheckpointConfig = Field(default_factory=CheckpointConfig)
     smtp: SMTPConfig | None = None
     local_archive: LocalArchiveConfig | None = None
     article: dict[str, PlatformConfig] = Field(default_factory=dict)

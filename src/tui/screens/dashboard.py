@@ -180,11 +180,21 @@ def _open_path(path: Path) -> None:
             subprocess.run(["open", str(path)])
         elif system == "Windows":
             subprocess.run(["explorer", str(path)], shell=True)
+        elif _is_wsl():
+            # WSL: prefer wslview (from wslu) for native Windows association.
+            subprocess.run(["wslview", str(path)])
         else:
             subprocess.run(["xdg-open", str(path)])
     except Exception as exc:
         # Errors here are non-fatal; the caller already exited the editor.
         print(f"Could not open {path}: {exc}")
+
+
+def _is_wsl() -> bool:
+    """Return True when running inside Windows Subsystem for Linux."""
+    import platform as _platform
+    release = _platform.release().lower()
+    return "microsoft" in release or "wsl" in release
 
 
 def _open_in_finder(console: Console, snapshot: DashboardSnapshot) -> None:

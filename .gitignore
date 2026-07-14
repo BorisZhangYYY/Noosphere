@@ -16,3 +16,6 @@ __pycache__/
 .crawl4ai-runtime/
 .noosphere/
 outputs/
+
+# superpowers-related plans (kept local per CLAUDE.md)
+docs/langgraph-migration/WORKLOG.md

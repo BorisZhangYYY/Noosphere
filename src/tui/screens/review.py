@@ -52,7 +52,7 @@ async def show_review(console: Console) -> None:
         Prompt.ask(f"[{MUTED}]Press any key to continue[/{MUTED}]", default="")
         return
 
-    from src.pipelines.ai_review import run_ai_review
+    from src.graph.graph import run_ai_review_graph
     from src.core.review.review_validation import format_validation_issues
 
     try:
@@ -66,16 +66,15 @@ async def show_review(console: Console) -> None:
             f"[{ACCENT}]AI reviewing… (this may take 30-90s for long articles)[/{ACCENT}]",
             spinner="dots",
         ):
-            result = await run_ai_review(reviewed_path)
+            validation = await run_ai_review_graph(reviewed_path)
 
         console.print()
-        if result.ok:
+        if validation.ok:
             console.print(f"[{SUCCESS}]AI review passed[/{SUCCESS}]")
-            console.print(f"  Attempts: {result.attempts}")
-            console.print(f"  Output:   {result.reviewed_path}")
+            console.print(f"  Output:   {reviewed_path}")
         else:
-            console.print(f"[{ERROR}]AI review failed after {result.attempts} attempt(s)[/{ERROR}]")
-            console.print(f"  {format_validation_issues(result.validation.issues)}")
+            console.print(f"[{ERROR}]AI review failed[/{ERROR}]")
+            console.print(f"  {format_validation_issues(validation.issues)}")
     except Exception as exc:
         console.print(f"[{ERROR}]Error: {exc}[/{ERROR}]")
 

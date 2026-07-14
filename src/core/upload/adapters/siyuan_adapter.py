@@ -36,7 +36,7 @@ class SiyuanAdapter(UploadAdapter):
     def platform_name(self) -> str:
         return "SiYuan"
 
-    async def upload(self, path: Path, title: str | None = None) -> str:
+    async def upload(self, path: Path, title: str | None = None) -> "UploadResult":
         """Upload Markdown to SiYuan.
 
         Pipeline:
@@ -45,6 +45,8 @@ class SiyuanAdapter(UploadAdapter):
         3. Upload images to SiYuan and replace URLs in the Markdown.
         4. Create or update the SiYuan document under the configured parent.
         """
+        from src.core.models.article import UploadResult
+
         resolved_title, markdown = read_markdown_for_upload(path, title)
 
         # Handle local images
@@ -59,7 +61,7 @@ class SiyuanAdapter(UploadAdapter):
             markdown,
             self._parent_id,
         )
-        return result.hpath
+        return result  # UploadResult(doc_id, notebook_id, hpath, created)
 
     async def _upload_and_replace_images(
         self,

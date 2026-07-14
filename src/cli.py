@@ -21,6 +21,7 @@ from rich.table import Table
 from src.core.config.config import load_config
 from src.core.paths.output_paths import find_existing_article_dir
 from src.core.paths.paths import get_paths
+from src.graph.graph import run_extract_graph, run_ai_review_graph, run_upload_graph, run_pipeline_graph
 
 
 console = Console()
@@ -101,8 +102,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 async def _run_extract(url: str) -> Path:
-    from src.pipelines.extract import extract_to_output
-    return await extract_to_output(url, get_paths().output_dir)
+    return await run_extract_graph(url, get_paths().output_dir)
 
 
 async def _run_extract_batch(urls: list[str], *, force: bool = False) -> list[tuple[str, Path | None, str | None]]:
@@ -147,28 +147,31 @@ async def _run_extract_batch(urls: list[str], *, force: bool = False) -> list[tu
 
 
 async def _run_ai_review(path: Path):
-    from src.pipelines.ai_review import run_ai_review
-    return await run_ai_review(path)
+    from src.core.review.review_validation import ValidationResult
+    validation = await run_ai_review_graph(path)
+    if not isinstance(validation, ValidationResult):
+        raise RuntimeError("AI review did not return a validation result")
+    return validation
 
 
 async def _run_upload(path: Path, target: str | None = None) -> tuple[str, str]:
     """Upload a reviewed Markdown file and return (hpath, platform_name)."""
-    from src.core.upload.factory import create_adapter
-    from src.pipelines.upload import upload_markdown_file
-
-    adapter = create_adapter(target=target)
-    hpath = await upload_markdown_file(path, adapter=adapter)
-    return hpath, adapter.platform_name
+    upload_result = await run_upload_graph(path, target=target)
+    # The upload graph records platform in manifest; report it from the manifest.
+    manifest_path = path.with_name("manifest.json")
+    platform = "unknown"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            platform = manifest.get("uploaded", {}).get("platform", "unknown")
+        except (OSError, json.JSONDecodeError):
+            pass
+    return upload_result.hpath, platform
 
 
 async def _run_pipeline(url: str) -> str:
-    reviewed_path = await _run_extract(url)
-    result = await _run_ai_review(reviewed_path)
-    if not result.ok:
-        raise RuntimeError(f"AI review failed after {result.attempts} attempts")
-    hpath, platform = await _run_upload(reviewed_path)
-    _record_upload(reviewed_path, platform, hpath)
-    return hpath
+    upload_result = await run_pipeline_graph(url, get_paths().output_dir, auto_confirm=True)
+    return upload_result.hpath
 
 
 def _resolve_reviewed_path(value: Path) -> Path:
@@ -322,10 +325,10 @@ async def _main_async(args: argparse.Namespace) -> int:
 
         result = await _run_ai_review(reviewed_path)
         if result.ok:
-            console.print(f"[green]AI reviewed:[/green] {result.reviewed_path}")
+            console.print(f"[green]AI reviewed:[/green] {reviewed_path}")
             return 0
-        console.print(f"[red]AI review failed after {result.attempts} attempt(s).[/red]")
-        console.print(format_validation_issues(result.validation.issues))
+        console.print(f"[red]AI review failed.[/red]")
+        console.print(format_validation_issues(result.issues))
         return 1
 
     if args.command == "run":

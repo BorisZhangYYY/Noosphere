@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import shutil
+import warnings
 from pathlib import Path
 
 from src.core.models.manifest import write_article_manifest
 from src.core.paths.output_paths import article_output_paths
 from src.extractor_registry import extract_one
 from src.integrations.assets import download_images
+
+warnings.warn(
+    "src.pipelines.extract is deprecated; use src.graph.graph.run_extract_graph instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 async def extract_to_output(url: str, output_dir: Path) -> Path:

@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.core.models.article import UploadResult
 
 
 class UploadAdapter(ABC):
@@ -21,7 +25,7 @@ class UploadAdapter(ABC):
     """
 
     @abstractmethod
-    async def upload(self, path: Path, title: str | None = None) -> str:
+    async def upload(self, path: Path, title: str | None = None) -> UploadResult:
         """Upload the Markdown file at *path* to the target platform.
 
         Args:
@@ -30,8 +34,7 @@ class UploadAdapter(ABC):
                 adapter should derive the title from the Markdown content.
 
         Returns:
-            A platform-specific identifier for the created/updated document
-            (e.g. SiYuan hpath, Notion page URL, Obsidian file path).
+            An UploadResult with the platform-specific document identifier.
         """
         ...
 

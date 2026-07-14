@@ -1,9 +1,6 @@
 """Upload screen — upload to local archive or SiYuan."""
 from __future__ import annotations
 
-import json
-from datetime import datetime
-
 from rich.console import Console
 from rich.prompt import Prompt
 
@@ -68,34 +65,12 @@ async def show_upload(console: Console) -> None:
         Prompt.ask(f"[{MUTED}]Press any key to continue[/{MUTED}]", default="")
         return
 
-    from src.core.upload.factory import create_adapter
-    from src.pipelines.upload import upload_markdown_file
+    from src.graph.graph import run_upload_graph
 
     try:
-        adapter = create_adapter(target=target)
-    except ValueError as exc:
-        console.print(f"[{ERROR}]{exc}[/{ERROR}]")
-        console.print(f"[{MUTED}]Tip: add [bold]\"local_archive\": {{\"enabled\": true}}[/bold] to config.json[/{MUTED}]")
-        Prompt.ask(f"[{MUTED}]Press any key to continue[/{MUTED}]", default="")
-        return
-
-    try:
-        with console.status(f"[{ACCENT}]Uploading to {adapter.platform_name}…[/{ACCENT}]", spinner="dots"):
-            hpath = await upload_markdown_file(reviewed_path, adapter=adapter)
-        console.print(f"[{SUCCESS}]Uploaded to {adapter.platform_name}:[/{SUCCESS}] {hpath}")
-
-        manifest_path = art.dir_path / "manifest.json"
-        if manifest_path.exists():
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["uploaded"] = {
-                "platform": adapter.platform_name,
-                "hpath": hpath,
-                "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            }
-            manifest_path.write_text(
-                json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
-                encoding="utf-8",
-            )
+        with console.status(f"[{ACCENT}]Uploading…[/{ACCENT}]", spinner="dots"):
+            upload_result = await run_upload_graph(reviewed_path, target=target)
+        console.print(f"[{SUCCESS}]Uploaded:[/{SUCCESS}] {upload_result.hpath}")
     except Exception as exc:
         console.print(f"[{ERROR}]Upload failed: {exc}[/{ERROR}]")
 
