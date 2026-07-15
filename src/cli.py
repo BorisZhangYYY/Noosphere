@@ -5,6 +5,7 @@ CLI command definitions and entry points. Currently supported:
 - ai-review: AI-powered rewrite and format validation.
 - run: Pipeline of extract -> ai-review -> upload.
 - email: Send Markdown-styled emails via SMTP.
+- mcp: Start an MCP server for AI clients.
 """
 from __future__ import annotations
 
@@ -98,6 +99,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     tui_parser = subparsers.add_parser("tui", help="Launch the interactive terminal UI.")
+
+    mcp_parser = subparsers.add_parser("mcp", help="Start the MCP server for AI clients.")
+    mcp_parser.add_argument("--host", default="127.0.0.1", help="Host to bind the MCP HTTP server (default: 127.0.0.1).")
+    mcp_parser.add_argument("--port", type=int, default=8080, help="Port to bind the MCP HTTP server (default: 8080).")
+
     return parser.parse_args(argv)
 
 
@@ -416,6 +422,19 @@ async def _main_async(args: argparse.Namespace) -> int:
     if args.command == "tui":
         from src.tui import launch_tui
         await launch_tui()
+        return 0
+
+    if args.command == "mcp":
+        import logging
+        import uvicorn
+        from src.mcp.server import create_app
+
+        logging.basicConfig(level=logging.INFO)
+        app = create_app()
+        console.print(f"[green]Starting MCP server on {args.host}:{args.port}[/green]")
+        uvicorn_config = uvicorn.Config(app, host=args.host, port=args.port, log_level="info")
+        uvicorn_server = uvicorn.Server(uvicorn_config)
+        await uvicorn_server.serve()
         return 0
 
     print(f"Error: unsupported command: {args.command}")
