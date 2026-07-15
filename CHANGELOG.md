@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-15
+
 ### Added
 - **LangGraph migration**: replaced the custom pipeline + direct API-call architecture with a LangGraph `StateGraph`. Includes `src/graph/` package with `ArticleState`, LangChain `@tool` wrappers, AI review sub-graph, full `extract → ai-review → upload` pipeline graph, graph-based CLI/TUI flows, configurable checkpoint persistence (PostgreSQL default in Docker, SQLite still available for local dev), and deprecation warnings for old `src/pipelines/` modules. (`src/graph/state.py`, `src/graph/tools.py`, `src/graph/graph.py`, `src/cli.py`, `src/tui/screens/`, `src/core/config/schema.py`, `tests/test_graph.py`)
 - **Source metadata validation**: `ai-review` now mechanically validates that the blockquote after the H1 title includes `Source` as a Markdown link plus `Platform`, `Author`, `Published`, `Captured`, and `Type` fields. (`src/core/review/review_validation.py`, `prompts/edit_article.md`)
