@@ -71,6 +71,37 @@ Output: `outputs/ARTICLE_ID/` contains `raw.md`, `reviewed.md`, `manifest.json`,
 
 `extract` and `upload` are deliberately manual endpoints. You can run `extract`, edit `reviewed.md` yourself, and upload it directly. You can also run `ai-review outputs/ARTICLE_ID/reviewed.md` after extraction when you want the configured AI workflow to copy-edit and check the article before upload.
 
+## MCP Server (Docker)
+
+Noosphere can run as an MCP (Model Context Protocol) service inside Docker, with PostgreSQL as the checkpoint store. This is the recommended deployment for AI-driven workflows.
+
+When running inside Docker Compose, `DATABASE_URL` is set automatically, so the service will use Postgres even though the example config defaults to SQLite for local development.
+
+```bash
+# 1. Copy and edit config
+cp config.json.example config.json
+# Edit config.json with your API keys and endpoints
+
+# 2. Start Noosphere + Postgres
+docker compose up --build
+
+# 3. Verify health
+curl http://localhost:8080/health
+```
+
+The MCP server exposes these tools over HTTP/SSE at `http://localhost:8080/sse`:
+
+- `extract_article(url)` — extract an article and download images
+- `review_article(article_id)` — AI copy-edit and validate
+- `upload_article(article_id, target="auto")` — upload to SiYuan or local archive
+- `run_pipeline(url, auto_confirm=true)` — full extract → review → upload
+
+For local development you can also start the MCP server without Docker:
+
+```bash
+nsphr mcp --host 127.0.0.1 --port 8080
+```
+
 ## Configuration
 
 ### Quick Start
@@ -103,6 +134,7 @@ nsphr --help
 - `ai`: provider (`openai`, `anthropic`, or `compatible`), max_attempts, prompt paths, platform-specific prompt overrides
 - `ai_providers`: model, API base, API key, token limit, temperature
 - `crawler`: primary and fallback crawler selection (`crawl4ai`, `firecrawl`) with per-provider credentials
+- `checkpoint`: backend (`postgres` default, `sqlite` for local dev), Postgres connection string (defaults to `DATABASE_URL` env var)
 
 ### Local Archive
 

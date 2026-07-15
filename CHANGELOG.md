@@ -6,8 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-15
+
 ### Added
-- **LangGraph migration**: replaced the custom pipeline + direct API-call architecture with a LangGraph `StateGraph`. Includes `src/graph/` package with `ArticleState`, LangChain `@tool` wrappers, AI review sub-graph, full `extract → ai-review → upload` pipeline graph, graph-based CLI/TUI flows, configurable checkpoint persistence (SQLite default, optional PostgreSQL), and deprecation warnings for old `src/pipelines/` modules. (`src/graph/state.py`, `src/graph/tools.py`, `src/graph/graph.py`, `src/cli.py`, `src/tui/screens/`, `src/core/config/schema.py`, `tests/test_graph.py`)
+- **LangGraph migration**: replaced the custom pipeline + direct API-call architecture with a LangGraph `StateGraph`. Includes `src/graph/` package with `ArticleState`, LangChain `@tool` wrappers, AI review sub-graph, full `extract → ai-review → upload` pipeline graph, graph-based CLI/TUI flows, configurable checkpoint persistence (PostgreSQL default in Docker, SQLite still available for local dev), and deprecation warnings for old `src/pipelines/` modules. (`src/graph/state.py`, `src/graph/tools.py`, `src/graph/graph.py`, `src/cli.py`, `src/tui/screens/`, `src/core/config/schema.py`, `tests/test_graph.py`)
 - **Source metadata validation**: `ai-review` now mechanically validates that the blockquote after the H1 title includes `Source` as a Markdown link plus `Platform`, `Author`, `Published`, `Captured`, and `Type` fields. (`src/core/review/review_validation.py`, `prompts/edit_article.md`)
 - **Main Article heading hierarchy validation**: `ai-review` now rejects H1 or H2 subheadings under `## Main Article`; first-level subheadings must be `###` (H3) or deeper. (`src/core/review/review_validation.py`, `prompts/edit_article.md`)
 - **TUI**: interactive terminal UI launched via `nsphr tui`. Includes dashboard, extract, AI review, upload, email, image review, pipeline, and prompt management screens. (`src/tui/`)
@@ -19,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `generate_vision()` method in `AIClient` supporting both Anthropic and OpenAI vision APIs for image content analysis. (`src/integrations/ai_client.py`)
 - `review-images ARTICLE_DIR` CLI command for reviewing, listing, and restoring images removed by AI filtering. Supports `--list`, `--preview` (HTML gallery), `--restore IMAGE`, and `--restore-all`. (`src/cli.py`, `src/core/review/image_filter.py`)
 - **LangGraph runtime parity test**: `tests/test_graph.py` now verifies that `run_ai_review_graph` produces identical `reviewed.md` output to the legacy `run_ai_review` pipeline under identical mocked AI responses. (`tests/test_graph.py`)
+- **PostgreSQL checkpoint by default in Docker**: `CheckpointConfig` now defaults to `sqlite` for backward compatibility, but automatically selects `postgres` when `DATABASE_URL` (or `postgres_connection_string`) is present. This lets Docker deployments use Postgres without breaking local development. (`src/core/config/schema.py`, `src/graph/graph.py`, `config.json.example`)
+- **Docker Compose deployment**: added `Dockerfile`, `docker-compose.yml`, `.dockerignore`, and `scripts/docker-entrypoint.sh` so the MCP service and Postgres can be started with `docker compose up`. (`Dockerfile`, `docker-compose.yml`, `.dockerignore`, `scripts/docker-entrypoint.sh`)
+- **MCP Server**: new `src/mcp/server.py` exposes the Noosphere pipeline as MCP tools (`extract_article`, `review_article`, `upload_article`, `run_pipeline`) over HTTP/SSE, with strict URL validation to prevent malformed requests. (`src/mcp/server.py`, `pyproject.toml`)
+- **`nsphr mcp` command**: CLI can now start the MCP server locally for development via `nsphr mcp [--host HOST] [--port PORT]`. (`src/cli.py`)
 
 ### Changed
 - Updated README.md to reflect the configurable crawler architecture and AI copy-editing workflow, replacing outdated "crawl4ai with firecrawl fallback" and "AI rewrite" language.
@@ -36,6 +42,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Extracted `rules-review` command and the entire platform-rules / noise-hints system are removed.
 
 ### Fixed
+- **`nsphr mcp` startup**: use `uvicorn.Server(...).serve()` instead of `uvicorn.run()` so the server can be awaited from within the CLI's async main loop without raising "asyncio.run() cannot be called from a running event loop". (`src/cli.py`)
+- **LangGraph Postgres checkpoint setup**: pass `kwargs={"autocommit": True}` to `AsyncConnectionPool` so `AsyncPostgresSaver.setup()` can run `CREATE INDEX CONCURRENTLY` outside a transaction block. (`src/graph/graph.py`)
+- **MCP upload/run_pipeline tool messages**: `upload_article` and `run_pipeline` no longer try to read a non-existent `platform` attribute from `UploadResult`; they report the uploaded `hpath` and `created` flag. (`src/mcp/server.py`)
+- **MCP URL validation**: reject `ftp://` and strip leading/trailing whitespace from URLs before forwarding them to crawlers. (`src/mcp/server.py`)
 - **WeChat MP duplicate cover image detection**: `clean_body()` now uses a generic pattern (image-only heading followed by a short publisher heading) instead of a hard-coded list of media names. This correctly removes duplicate cover banners for any publisher, not just a whitelist of known outlets. (`src/platforms/wechat_mp/mp_extractor.py`)
 - Source metadata validator now tolerates blank lines between the H1 title and the metadata blockquote.
 - Main Article heading hierarchy validator now reports the first invalid H2 subheading instead of stopping before it.

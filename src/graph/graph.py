@@ -494,12 +494,15 @@ async def _get_checkpointer():
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
         from psycopg_pool import AsyncConnectionPool
 
-        connection_string = checkpoint_config.postgres_connection_string
+        connection_string = checkpoint_config.effective_postgres_connection_string()
         if not connection_string:
             raise ValueError(
-                "checkpoint.backend is 'postgres' but checkpoint.postgres_connection_string is not set"
+                "checkpoint.backend is 'postgres' but neither checkpoint.postgres_connection_string nor DATABASE_URL is set"
             )
-        pool = AsyncConnectionPool(connection_string, open=False)
+        # ``autocommit=True`` is required because ``AsyncPostgresSaver.setup()``
+        # issues ``CREATE INDEX CONCURRENTLY``, which cannot run inside a
+        # transaction block.
+        pool = AsyncConnectionPool(connection_string, open=False, kwargs={"autocommit": True})
         await pool.open()
         _saver = AsyncPostgresSaver(pool)
         await _saver.setup()
