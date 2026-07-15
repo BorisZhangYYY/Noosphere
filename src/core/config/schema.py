@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.core.paths import resolve_project_path
 
@@ -63,13 +64,30 @@ class CheckpointConfig(BaseModel):
     """LangGraph checkpoint persistence configuration."""
 
     backend: str = "sqlite"
-    """One of ``memory`` (ephemeral), ``sqlite`` (default), or ``postgres``."""
+    """One of ``memory`` (ephemeral), ``sqlite`` (local dev default), or ``postgres`` (production/Docker)."""
 
     sqlite_path: str = ".noosphere/checkpoints.sqlite"
     """Path to the SQLite checkpoint database when backend is ``sqlite``."""
 
     postgres_connection_string: str | None = None
-    """PostgreSQL connection string when backend is ``postgres``."""
+    """PostgreSQL connection string when backend is ``postgres``.
+
+    If omitted, the ``DATABASE_URL`` environment variable is used as a fallback
+    so Docker deployments do not need to hard-code credentials in ``config.json``.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_backend_from_env(cls, data: Any) -> Any:
+        """Default to postgres when ``DATABASE_URL`` is present and backend is not set."""
+        if isinstance(data, dict) and "backend" not in data:
+            conn = data.get("postgres_connection_string") or os.getenv("DATABASE_URL")
+            data["backend"] = "postgres" if conn else "sqlite"
+        return data
+
+    def effective_postgres_connection_string(self) -> str | None:
+        """Return the configured Postgres connection string or ``DATABASE_URL``."""
+        return self.postgres_connection_string or os.getenv("DATABASE_URL")
 
     @property
     def is_sqlite(self) -> bool:
