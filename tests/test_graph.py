@@ -48,6 +48,7 @@ def test_default_initial_state_has_required_keys(initial_state):
         "human_approved",
         "review_model",
         "review_provider",
+        "review_perspective",
         "upload_target",
         "removed_files",
         "upload_result",

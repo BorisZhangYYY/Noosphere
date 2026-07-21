@@ -38,6 +38,15 @@ class WechatMpExtractor(BaseArticleExtractor):
             "delay_before_return_html": 1.2,
             "pruning_threshold": 0.42,
             "word_count_threshold": 5,
+            # WeChat keeps most article images in data-src until they enter the
+            # viewport. Normalise those attributes before Crawl4AI generates
+            # Markdown so the asset stage can localise every content image.
+            "js_code": """
+                document.querySelectorAll('#js_content img').forEach((image) => {
+                  const source = image.getAttribute('data-src') || image.getAttribute('data-original');
+                  if (source && (source.startsWith('https://') || source.startsWith('http://'))) image.setAttribute('src', source);
+                });
+            """,
         }
 
     def extract_title(self, soup: BeautifulSoup) -> str | None:

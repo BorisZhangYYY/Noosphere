@@ -141,7 +141,8 @@ def _validate_from_metadata(markdown: str, metadata: PromptMetadata, content_typ
             issues.extend(validate_source_metadata_block(markdown, required_fields=fields, source_must_be_link=source_must_be_link))
         elif rule.rule_type == "main_article_subheadings_min_level":
             min_level = int(rule.params.get("min_level", 3))
-            issues.extend(validate_main_article_heading_hierarchy(markdown, min_level=min_level))
+            heading = str(rule.params.get("heading") or "Main Article")
+            issues.extend(validate_main_article_heading_hierarchy(markdown, min_level=min_level, section_heading=heading))
 
     # Always enforce disallowed headings regardless of prompt metadata
     issues.extend(validate_disallowed_headings(markdown))
@@ -357,8 +358,9 @@ def validate_source_metadata_block(
 def validate_main_article_heading_hierarchy(
     markdown: str,
     min_level: int = 3,
+    section_heading: str = "Main Article",
 ) -> list[ValidationIssue]:
-    """Ensure headings inside `## Main Article` are at least `min_level`."""
+    """Ensure headings inside the configured body section are at least `min_level`."""
     issues: list[ValidationIssue] = []
     matches = _find_headings_outside_code_blocks(markdown)
 
@@ -366,7 +368,7 @@ def validate_main_article_heading_hierarchy(
         (
             index
             for index, match in enumerate(matches)
-            if match.group(1) == "##" and match.group(2).strip() == "Main Article"
+            if match.group(1) == "##" and match.group(2).strip() == section_heading
         ),
         None,
     )
@@ -381,7 +383,7 @@ def validate_main_article_heading_hierarchy(
             issues.append(
                 ValidationIssue(
                     "invalid_main_article_heading_level",
-                    f"Heading under `## Main Article` must be `{'#' * min_level}` or deeper, "
+                    f"Heading under `## {section_heading}` must be `{'#' * min_level}` or deeper, "
                     f"but found `{'#' * level} {text}`.",
                 )
             )

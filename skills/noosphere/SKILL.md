@@ -11,16 +11,24 @@ Extract web articles, clean them with AI-assisted copy-editing, and import them 
 
 - The user shares a URL from a supported platform (WeChat, Zhihu, Xiaoheihe, X) and wants it saved as clean Markdown.
 - The user asks to run `extract`, `ai-review`, `upload`, or `run` with Noosphere.
-- The user wants to batch-process URLs, review removed images, or configure the tool.
-- The user asks about Noosphere setup, configuration, supported platforms, or workflow.
+- The user wants to batch-process URLs or review removed images.
+
+## Prerequisites
+
+If `nsphr` is not found or `config.json` is missing, Noosphere is not set up yet. Stop and tell the user: **"Noosphere 还未安装或配置，请先运行安装 skill"**，然后引导他们执行：
+
+```bash
+npx skills add https://github.com/BorisZhangYYY/Noosphere --skill noosphere-setup
+```
+
+安装配置完成后再回到这个 skill 继续。
 
 ## What This Skill Does
 
-1. Guides the user through extracting one or more article URLs.
-2. Helps configure `config.json` and validate the local setup.
-3. Runs the AI review workflow when requested, reporting validation results and retry attempts.
-4. Uploads or archives the reviewed Markdown via the configured adapter.
-5. Explains the output files and how to recover incorrectly removed images.
+1. Extracts one or more article URLs via `nsphr extract`.
+2. Runs the AI review workflow when requested, reporting validation results and retry attempts.
+3. Uploads or archives the reviewed Markdown via the configured adapter.
+4. Explains the output files and how to recover incorrectly removed images.
 
 ## Agent Instructions
 
@@ -28,44 +36,12 @@ Extract web articles, clean them with AI-assisted copy-editing, and import them 
 - **Report before uploading**: after `ai-review`, summarize important deletions, rewrites, structure changes, and preserved sections; ask the user for confirmation before running `upload`.
 - **`upload` is independent**: `upload` is a manual endpoint and does not require `ai-review`, a completed `review.json`, or validation to pass. You can upload a manually-edited `reviewed.md` directly.
 
-## Setup
-
-```bash
-# 1. Install the skill for Claude Code
-npx skills add BorisZhangYYY/Noosphere --skill noosphere --agent claude-code
-
-# 2. Enter the cloned project directory for local development
-cd /path/to/Noosphere
-
-# 3. Install Python dependencies
-pip install -e .
-
-# 4. Install Playwright browser for Crawl4AI
-playwright install chromium
-
-# 5. Copy example config and customize
-cp config.json.example config.json
-# Edit config.json — add your API keys and endpoints
-
-# 6. Verify installation
-bash skills/noosphere/scripts/validate_setup.sh
-nsphr --help
-```
-
-To update the skill later, run from the project root:
-
-```bash
-./skill.sh update
-```
-
-This re-syncs a **copied** skill at `~/.claude/skills/noosphere` from this repo. If you installed via symlink, run `git pull` in the project directory instead (the symlink always reflects the latest code).
-
-## Configuration
+## Configuration Reference
 
 See `references/config_reference.md` for the full `config.json` schema. Key points:
 
-- `ai.provider` can be `openai`, `anthropic`, or `compatible`.
-- `anthropic` means **Anthropic Messages API compatible** — you can point `ai_providers.anthropic.api_base` to Kimi, MiniMax, or any compatible endpoint.
+- `ai.provider` names a key under `ai_providers` (e.g. `anthropic`, `openai`).
+- Provider `api_format` can be `anthropic`, `openai_chat`, or `openai_responses`. Set `api_format: anthropic` to use Kimi, MiniMax, or any Anthropic-compatible endpoint.
 - `crawler.primary` and `crawler.fallback` let you swap the extraction order without code changes.
 - Configure at least one upload target: `siyuan` or `local_archive`.
 

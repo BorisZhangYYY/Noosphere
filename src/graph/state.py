@@ -54,6 +54,7 @@ class ArticleState(TypedDict):
     human_approved: bool
     review_model: str
     review_provider: str
+    review_perspective: str
     upload_target: str | None
 
     # Image filter tracking (persisted to manifest on success)
@@ -73,6 +74,7 @@ class ArticleState(TypedDict):
         "image_filtered",
         "reviewing",
         "reviewed",
+        "classified",
         "validated",
         "approved",
         "uploaded",

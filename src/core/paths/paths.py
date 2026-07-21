@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.core.config.config import load_config
-from src.core.paths import project_root
+from src.core.paths import project_root, runtime_home
 
 """Application-level path configuration for Noosphere.
 
@@ -46,7 +46,7 @@ class Paths:
     @property
     def crawl4ai_runtime_dir(self) -> Path:
         """Crawl4AI runtime cache directory."""
-        return project_root() / ".crawl4ai-runtime"
+        return runtime_home() / "cache" / "crawl4ai"
 
     # Article-scoped paths
 

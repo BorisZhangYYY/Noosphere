@@ -13,37 +13,39 @@ Noosphere is an article web extraction, AI review, sharing and storing tool.
 
 - Run `python -m compileall src`, `python -m json.tool config.json.example`, and `git diff --check` before committing workflow changes.
 
-## Git
+## Testing
 
-- Before every commit, read CHANGELOG.md and record notable changes under [Unreleased] with the date.
-- Keep commits grouped by intent: implementation, docs, and small corrections separately.
-- Never commit `config.json`, `outputs/`, API keys, SiYuan tokens, or generated caches.
-- Never commit **superpowers-related** plans, keeping them local.
-- **All commits, pull request creation, and pull request merges must be approved by the user. Do not push branches, open PRs, or merge PRs without explicit user approval.**
+```bash
+# Install with dev dependencies (includes pytest, pytest-asyncio)
+pip install -e ".[dev]"
 
-## Changelog
+# Run all tests
+python -m pytest tests/ -v
 
-Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. Maintain `CHANGELOG.md` at repo root. Group entries under `[Unreleased]` and versioned sections.
+# Run a specific test file
+python -m pytest tests/test_graph.py -v
+```
 
-Categories: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
+## Docker Build
 
-## Commits
+```bash
+# Build and start the full stack (Noosphere + Postgres)
+docker compose up --build
 
-Use conventional commits with scope when applicable:
+# Open the web workspace
+# http://localhost:8080/app/
 
-| Prefix | Meaning |
-|--------|---------|
-| `feat(scope):` | New feature |
-| `fix(scope):` | Bug fix |
-| `refactor(scope):` | Code change without behavior change |
-| `docs(scope):` | Documentation only |
-| `test(scope):` | Test changes |
-| `chore(scope):` | Tooling, config, dependencies |
+# Build the image standalone
+docker build -t noosphere .
 
-Examples:
-- `feat(wechat_mp): add author extraction from meta tag`
-- `refactor(core): move ai_review.py into review/ subdirectory`
+# Run with a custom host data directory
+NOOSPHERE_DATA_DIR=/path/to/noosphere-data docker compose up --build
+```
+
+## Git & Changelog
+
+See [.project/git-conventions.md](.project/git-conventions.md) for commit format, changelog management, and push/PR rules.
 
 ## Comments
 
-Write all comments in English. Add comments only when the WHY is non-obvious. Do not comment WHAT — names should explain that. Prefer module and class docstrings over inline comments. 
+Write all comments in English. Add comments only when the WHY is non-obvious. Do not comment WHAT — names should explain that. Prefer module and class docstrings over inline comments.

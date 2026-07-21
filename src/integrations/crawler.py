@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,7 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+_MARKDOWN_IMAGE_REF_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 
 
 @dataclass
@@ -72,6 +74,7 @@ async def _crawl_page_crawl4ai(
     delay_before_return_html: float = 0.8,
     pruning_threshold: float = 0.45,
     word_count_threshold: int = 8,
+    js_code: str | list[str] | None = None,
 ) -> CrawledPage:
     browser_config = BrowserConfig(
         headless=True,
@@ -105,6 +108,7 @@ async def _crawl_page_crawl4ai(
         remove_consent_popups=True,
         magic=True,
         simulate_user=True,
+        js_code=js_code,
     )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -182,9 +186,10 @@ async def _crawl_page_firecrawl(
     delay_before_return_html: float = 0.8,
     pruning_threshold: float = 0.45,
     word_count_threshold: int = 8,
+    js_code: str | list[str] | None = None,
 ) -> CrawledPage:
     """Call Firecrawl /scrape API as a fallback when Crawl4AI fails."""
-    del excluded_tags, page_timeout, pruning_threshold, word_count_threshold  # Unused in Firecrawl path
+    del excluded_tags, page_timeout, pruning_threshold, word_count_threshold, js_code  # Unused in Firecrawl path
 
     config = load_config()
     api_key = config.crawler.firecrawl.api_key or ""
@@ -287,6 +292,7 @@ async def crawl_page(
     delay_before_return_html: float = 0.8,
     pruning_threshold: float = 0.45,
     word_count_threshold: int = 8,
+    js_code: str | list[str] | None = None,
 ) -> CrawledPage:
     """Crawl a URL using the configured primary crawler, falling back on failure.
 
@@ -329,6 +335,7 @@ async def crawl_page(
             delay_before_return_html=delay_before_return_html,
             pruning_threshold=pruning_threshold,
             word_count_threshold=word_count_threshold,
+            js_code=js_code,
         )
     except Exception as exc:
         page = CrawledPage(
@@ -341,13 +348,19 @@ async def crawl_page(
             error=f"{primary_name}: {exc}",
         )
 
-    if page.success:
+    weak_wechat_capture = (
+        page.success
+        and "mp.weixin.qq.com/s/" in resolved_url
+        and len(_MARKDOWN_IMAGE_REF_RE.findall(page.markdown)) <= 1
+    )
+    if page.success and not weak_wechat_capture:
         page.crawler_used = primary_name
         return page
 
     # Primary failed — try fallback if available
     if not fallback:
-        sys.stderr.write(f"[crawler] {primary_name} failed and no fallback configured\n")
+        page.crawler_used = primary_name if page.success else None
+        sys.stderr.write(f"[crawler] {primary_name} returned insufficient content and no fallback is configured\n" if weak_wechat_capture else f"[crawler] {primary_name} failed and no fallback configured\n")
         return page
 
     fallback_fn = _crawlers.get(fallback)
@@ -356,7 +369,8 @@ async def crawl_page(
         return page
 
     fallback_name = "firecrawl" if fallback_fn is _crawl_page_firecrawl else "crawl4ai"
-    sys.stderr.write(f"[crawler] {primary_name} failed for {url}, trying {fallback_name} fallback...\n")
+    reason = "returned too few WeChat images" if weak_wechat_capture else "failed"
+    sys.stderr.write(f"[crawler] {primary_name} {reason} for {url}, trying {fallback_name} fallback...\n")
 
     try:
         fallback_page = await fallback_fn(
@@ -370,6 +384,7 @@ async def crawl_page(
             delay_before_return_html=delay_before_return_html,
             pruning_threshold=pruning_threshold,
             word_count_threshold=word_count_threshold,
+            js_code=js_code,
         )
     except Exception as exc:
         fallback_page = CrawledPage(
@@ -383,9 +398,18 @@ async def crawl_page(
         )
 
     if fallback_page.success:
+        primary_images = len(_MARKDOWN_IMAGE_REF_RE.findall(page.markdown))
+        fallback_images = len(_MARKDOWN_IMAGE_REF_RE.findall(fallback_page.markdown))
+        if weak_wechat_capture and (fallback_images <= primary_images or len(fallback_page.markdown) < 100):
+            page.crawler_used = primary_name
+            sys.stderr.write(f"[crawler] {fallback_name} did not improve the WeChat capture; keeping {primary_name}\n")
+            return page
         fallback_page.crawler_used = fallback_name
         sys.stderr.write(f"[crawler] {fallback_name} fallback succeeded for {resolved_url}\n")
         return fallback_page
 
     sys.stderr.write(f"[crawler] {fallback_name} fallback also failed: {fallback_page.error}\n")
+    if page.success:
+        page.crawler_used = primary_name
+        return page
     return fallback_page

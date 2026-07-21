@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: noosphere
       POSTGRES_DB: noosphere
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ${NOOSPHERE_DATA_DIR:-./.noosphere}/postgres:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -27,13 +27,14 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://noosphere:noosphere@postgres:5432/noosphere
+      NOOSPHERE_HOME: /data
+      NOOSPHERE_CONFIG: /data/config.json
+      NOOSPHERE_OUTPUT_DIR: /data/articles
+      NOOSPHERE_CHECKPOINT_BACKEND: postgres
     ports:
       - "8080:8080"
     volumes:
-      - ./config.json:/app/config.json:ro
-      - ./prompts:/app/prompts:ro
-      - ./outputs:/app/outputs
-      - noosphere_data:/app/data
+      - ${NOOSPHERE_DATA_DIR:-./.noosphere}:/data
     command: ["mcp"]
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
@@ -41,7 +42,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-
-volumes:
-  postgres_data:
-  noosphere_data:

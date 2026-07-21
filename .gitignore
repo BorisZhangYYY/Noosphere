@@ -1,21 +1,36 @@
-# environment
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
 .venv/
+
+# macOS
+.DS_Store
+
+# Secrets — runtime config with API keys and tokens
 config.json
 
-# build artifacts
-build/
-dist/
-*.egg-info/
+# Testing
+.pytest_cache/
 
-# AI
-.claude/
-superpowers/
+# Frontend (Node.js)
+frontend/node_modules/
+frontend/dist/
 
-# cache
-__pycache__/
-.crawl4ai-runtime/
-.noosphere/
+# Runtime data — article workspaces, crawler cache, Docker volumes
 outputs/
+.noosphere/
+.crawl4ai-runtime/
 
-# superpowers-related plans (kept local per CLAUDE.md)
-docs/langgraph-migration/WORKLOG.md
+# Databases — SQLite files generated at runtime
+*.sqlite
+*.sqlite3
+
+# Claude Code — agent session artifacts
+.claude/
+.agents/
+.claude-plugin/
+skills-lock.json
+
+# Logs
+*.log

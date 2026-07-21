@@ -1,3 +1,12 @@
+FROM node:22-slim AS web-builder
+
+WORKDIR /web
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
@@ -21,17 +30,29 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app /app
+COPY --from=web-builder /web/dist /app/frontend/dist
 
-# Create a non-root user and writable directories.
+# Create a non-root user with a writable browser-cache directory.
 RUN useradd -m -u 1000 noosphere && \
-    mkdir -p /app/data /app/outputs /app/prompts /app/.noosphere && \
-    chown -R noosphere:noosphere /app/data /app/outputs /app/prompts /app/.noosphere
+    mkdir -p /data /app/prompts && \
+    chown -R noosphere:noosphere /data /app/prompts /home/noosphere
 
-# Install Playwright Chromium browser and system dependencies as runtime user.
-# Doing this in the runtime stage ensures the browser cache is writable and the
-# required shared libraries are present in the final image.
+# Playwright installs OS packages through apt, which requires root. Debian
+# mirrors occasionally fail a single archive request; retry the idempotent
+# dependency installation so a transient 5xx does not abort the whole build.
+# Install the browser itself after switching users so its cache remains writable.
+RUN set -e; \
+    for dependency_attempt in 1 2 3; do \
+        if playwright install-deps chromium; then \
+            break; \
+        fi; \
+        if [ "$dependency_attempt" = "3" ]; then \
+            exit 1; \
+        fi; \
+    done
+
 USER noosphere
-RUN playwright install chromium && playwright install-deps chromium
+RUN playwright install chromium
 
 WORKDIR /app
 
