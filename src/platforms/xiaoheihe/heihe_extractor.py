@@ -25,6 +25,11 @@ FALLBACK_TITLE = "小黑盒帖子"
     ],
 )
 class XiaoheiheExtractor(BaseArticleExtractor):
+    """Extract Xiaoheihe posts.
+
+    Contributed by @BorisZhangYYY
+    Lesson: platform-lessons.md#xiaoheihe-redirect-data
+    """
     platform = PLATFORM
     platform_label = PLATFORM_LABEL
     fallback_title = FALLBACK_TITLE
