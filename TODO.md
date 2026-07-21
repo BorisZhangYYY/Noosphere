@@ -62,6 +62,8 @@
 
    </details>
 
+6. **`.claude-plugin/plugin.json` is tracked by Git.** It was committed before the `.gitignore` rule was added. Needs `git rm --cached` and a PR to stop tracking. The fix branch `fix/untrack-claude-plugin` is already open.
+
 ---
 
 ## Polish
