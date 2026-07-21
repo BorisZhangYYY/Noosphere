@@ -16,6 +16,7 @@ After fixing a platform extraction issue, append an entry below using the templa
 - **Cause**: <why it happened>
 - **Fix**: <what was done>
 - **Category**: <kebab-case slug>  ← reuse for similar issues
+- **Contributor**: @github-handle
 - **Verdict**: one-off | recurring (count: N)
 ```
 

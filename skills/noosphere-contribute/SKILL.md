@@ -52,12 +52,28 @@ The maintainer will review, format, and add your lesson to the log.
 - **Cause**: <why it happened>
 - **Fix**: <what was done to resolve it>
 - **Category**: <kebab-case slug>  ← reuse for similar issues
+- **Contributor**: @github-handle
 - **Verdict**: one-off | recurring (count: N)
 ```
 
+## Code Attribution
+
+When a lesson is codified into an extractor, the contributor is credited in a docstring comment:
+
+```python
+class WechatMpExtractor(BaseArticleExtractor):
+    """Extract WeChat public account articles.
+
+    Contributed by @BorisZhangYYY
+    Lesson: platform-lessons.md#wechat-image-lazy-load
+    """
+```
+
+This keeps the full chain visible: code → who found it → where the discussion lives.
+
 ## What Happens Next
 
-All entries are collected in `.project/platform-lessons.md`. When any `Category` reaches **3 occurrences**, it becomes a candidate for a permanent extraction strategy in the platform extractor (see `.project/platform-extractors.md`). A project maintainer will review and potentially codify it.
+All entries are collected in `.project/platform-lessons.md`. When any `Category` reaches **3 occurrences**, it becomes a candidate for a permanent extraction strategy in the platform extractor (see `.project/platform-extractors.md`). A project maintainer will review, codify it, and credit the contributors.
 
 ## Agent Instructions
 
