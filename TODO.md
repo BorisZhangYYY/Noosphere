@@ -78,7 +78,7 @@
 
 2. **Hierarchical category display in Recent Articles.** When a parent category (e.g., "AIGC") has subcategories (e.g., "3D Modeling", "Prompt Engineering"), the recent articles list should reflect this hierarchy. Use a dropdown under the parent label showing each subcategory with its article count. By default, show the parent name and its total count.
 
-3. **Self-healing extraction quality loop.** When `nsphr run` is used, the internal pipeline agent should detect and accumulate extraction issues (missing images, short body, missing metadata) automatically. Per-article metrics go into `manifest.json`; aggregated counts go into `.noosphere/extraction-metrics.json`. When any issue reaches 3 occurrences, the agent proposes an extractor code fix. This makes the one-click pipeline self-improving without depending on external user reports. Design doc: `.project/extraction-quality.md`.
+3. **Self-healing extraction quality loop** *(major feature)*. The internal pipeline agent detects extraction issues automatically during `nsphr run` — missing images, short body, missing metadata. Quality metrics are written per-article to `manifest.json` and aggregated into `.noosphere/extraction-metrics.json`. When any issue category reaches 3 occurrences, the agent proposes an extractor code fix. This makes the one-click pipeline self-improving without depending on external user reports or community contributions. Full design: [.project/self-healing-extraction.md](.project/self-healing-extraction.md).
 
 ---
 
