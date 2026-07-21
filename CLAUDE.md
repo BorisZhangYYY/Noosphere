@@ -8,6 +8,11 @@ Noosphere is an article web extraction, AI review, sharing and storing tool.
 - `references/` contains Crawl4AI and SiYuan documentation that can be used as reference when developing new features.
 - Preserve clear output boundaries inside `outputs/<article_id>/`: do not edit or rewrite `raw.md`, and perform all review, editing, and AI rewriting based on `reviewed.md`. Keep `manifest.json`, `review.json`, and `assets/` tied to the same article workspace.
 - Keep long prompts in `prompts/`; keep `config.json.example` easy and human-readable.
+- Platform extraction strategies are documented in [.project/platform-extractors.md](.project/platform-extractors.md). When changing extractor behavior, read and update this doc.
+
+## Platform Lessons
+
+When fixing a platform-specific extraction issue, record the lesson in [.project/platform-lessons.md](.project/platform-lessons.md) using the template at the top of that file. Reuse the same `Category` slug when the same type of problem appears again. When any category reaches **3 occurrences**, raise it as a candidate for codifying into the extractor code — do not modify the extractor without user approval.
 
 ## Verification
 
