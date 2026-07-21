@@ -127,23 +127,7 @@ Each article gets a workspace at `outputs/<article_id>/`:
 - **Crawl failed**: report which crawler was tried and the error; suggest switching `crawler.primary`.
 - **AI review failed**: print validation issues so the user can manually fix `reviewed.md` or run with `--force`.
 - **Upload failed**: check the target config (SiYuan token / local archive path) and retry.
-
-## Contributing Platform Lessons
-
-Noosphere gets better when every user shares what they learn. When you encounter and fix a platform-specific extraction problem, record it in `.project/platform-lessons.md` so it benefits everyone.
-
-**When to contribute:**
-- An article was extracted incorrectly (missing images, wrong title, noise in body, blank output)
-- You identified the root cause and applied a fix
-- The fix is specific to a platform (WeChat, Zhihu, Xiaoheihe, X, etc.)
-
-**How to contribute:**
-1. Open `.project/platform-lessons.md`
-2. Append an entry following the template at the top of the file
-3. Reuse an existing `Category` if the same type of problem has been seen before
-4. Tell the user: *"I recorded this fix in platform-lessons.md. Consider submitting a PR to improve Noosphere for everyone."*
-
-> Entries with the same `Category` that reach 3 occurrences become candidates for permanent extraction strategies. See `.project/platform-extractors.md` for current strategies.
+- **Platform extraction issue**: if the extraction produced incorrect results (missing images, wrong title, noise, blank output) and you identified a fix, tell the user: *"这个平台抓取问题可以通过 `noosphere-contribute` skill 提交经验，帮 Noosphere 变得更好"*。The contribute skill records the lesson and submits it back to the project.
 
 ## Notes
 

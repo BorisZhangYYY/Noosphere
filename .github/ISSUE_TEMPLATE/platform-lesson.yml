@@ -1,0 +1,53 @@
+name: Platform Lesson
+description: Share an extraction lesson learned on a specific platform
+title: "[Lesson] <platform>: <one-line summary>"
+labels: ["platform-lesson", "community"]
+body:
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Which platform was this? (wechat_mp, zhihu_zhuanlan, xiaoheihe, x, etc.)
+      placeholder: wechat_mp
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What went wrong during extraction?
+      placeholder: Images were missing from the output...
+    validations:
+      required: true
+  - type: textarea
+    id: cause
+    attributes:
+      label: Cause
+      description: Why did it happen?
+      placeholder: WeChat lazy-loads images via data-src...
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Fix
+      description: What was done to resolve it?
+      placeholder: Injected JS to copy data-src to src before markdown generation...
+    validations:
+      required: true
+  - type: input
+    id: category
+    attributes:
+      label: Category
+      description: A short kebab-case slug for this type of issue (reuse if this has been seen before)
+      placeholder: wechat-image-lazy-load
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Example URL
+      description: A URL that triggered this issue (optional, helps reproduce)
+      placeholder: https://mp.weixin.qq.com/s/...
+    validations:
+      required: false
