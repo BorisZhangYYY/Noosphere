@@ -22,11 +22,6 @@ OEMBED_ENDPOINT = "https://publish.twitter.com/oembed"
     content_type="social_post",
 )
 class XExtractor:
-    """Extract X (Twitter) posts via oEmbed API.
-
-    Contributed by @BorisZhangYYY
-    Lesson: platform-lessons.md#x-oembed-api
-    """
     platform = PLATFORM
     platform_label = PLATFORM_LABEL
     fallback_title = FALLBACK_TITLE

@@ -10,10 +10,6 @@ Noosphere is an article web extraction, AI review, sharing and storing tool.
 - Keep long prompts in `prompts/`; keep `config.json.example` easy and human-readable.
 - Platform extraction strategies are documented in [.project/platform-extractors.md](.project/platform-extractors.md). When changing extractor behavior, read and update this doc.
 
-## Platform Lessons
-
-When fixing a platform-specific extraction issue, record the lesson in [.project/platform-lessons.md](.project/platform-lessons.md) using the template at the top of that file. Reuse the same `Category` slug when the same type of problem appears again. When any category reaches **3 occurrences**, raise it as a candidate for codifying into the extractor code — do not modify the extractor without user approval.
-
 ## Verification
 
 - Run `python -m compileall src`, `python -m json.tool config.json.example`, and `git diff --check` before committing workflow changes.

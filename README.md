@@ -14,10 +14,9 @@ Install the skills for Claude Code:
 npx skills add https://github.com/BorisZhangYYY/Noosphere
 ```
 
-This installs three skills:
+This installs two skills:
 - **noosphere** — extract, review, and upload articles
 - **noosphere-setup** — install dependencies and configure `config.json`
-- **noosphere-contribute** — record platform extraction lessons and submit them back to the project
 
 ## Supported Sources
 

@@ -127,7 +127,6 @@ Each article gets a workspace at `outputs/<article_id>/`:
 - **Crawl failed**: report which crawler was tried and the error; suggest switching `crawler.primary`.
 - **AI review failed**: print validation issues so the user can manually fix `reviewed.md` or run with `--force`.
 - **Upload failed**: check the target config (SiYuan token / local archive path) and retry.
-- **Platform extraction issue**: if the extraction produced incorrect results (missing images, wrong title, noise, blank output) and you identified a fix, tell the user: *"这个平台抓取问题可以通过 `noosphere-contribute` skill 提交经验，帮 Noosphere 变得更好"*。The contribute skill records the lesson and submits it back to the project.
 
 ## Notes
 

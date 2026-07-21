@@ -23,11 +23,6 @@ _SHORT_HEADING_RE = re.compile(r"^#{1,3}\s*(?:\*\*)?[^*#\n]{1,15}(?:\*\*)?\s*$")
 
 @register_extractor("wechat_mp", url_patterns=["mp.weixin.qq.com/s/"])
 class WechatMpExtractor(BaseArticleExtractor):
-    """Extract WeChat public account articles.
-
-    Contributed by @BorisZhangYYY
-    Lesson: platform-lessons.md#wechat-image-lazy-load
-    """
     platform = PLATFORM
     platform_label = PLATFORM_LABEL
     fallback_title = FALLBACK_TITLE

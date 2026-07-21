@@ -15,11 +15,6 @@ FALLBACK_TITLE = "知乎专栏文章"
 
 @register_extractor("zhihu_zhuanlan", url_patterns=["zhuanlan.zhihu.com/p/"])
 class ZhihuZhuanlanExtractor(BaseArticleExtractor):
-    """Extract Zhihu Zhuanlan articles.
-
-    Contributed by @BorisZhangYYY
-    Lesson: platform-lessons.md#zhihu-content-noise
-    """
     platform = PLATFORM
     platform_label = PLATFORM_LABEL
     fallback_title = FALLBACK_TITLE
