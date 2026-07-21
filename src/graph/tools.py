@@ -87,6 +87,7 @@ async def edit_article(
     feedback: str,
     platform: str,
     content_type: str,
+    perspective: str = "",
     image_filter_result: ImageFilterResult | None = None,
 ) -> dict[str, str]:
     """Perform one AI rewrite attempt for the article.
@@ -99,9 +100,13 @@ async def edit_article(
     settings = resolve_ai_settings(config)
     client = AIClient(settings)
 
-    rewrite_prompt, _ = config.ai.resolve_prompt(
-        "rewrite_prompt", "rewrite_prompt_path", platform=platform
-    )
+    if perspective:
+        rewrite_prompt, _ = config.pipeline.resolve_review_prompt(perspective)
+        profile, output_template = config.pipeline.resolve_review_contract(perspective)
+    else:
+        rewrite_prompt, _ = config.ai.resolve_prompt(
+            "rewrite_prompt", "rewrite_prompt_path", platform=platform
+        )
     resolved_rewrite_prompt = rewrite_prompt.replace("{model}", settings.model)
 
     user_prompt = _build_rewrite_user_prompt(
@@ -111,24 +116,37 @@ async def edit_article(
     )
 
     response = await client.generate_text(resolved_rewrite_prompt, user_prompt)
+    response_markdown = response.text
+    if perspective:
+        from src.core.review.output_contract import materialize_review_output
+
+        response_markdown = materialize_review_output(
+            response.text,
+            output_template,
+            profile.output_sections,
+        )
+    prepared_markdown = response_markdown if perspective else prepare_rewritten_markdown(response_markdown, content_type)
     return {
-        "markdown": normalize_markdown_links(prepare_rewritten_markdown(response.text, content_type)),
+        "markdown": normalize_markdown_links(prepared_markdown),
         "model": response.model,
         "provider": response.provider,
     }
 
 
 @tool
-def validate_article(reviewed_path: str, platform: str) -> ValidationResult:
+def validate_article(reviewed_path: str, platform: str, perspective: str = "") -> ValidationResult:
     """Validate a reviewed Markdown file at *reviewed_path*.
 
     Uses validation rules from the configured rewrite prompt for *platform*.
     """
     config = load_config()
-    rewrite_prompt = config.ai.resolve_prompt(
-        "rewrite_prompt", "rewrite_prompt_path", platform=platform
-    )[0]
-    prompt_metadata = parse_prompt(rewrite_prompt).metadata
+    if perspective:
+        prompt_metadata = config.pipeline.resolve_review_prompt(perspective)[1]
+    else:
+        rewrite_prompt = config.ai.resolve_prompt(
+            "rewrite_prompt", "rewrite_prompt_path", platform=platform
+        )[0]
+        prompt_metadata = parse_prompt(rewrite_prompt).metadata
     return validate_reviewed_markdown(Path(reviewed_path), prompt_metadata)
 
 

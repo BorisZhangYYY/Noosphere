@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "Article extraction, AI review, and note-import tool"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.8",
     "aiosqlite>=0.20.0",

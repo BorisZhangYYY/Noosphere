@@ -113,6 +113,13 @@ async def _download_node(state: ArticleState) -> dict[str, object]:
     updated_markdown, assets, failed = await download_images.ainvoke(
         {"raw_markdown": state["raw_markdown"], "asset_dir": str(asset_dir)}
     )
+    from src.core.telemetry import emit_event
+    if failed:
+        await emit_event(
+            "download",
+            "pipeline.events.assetDownloadIncomplete",
+            f"{len(assets)} downloaded, {len(failed)} failed: " + "; ".join(list(failed.values())[:3]),
+        )
 
     raw_path = Path(state["reviewed_path"]).with_name("raw.md")
     reviewed_path = Path(state["reviewed_path"])
@@ -163,13 +170,18 @@ async def _download_node(state: ArticleState) -> dict[str, object]:
 
 async def _filter_images_node(state: ArticleState) -> dict[str, object]:
     """Classify local images as RELEVANT or PROMOTION before AI review."""
+    from src.core.telemetry import emit_event
+
     assets_dir = state.get("assets_dir")
-    if not assets_dir or not Path(assets_dir).exists():
+    asset_files = [] if not assets_dir else [path for path in Path(assets_dir).glob("**/*") if path.is_file()]
+    if not asset_files:
+        await emit_event("image_review", "pipeline.events.noImages")
         return {
             "image_filter_result": None,
             "status": "image_filtered",
         }
 
+    await emit_event("image_review", "pipeline.events.imageReviewStarted")
     try:
         result = await filter_images.ainvoke(
             {
@@ -179,13 +191,19 @@ async def _filter_images_node(state: ArticleState) -> dict[str, object]:
                 "assets_dir": assets_dir,
             }
         )
-    except Exception:
+    except Exception as exc:
+        await emit_event("image_review", "pipeline.events.imageReviewSkipped", str(exc))
         # Gracefully degrade to unfiltered review, same as legacy pipeline.
         return {
             "image_filter_result": None,
             "status": "image_filtered",
         }
 
+    await emit_event(
+        "image_review",
+        "pipeline.events.imageReviewCompleted",
+        f"{len(result.relevant_images)} relevant, {len(result.promotion_images)} removed",
+    )
     return {
         "image_filter_result": result,
         "status": "image_filtered",
@@ -296,7 +314,10 @@ def build_ai_review_subgraph() -> StateGraph:
 
 async def _edit_node(state: ArticleState) -> dict[str, object]:
     """Run one AI rewrite attempt and persist the result to disk."""
+    from src.core.telemetry import emit_event
+
     attempts = state.get("attempts", 0) + 1
+    await emit_event("ai_review", "pipeline.events.aiReviewStarted", f"attempt {attempts}")
 
     edit_result = await edit_article.ainvoke(
         {
@@ -304,6 +325,7 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
             "feedback": state.get("feedback", ""),
             "platform": state["platform"],
             "content_type": state["content_type"],
+            "perspective": state.get("review_perspective", ""),
             "image_filter_result": state.get("image_filter_result"),
         }
     )
@@ -330,6 +352,7 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
     reviewed_path = Path(state["reviewed_path"])
     reviewed_path.parent.mkdir(parents=True, exist_ok=True)
     reviewed_path.write_text(reviewed_markdown, encoding="utf-8")
+    await emit_event("ai_review", "pipeline.events.aiReviewCompleted", f"{len(reviewed_markdown)} characters")
 
     return {
         "reviewed_markdown": reviewed_markdown,
@@ -343,21 +366,31 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
 
 async def _validate_node(state: ArticleState) -> dict[str, object]:
     """Validate the reviewed Markdown on disk."""
+    from src.core.telemetry import emit_event
+
+    await emit_event("validation", "pipeline.events.validationStarted")
     validation_result = await validate_article.ainvoke(
         {
             "reviewed_path": state["reviewed_path"],
             "platform": state["platform"],
+            "perspective": state.get("review_perspective", ""),
         }
     )
 
     if validation_result.ok:
         _write_success_report(state)
+        await emit_event("validation", "pipeline.events.validationPassed")
         return {
             "validation_result": validation_result,
             "status": "reviewed",
             "feedback": "",
         }
 
+    await emit_event(
+        "validation",
+        "pipeline.events.validationRetry",
+        "; ".join(issue.message for issue in validation_result.issues[:6]),
+    )
     return {
         "validation_result": validation_result,
         "status": "reviewing",
@@ -550,6 +583,7 @@ def _default_initial_state() -> ArticleState:
         "human_approved": False,
         "review_model": "",
         "review_provider": "",
+        "review_perspective": "",
         "upload_target": None,
         "removed_files": [],
         "upload_result": None,
@@ -576,7 +610,13 @@ async def run_extract_graph(url: str, output_dir: Path | str | None = None) -> P
     return Path(final_state["reviewed_path"])
 
 
-async def run_ai_review_graph(reviewed_path: Path, max_attempts: int | None = None) -> ValidationResult:
+async def run_ai_review_graph(
+    reviewed_path: Path,
+    max_attempts: int | None = None,
+    *,
+    perspective: str | None = None,
+    source_markdown: str | None = None,
+) -> ValidationResult:
     """Run the AI review graph starting from an existing reviewed.md path."""
     reviewed_path = Path(reviewed_path)
     manifest_path = reviewed_path.with_name("manifest.json")
@@ -593,7 +633,7 @@ async def run_ai_review_graph(reviewed_path: Path, max_attempts: int | None = No
     if not raw_rel:
         raise ValueError(f"Raw Markdown path not found in manifest: {manifest_path}")
     raw_path = manifest_path.parent / raw_rel
-    raw_markdown = raw_path.read_text(encoding="utf-8")
+    raw_markdown = source_markdown if source_markdown is not None else raw_path.read_text(encoding="utf-8")
 
     assets_dir = manifest_path.parent / paths_data.get("assets", "assets") if paths_data.get("assets") else manifest_path.parent / "assets"
 
@@ -611,6 +651,7 @@ async def run_ai_review_graph(reviewed_path: Path, max_attempts: int | None = No
             "assets_dir": str(assets_dir),
             "raw_markdown": raw_markdown,
             "max_attempts": max_attempts if max_attempts is not None else config.ai.max_attempts,
+            "review_perspective": perspective or "",
         }
     )
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from src.core.paths import project_root
@@ -13,7 +14,14 @@ _config_cache: Config | None = None
 _config_cache_path: Path | None = None
 
 
-def load_config(path: Path = DEFAULT_CONFIG) -> Config:
+def config_path() -> Path:
+    """Return the active config path, allowing portable runtime data mounts."""
+    if configured := os.getenv("NOOSPHERE_CONFIG"):
+        return Path(configured).expanduser().resolve()
+    return DEFAULT_CONFIG
+
+
+def load_config(path: Path | None = None) -> Config:
     """Load and return the application configuration.
 
     The configuration is cached at the module level. Subsequent calls with the
@@ -21,17 +29,25 @@ def load_config(path: Path = DEFAULT_CONFIG) -> Config:
     ensures all callers see the same config object and avoids repeated I/O.
     """
     global _config_cache, _config_cache_path
+    path = path or config_path()
     if _config_cache is not None and _config_cache_path == path:
         return _config_cache
 
     if not path.exists():
-        _config_cache = Config()
+        data: dict[str, object] = {}
+        if output_dir := os.getenv("NOOSPHERE_OUTPUT_DIR"):
+            data["output_dir"] = output_dir
+        _apply_environment_overrides(data)
+        _config_cache = Config.model_validate(data)
         _config_cache_path = path
         return _config_cache
 
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
 
+    if output_dir := os.getenv("NOOSPHERE_OUTPUT_DIR"):
+        data["output_dir"] = output_dir
+    _apply_environment_overrides(data)
     _config_cache = Config.model_validate(data)
     _config_cache_path = path
     return _config_cache
@@ -45,3 +61,11 @@ def clear_config_cache() -> None:
     global _config_cache, _config_cache_path
     _config_cache = None
     _config_cache_path = None
+
+
+def _apply_environment_overrides(data: dict[str, object]) -> None:
+    """Apply deployment-only settings without persisting them to config.json."""
+    if checkpoint_backend := os.getenv("NOOSPHERE_CHECKPOINT_BACKEND"):
+        checkpoint = data.setdefault("checkpoint", {})
+        if isinstance(checkpoint, dict):
+            checkpoint["backend"] = checkpoint_backend

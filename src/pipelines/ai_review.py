@@ -70,7 +70,8 @@ async def run_ai_review(path: Path, max_attempts: int | None = None, client: Tex
     # Use AI Vision to classify images as RELEVANT or PROMOTION
     # This inventory is passed to the text AI so it knows which images to keep
     image_filter_result = None
-    if generator.settings.provider in {"anthropic", "compatible", "openai"}:
+    api_format = getattr(generator.settings, "api_format", "")
+    if api_format in {"anthropic", "openai_chat", "openai_responses"}:
         paths = manifest.get("paths") if isinstance(manifest.get("paths"), dict) else {}
         assets_rel = paths.get("assets")
         if isinstance(assets_rel, str) and assets_rel:

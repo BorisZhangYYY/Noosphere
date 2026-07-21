@@ -40,6 +40,10 @@
     "default_parent_id": "your-target-notebook-or-parent-document-id",
     "token": "your-siyuan-token-here"
   },
+  "local_archive": {
+    "enabled": false,
+    "output_dir": "archive"
+  },
   "ai": {
     "provider": "anthropic",
     "max_attempts": 2,
@@ -50,8 +54,40 @@
       }
     }
   },
+  "pipeline": {
+    "review_mode": "ai_then_manual",
+    "active_perspective": "original",
+    "common_prompt_path": "prompts/common_review.md",
+    "classification_prompt_path": "prompts/classify_article.md",
+    "perspectives": {
+      "original": {
+        "label": "基于原文",
+        "description": "保留作者的论证结构，只清理噪音并优化表达。",
+        "prompt_path": "prompts/perspectives/original.md",
+        "template_path": "prompts/templates/original_article.md",
+        "output_sections": {
+          "summary": "AI Summary",
+          "main_article": "Main Article"
+        },
+        "body_section": "main_article"
+      },
+      "novice": {
+        "label": "小白视角",
+        "description": "补充必要背景与术语解释，降低首次阅读门槛。",
+        "prompt_path": "prompts/perspectives/novice.md",
+        "template_path": "prompts/templates/novice_article.md",
+        "output_sections": {
+          "summary": "快速理解",
+          "prerequisites": "阅读前准备",
+          "main_article": "正文与讲解"
+        },
+        "body_section": "main_article"
+      }
+    }
+  },
   "ai_providers": {
     "openai": {
+      "api_format": "openai_responses",
       "model": "your-openai-model",
       "api_base": "https://api.openai.com/v1",
       "api_key": "your-openai-api-key-here",
@@ -59,6 +95,7 @@
       "temperature": 0.2
     },
     "anthropic": {
+      "api_format": "anthropic",
       "model": "your-anthropic-model",
       "api_base": "https://api.anthropic.com",
       "api_key": "your-anthropic-api-key-here",

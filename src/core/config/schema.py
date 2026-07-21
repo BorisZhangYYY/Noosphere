@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -10,6 +10,8 @@ from src.core.paths import resolve_project_path
 
 
 class AIProviderConfig(BaseModel):
+    api_format: Literal["anthropic", "openai_chat", "openai_responses"] | None = None
+    provider_type: Literal["kimi", "minimax", "zhipu", "volcengine", "custom"] | None = None
     model: str
     api_base: str
     api_key: str
@@ -58,6 +60,118 @@ class AIConfig(BaseModel):
             except (OSError, FileNotFoundError) as exc:
                 raise ValueError(f"Prompt file not found: {path}") from exc
         raise ValueError(f"ai.{key} or ai.{path_key} is required")
+
+
+class ReviewPerspectiveConfig(BaseModel):
+    label: str
+    description: str = ""
+    prompt_path: str
+    template_path: str
+    output_sections: dict[str, str]
+    body_section: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_legacy_prompt_profile(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        upgraded = dict(data)
+        template_path = str(upgraded.get("template_path") or "")
+        if template_path == "prompts/edit_article.md":
+            template_path = "prompts/templates/original_article.md"
+            upgraded["template_path"] = template_path
+        novice = "novice" in template_path.casefold()
+        if "output_sections" not in upgraded:
+            upgraded["output_sections"] = (
+                {"summary": "快速理解", "prerequisites": "阅读前准备", "main_article": "正文与讲解"}
+                if novice
+                else {"summary": "AI Summary", "main_article": "Main Article"}
+            )
+        upgraded.setdefault("body_section", "main_article")
+        return upgraded
+
+    def prompt_metadata(self) -> PromptMetadata:
+        from src.core.review.prompt_metadata import PromptMetadata, RequiredHeading, ValidationRule
+
+        headings = [RequiredHeading(level=1, text=None)]
+        headings.extend(RequiredHeading(level=2, text=heading) for heading in self.output_sections.values())
+        first_heading = next(iter(self.output_sections.values()))
+        return PromptMetadata(
+            required_headings=headings,
+            validation_rules=[
+                ValidationRule("no_content_before_heading", {"heading": first_heading}),
+                ValidationRule("all_images_local", {"required": True}),
+                ValidationRule("source_metadata_required_fields", {
+                    "fields": ["Source", "Platform", "Author", "Published", "Captured", "Type"],
+                    "source_must_be_link": True,
+                }),
+                ValidationRule("main_article_subheadings_min_level", {
+                    "heading": self.output_sections[self.body_section],
+                    "min_level": 3,
+                }),
+            ],
+        )
+
+
+class PipelineConfig(BaseModel):
+    review_mode: Literal["manual_only", "ai_then_manual"] = "ai_then_manual"
+    active_perspective: str = "original"
+    common_prompt_path: str = "prompts/common_review.md"
+    classification_prompt_path: str = "prompts/classify_article.md"
+    perspectives: dict[str, ReviewPerspectiveConfig] = Field(
+        default_factory=lambda: {
+            "original": ReviewPerspectiveConfig(
+                label="基于原文",
+                description="保留作者的论证结构，只清理噪音并优化表达。",
+                prompt_path="prompts/perspectives/original.md",
+                template_path="prompts/templates/original_article.md",
+                output_sections={"summary": "AI Summary", "main_article": "Main Article"},
+                body_section="main_article",
+            ),
+            "novice": ReviewPerspectiveConfig(
+                label="小白视角",
+                description="补充必要背景与术语解释，降低首次阅读门槛。",
+                prompt_path="prompts/perspectives/novice.md",
+                template_path="prompts/templates/novice_article.md",
+                output_sections={
+                    "summary": "快速理解",
+                    "prerequisites": "阅读前准备",
+                    "main_article": "正文与讲解",
+                },
+                body_section="main_article",
+            ),
+        }
+    )
+
+    def resolve_review_prompt(self, perspective: str | None = None) -> tuple[str, PromptMetadata]:
+        """Compose common guidance, perspective guidance, and the output template."""
+        from src.core.review.prompt_metadata import parse_prompt_file
+
+        key = perspective or self.active_perspective
+        profile = self.perspectives.get(key)
+        if profile is None:
+            raise ValueError(f"Unknown review perspective: {key}")
+        common = parse_prompt_file(resolve_project_path(self.common_prompt_path))
+        viewpoint = parse_prompt_file(resolve_project_path(profile.prompt_path))
+        template = parse_prompt_file(resolve_project_path(profile.template_path))
+        prompt = "\n\n".join((
+            "# 通用约束\n\n" + common.body.strip(),
+            "# 审阅视角\n\n" + viewpoint.body.strip(),
+            "# 输出模板\n\n严格按以下模板输出；双花括号字段由你的内容替换。\n\n" + template.body.strip(),
+        ))
+        return prompt, profile.prompt_metadata()
+
+    def resolve_review_contract(self, perspective: str | None = None) -> tuple[ReviewPerspectiveConfig, str]:
+        from src.core.review.output_contract import validate_output_template
+        from src.core.review.prompt_metadata import parse_prompt_file
+
+        key = perspective or self.active_perspective
+        profile = self.perspectives.get(key)
+        if profile is None:
+            raise ValueError(f"Unknown review perspective: {key}")
+        template = parse_prompt_file(resolve_project_path(profile.template_path)).body
+        validate_output_template(template, profile.output_sections)
+        return profile, template
 
 
 class CheckpointConfig(BaseModel):
@@ -166,6 +280,7 @@ class ProxyConfig(BaseModel):
 class Config(BaseModel):
     output_dir: str = "outputs"
     ai: AIConfig = Field(default_factory=AIConfig)
+    pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     ai_providers: dict[str, AIProviderConfig] = Field(default_factory=dict)
     siyuan: SiyuanConfig | None = None
     crawler: CrawlerConfig = Field(default_factory=CrawlerConfig)
@@ -185,8 +300,12 @@ class Config(BaseModel):
         if name not in self.ai_providers:
             raise ValueError(f"AI provider '{name}' not found in ai_providers config")
         provider = self.ai_providers[name]
+        api_format = provider.api_format
+        if api_format is None:
+            api_format = "openai_responses" if name == "openai" else "anthropic"
         return {
             "provider": name,
+            "api_format": api_format,
             "model": provider.model,
             "api_key": provider.api_key,
             "api_base": provider.api_base,

@@ -11,6 +11,8 @@ from pathlib import Path
 
 import aiohttp
 
+from src.core.config.config import load_config
+
 
 MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]*)\)")
 IMAGE_TARGET_RE = re.compile(r"^(.+?)\s+([\"'][^\"']*[\"'])$")
@@ -127,12 +129,17 @@ async def download_images(
             urls.append(url)
 
     semaphore = asyncio.Semaphore(5)
-    tasks = [_download_one(url, asset_dir, index + 1, semaphore) for index, url in enumerate(urls)]
-    download_results = await asyncio.gather(*tasks)
+    timeout = aiohttp.ClientTimeout(total=45, connect=15)
+    config = load_config()
+    proxy = (config.proxy.https or config.proxy.http) if config.proxy else None
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        tasks = [_download_one(url, asset_dir, index + 1, semaphore, session, proxy) for index, url in enumerate(urls)]
+        download_results = await asyncio.gather(*tasks)
 
     replacements: dict[str, str] = {}
-    for downloaded in download_results:
+    for url, downloaded, error in download_results:
         if downloaded is None:
+            result.failed[url] = error or "unknown image download error"
             continue
         rel_path = Path(os.path.relpath(downloaded.local_path, asset_dir.parent)).as_posix()
         replacements[downloaded.source_url] = rel_path
@@ -164,19 +171,29 @@ async def download_markdown_images(
 
 
 async def _download_one(
-    url: str, asset_dir: Path, index: int, semaphore: asyncio.Semaphore
-) -> DownloadedImage | None:
+    url: str,
+    asset_dir: Path,
+    index: int,
+    semaphore: asyncio.Semaphore,
+    session: aiohttp.ClientSession,
+    proxy: str | None,
+) -> tuple[str, DownloadedImage | None, str | None]:
     async with semaphore:
         digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
         extension = _extension_from_url(url)
         final_path = asset_dir / f"image_{index:02d}_{digest}{extension or '.bin'}"
 
-        try:
-            async with aiohttp.ClientSession() as session:
+        last_error = ""
+        for attempt in range(2):
+            try:
                 async with session.get(
                     url,
-                    headers={"User-Agent": DEFAULT_USER_AGENT},
-                    timeout=aiohttp.ClientTimeout(total=30),
+                    headers={
+                        "User-Agent": DEFAULT_USER_AGENT,
+                        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                        "Referer": "https://mp.weixin.qq.com/" if "mmbiz.qpic.cn" in url else "",
+                    },
+                    proxy=proxy,
                 ) as response:
                     response.raise_for_status()
                     data = await response.read()
@@ -187,10 +204,13 @@ async def _download_one(
                     final_extension = extension or content_extension or ".bin"
                     final_path = asset_dir / f"image_{index:02d}_{digest}{final_extension}"
                     final_path.write_bytes(data)
-        except (OSError, ValueError, aiohttp.ClientError):
-            return None
+                return url, DownloadedImage(source_url=url, local_path=final_path), None
+            except (asyncio.TimeoutError, OSError, ValueError, aiohttp.ClientError) as exc:
+                last_error = f"{type(exc).__name__}: {exc}".strip()
+                if attempt == 0:
+                    await asyncio.sleep(0.35)
 
-        return DownloadedImage(source_url=url, local_path=final_path)
+        return url, None, last_error or "image download failed"
 
 
 def _replace_image_url(match: re.Match[str], replacements: dict[str, str]) -> str:

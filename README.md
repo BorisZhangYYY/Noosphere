@@ -8,21 +8,15 @@ Noosphere is designed for exactly this purpose. It uses a configurable crawler s
 
 In one sentence: Noosphere turns scattered, lengthy, and hard-to-read articles on the internet into clean, structured, understandable, saveable, and shareable knowledge content.
 
-For agent usage, install the skill with:
+Install the skills for Claude Code:
 
 ```bash
-npx skills add BorisZhangYYY/Noosphere --skill noosphere --agent claude-code
+npx skills add https://github.com/BorisZhangYYY/Noosphere
 ```
 
-For local development, you can validate the setup or print the skill path:
-
-```bash
-./skill.sh validate   # run setup checks
-./skill.sh noosphere  # print the local skill path
-./skill.sh update     # re-sync a copied skill at ~/.claude/skills/noosphere
-```
-
-The `source ./skill.sh noosphere` form is also supported for backward compatibility.
+This installs two skills:
+- **noosphere** — extract, review, and upload articles
+- **noosphere-setup** — install dependencies and configure `config.json`
 
 ## Supported Sources
 
@@ -75,19 +69,34 @@ Output: `outputs/ARTICLE_ID/` contains `raw.md`, `reviewed.md`, `manifest.json`,
 
 Noosphere can run as an MCP (Model Context Protocol) service inside Docker, with PostgreSQL as the checkpoint store. This is the recommended deployment for AI-driven workflows.
 
-When running inside Docker Compose, `DATABASE_URL` is set automatically, so the service will use Postgres even though the example config defaults to SQLite for local development.
+Docker Compose keeps the entire installation under one host directory, `.noosphere/` by default. It creates `config.json` on first start, forces LangGraph checkpoints to PostgreSQL, and mounts article workspaces, assets, archives, crawler cache, logs, backups, configuration, and PostgreSQL data from that directory.
 
 ```bash
-# 1. Copy and edit config
-cp config.json.example config.json
-# Edit config.json with your API keys and endpoints
-
-# 2. Start Noosphere + Postgres
+# 1. Start Noosphere + Postgres
 docker compose up --build
 
-# 3. Verify health
+# 2. Open the web workspace or verify health
+# http://localhost:8080/app/
 curl http://localhost:8080/health
 ```
+
+Use a different host data directory without editing Compose:
+
+```bash
+NOOSPHERE_DATA_DIR=/path/to/noosphere-data docker compose up --build
+```
+
+To bring an existing local installation into the portable layout, stop Noosphere and copy without overwriting existing destination files:
+
+```bash
+mkdir -p .noosphere/articles
+rsync -a --ignore-existing outputs/ .noosphere/articles/
+test -e .noosphere/config.json || cp config.json .noosphere/config.json
+```
+
+Every article keeps its `manifest.json`, `raw.md`, `reviewed.md`, `review.json`, and `assets/` together under `.noosphere/articles/`. These content artifacts stay as portable files because they are easier to inspect, back up, and move than binary database rows. PostgreSQL stores workflow checkpoints and other operational state.
+
+The web workspace provides the Library, a read-only/editable instant-rendering Vditor surface for `reviewed.md`, observable background pipeline events, a source support matrix, persistent English/Chinese localization, day/night themes, and a configuration editor. Web captures use either capture-only manual review or the recommended AI-then-human second review mode. The Pipeline page exposes the common cleanup prompt, perspective prompt, and matching output template; completed AI reviews are assigned to a persistent two-level tag taxonomy automatically and can be moved manually. SiYuan uploads run as background jobs with stage progress and remain active after navigation. Settings are written atomically to `.noosphere/config.json`; saved secrets stay masked in normal settings responses and can be revealed only through an explicit local-session request. Named AI profiles can use Anthropic Messages, OpenAI Chat Completions, or OpenAI Responses compatible endpoints, and the settings page can run real provider and Firecrawl connection tests.
 
 The MCP server exposes these tools over HTTP/SSE at `http://localhost:8080/sse`:
 
@@ -130,11 +139,11 @@ nsphr --help
 - `social_post`: social post source platforms (x)
 - `proxy`: optional HTTP/HTTPS proxy configuration
 - `siyuan`: API base, parent ID, token
-- `local_archive`: `base_dir`, `date_format` for local filesystem archive output
-- `ai`: provider (`openai`, `anthropic`, or `compatible`), max_attempts, prompt paths, platform-specific prompt overrides
-- `ai_providers`: model, API base, API key, token limit, temperature
-- `crawler`: primary and fallback crawler selection (`crawl4ai`, `firecrawl`) with per-provider credentials
-- `checkpoint`: backend (`postgres` default, `sqlite` for local dev), Postgres connection string (defaults to `DATABASE_URL` env var)
+- `local_archive`: enable a local filesystem archive and set its `output_dir`
+- `ai`: active named provider profile, max_attempts, prompt paths, platform-specific prompt overrides
+- `ai_providers`: named profiles with an optional `provider_type` (`kimi`, `minimax`, `zhipu`, `volcengine`, or `custom`), `api_format` (`anthropic`, `openai_chat`, or `openai_responses`), model, API base, API key, token limit, and temperature
+- `crawler`: distinct primary and fallback crawler selection (`crawl4ai`, `firecrawl`) with per-provider credentials
+- `checkpoint`: backend (`sqlite` for local development, forced to `postgres` by Docker Compose), with an optional Postgres connection string that falls back to `DATABASE_URL`
 
 ### Local Archive
 
@@ -145,19 +154,16 @@ To write reviewed Markdown and assets to a local dated folder instead of uploadi
    ```json
    {
      "local_archive": {
-       "base_dir": "/path/to/archive",
-       "date_format": "%Y-%m-%d"
+       "enabled": true,
+       "output_dir": "/path/to/archive"
      }
    }
    ```
 
 2. Use `nsphr upload ARTICLE_ID --target local` or make `local_archive` the only configured target to make it the default.
 
-Supported AI providers currently include:
-
-- `openai`
-- `anthropic`
-- `compatible`
+AI provider names are user-defined. Compatibility is selected independently
+with each profile's `api_format` field.
 
 ## Future Extensions
 

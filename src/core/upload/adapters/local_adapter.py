@@ -11,7 +11,7 @@ from pathlib import Path
 
 from src.core.config.schema import LocalArchiveConfig
 from src.core.markdown.upload_preparer import title_from_markdown
-from src.core.paths import resolve_project_path
+from src.core.paths import runtime_home
 from src.core.paths.output_paths import safe_filename
 from src.core.upload.adapter import UploadAdapter
 
@@ -30,7 +30,8 @@ class LocalAdapter(UploadAdapter):
     """
 
     def __init__(self, config: LocalArchiveConfig) -> None:
-        self._archive_dir = resolve_project_path(Path(config.output_dir))
+        configured_path = Path(config.output_dir).expanduser()
+        self._archive_dir = configured_path.resolve() if configured_path.is_absolute() else runtime_home() / configured_path
         self._archive_dir.mkdir(parents=True, exist_ok=True)
 
     @property

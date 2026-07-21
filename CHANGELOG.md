@@ -4,7 +4,139 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.0] - 2026-07-21
+
+### Added
+- (2026-07-21) **`noosphere-setup` skill**: a dedicated setup skill that guides
+  users through cloning, dependency installation, `config.json` creation, and
+  validation. The main `noosphere` skill delegates first-time configuration to
+  this skill so the core workflow stays focused on extraction and review.
+- (2026-07-21) **Git conventions document**: extracted commit format, changelog
+  rules, and push/PR policies into `.project/git-conventions.md`, referenced
+  from CLAUDE.md for a leaner agent instruction file.
+- (2026-07-21) **CLAUDE.md improvements**: added Testing and Docker Build
+  sections with concrete commands for local development and containerized
+  deployment.
+- (2026-07-21) Reversible inline image review for human editors: removed images
+  stay visible in a blurred state, reveal on hover, and can be deleted or
+  restored after an explicit confirmation without modifying `raw.md`.
+- (2026-07-21) Typed review-output contracts that compose shared constraints,
+  one perspective, and a pure Markdown template, then deterministically render
+  the model response before LangGraph validation and retry.
+- (2026-07-20) Two web review modes: capture-only manual review and the
+  recommended AI review followed by human second review.
+- (2026-07-20) An editable Pipeline prompt workspace that composes a common
+  cleanup prompt, a selected reading perspective, and its output template,
+  with built-in source-faithful and novice perspectives.
+- (2026-07-20) Automatic two-level article classification with AI-created tag
+  descriptions, persistent SQLite/PostgreSQL storage, library filtering, and
+  manual tag/subtag reassignment.
+- (2026-07-20) Background SiYuan upload jobs with stage progress that continue
+  across page navigation, plus clickable kept and AI-removed image inventories.
+- (2026-07-20) Vditor instant-rendering Markdown editing for `reviewed.md`,
+  including local runtime assets, code rendering, explicit read-only/edit
+  modes, draft saves, and manual or repeated SiYuan uploads.
+- (2026-07-20) Observable web pipeline events for extraction, image review,
+  AI copy-editing, and validation, with streamed reviewed Markdown before the
+  human review checkpoint.
+- (2026-07-20) A reusable globe brand mark for the sidebar and browser favicon,
+  plus denser day/night scenery with additional clouds, wind, birds, stars,
+  and shooting stars.
+- (2026-07-20) A multi-profile provider workspace with Kimi, MiniMax, Zhipu AI,
+  Volcengine, and custom templates, provider-specific visual marks, explicit
+  active-profile selection, final endpoint previews, and full URL parsing.
+- (2026-07-20) Local-only, no-store secret reveal actions for AI provider keys,
+  Firecrawl keys, and SiYuan tokens while keeping normal settings responses masked.
+- A React web workspace at `/app/` with responsive Library, article reader,
+  Pipeline, Sources, and Settings pages plus a layered animated day/night theme.
+- English and Simplified Chinese web localization with browser-language
+  detection, a persistent sidebar language switch, localized relative times,
+  status labels, forms, empty states, and accessibility text.
+- A versioned REST API for article manifests, reviewed Markdown, local assets,
+  masked configuration, and asynchronous web-initiated pipeline jobs.
+- A frontend build stage in the Docker image, including all web runtime assets
+  in the final image without requiring Node.js at runtime.
+- A portable single-directory deployment layout under `.noosphere/` for
+  configuration, article workspaces, assets, archives, caches, logs, backups,
+  and PostgreSQL data.
+- Named AI provider profiles with independent Anthropic Messages, OpenAI Chat
+  Completions, or OpenAI Responses protocols and real connection tests for AI
+  providers and Firecrawl.
+
+### Changed
+- (2026-07-21) **README and skill install simplified**: installation now uses
+  a single `npx skills add` command with the full GitHub URL. Removed `skill.sh`
+  developer helper references from the public README. The `--agent claude-code`
+  flag is no longer required.
+- (2026-07-21) **`.gitignore` overhaul**: reorganized with clear section headers,
+  removed stale patterns, and added coverage for frontend build artifacts,
+  Claude Code agent workspaces, logs, and `skills-lock.json`.
+- (2026-07-21) **Python requirement bumped to 3.11**: `datetime.UTC` usage in
+  `CatalogStore` requires 3.11+. The Docker image already runs Python 3.11.
+- (2026-07-21) Article review pages now keep the library/status toolbar fixed
+  while the document scrolls, collapse source metadata by default, place
+  classification before AI re-review, and use more deliberate action spacing.
+- (2026-07-21) The Settings section rail now reveals one compact label at a
+  time and responds to pointer movement with a proximity wave without covering
+  the settings form; provider connection and activation actions are compact.
+- (2026-07-21) Pipeline output templates now contain only Markdown structure
+  and content fields; preservation rules live in the common or perspective
+  prompts, with legacy profiles upgraded automatically.
+- (2026-07-20) Web capture no longer uploads automatically. Upload is an
+  explicit background action after the selected human review checkpoint.
+- (2026-07-20) Configured provider protocol is fixed to that profile while the
+  provider template selector is shown only when creating a new configuration.
+- (2026-07-20) Source platforms and crawler engines now use separate,
+  consistently sized sections, and the Kimi description names the Moonshot AI
+  Open Platform.
+- (2026-07-20) The Settings workspace now uses the available content width,
+  shows all provider configurations together, and uses themed inline scrolling
+  selectors instead of browser-native popup menus.
+- Docker Compose now bind-mounts one configurable host data directory and
+  forces the checkpoint backend to PostgreSQL while retaining SQLite defaults
+  for local development.
+- Runtime paths and local archive output resolve beneath `NOOSPHERE_HOME`, and
+  `NOOSPHERE_CONFIG` plus `NOOSPHERE_OUTPUT_DIR` select mounted locations.
+- The web settings API writes `config.json` atomically with restrictive file
+  permissions and preserves existing secrets when secret inputs are blank.
+- The settings page now persists all named provider profiles and selects the
+  crawler fallback from only the opposite crawler or the disabled state.
+
+### Fixed
+- (2026-07-21) Switching the active AI provider now uses a dedicated atomic
+  settings endpoint, persists the selected model, bypasses stale HTTP/query
+  caches, and confirms the effective provider after a page revisit.
+- (2026-07-21) Vditor code-block copy controls now use an explicit clipboard
+  path and are no longer swallowed by the instant-render source-toggle guard.
+- (2026-07-20) The article editor now uses Vditor WYSIWYG mode with matched
+  light/dark content themes, keeps special blocks rendered when clicked, and
+  removes editor structure markers that exposed Markdown syntax.
+- (2026-07-20) Article source metadata now falls back to the reviewed/raw
+  Markdown block when legacy manifests omit author or publication time.
+- (2026-07-20) The Vditor surface now follows Noosphere theme colors without
+  its default toolbar, white sheet, disabled opacity, or nested dark border.
+- (2026-07-20) Settings selectors now open as scrollable popovers above nearby
+  fields without changing document flow, provider profiles can be deleted, and
+  Firecrawl credentials are hidden when Firecrawl is not selected.
+- (2026-07-20) Article metadata preserves line breaks, Markdown code structures
+  render correctly, and the SiYuan upload action is no longer permanently
+  disabled.
+- (2026-07-20) Primary and fallback crawler controls now reserve matching helper
+  rows, and complete AI request URLs with query strings no longer receive a
+  duplicate protocol path.
+- Docker image builds now install Playwright system dependencies as root before
+  installing Chromium in the non-root runtime user's writable browser cache.
+- MCP article identifiers reject path separators and traversal values before
+  resolving an article workspace; upload targets now reject unsupported values.
+- Local archive configuration examples now match the supported `enabled` and
+  `output_dir` fields.
+- Deployment environment overrides now take precedence over persisted
+  checkpoint settings, preventing Docker's example SQLite value from masking
+  the PostgreSQL service.
+- Settings no longer disappear after refresh, and primary/fallback crawler
+  selections can no longer resolve to the same implementation.
+- Docker builds now retry Playwright system dependency installation when a
+  Debian mirror returns a transient download error.
 
 ## [0.2.0] - 2026-07-15
 

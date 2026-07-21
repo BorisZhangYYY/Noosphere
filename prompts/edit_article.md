@@ -31,7 +31,7 @@ The output must be pure Markdown body text. Do not explain your processing steps
 
 ---
 
-**Must Retain (Information Red Lines — removing these would diminish the article's core value):**
+**Must Retain (Information Red Lines - removing these would diminish the article's core value):**
 
 - All specific data points, thresholds, and their derivation logic (e.g., why a certain constant is 13k rather than 10k). Do not strip away the explanation of "why this number."
 - The historical background and production-environment war stories behind design decisions (e.g., "We tried X, burned through Y resources, and therefore ultimately chose Z"). These reflect engineering maturity, not fluff.
@@ -118,7 +118,7 @@ The output must be pure Markdown body text. Do not explain your processing steps
 
 **Important:** The original article's title should become the `# Article Title` H1 heading. The original title heading inside the article body should be removed (do not duplicate the title). All remaining content from the original article goes under `## Main Article`, preserving the original section order and image positions.
 
-**Format Checklist — your output MUST satisfy all of these:**
+**Format Checklist - your output MUST satisfy all of these:**
 
 - [ ] Starts with exactly one `# Article Title` H1 heading
 - [ ] Includes a source metadata blockquote immediately after the H1, with `Source` as a Markdown link and the fields `Platform`, `Author`, `Published`, `Captured`, `Type`
