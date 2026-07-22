@@ -1,6 +1,7 @@
 """Tests for the HTTP API consumed by the web frontend."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -121,6 +122,63 @@ def test_list_and_read_article(web_client) -> None:
     assert detail.json()["assets"][0]["name"] == "image.png"
 
 
+def test_article_detail_hides_stale_unreferenced_asset_files(web_client) -> None:
+    client, config_path, article_id = web_client
+    stale = config_path.parent / "articles" / article_id / "assets" / "stale.png"
+    stale.write_bytes(b"old capture")
+
+    detail = client.get(f"/api/v1/articles/{article_id}").json()
+
+    assert [asset["name"] for asset in detail["assets"]] == ["image.png"]
+    assert "stale.png" not in detail["displayMarkdown"]
+
+
+def test_markdown_metadata_accepts_bold_field_names(web_client) -> None:
+    client, config_path, article_id = web_client
+    article_dir = config_path.parent / "articles" / article_id
+    manifest = json.loads((article_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest["article"].pop("author", None)
+    manifest["article"].pop("published_at", None)
+    (article_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    markdown = "# Article\n\n> **Author**: Ada Lovelace\n> **Published**: 2026-07-22\n"
+    (article_dir / "reviewed.md").write_text(markdown, encoding="utf-8")
+
+    detail = client.get(f"/api/v1/articles/{article_id}").json()
+    assert detail["author"] == "Ada Lovelace"
+    assert detail["publishedAt"] == "2026-07-22"
+
+
+def test_article_detail_recovers_active_review_and_reuses_it(web_client) -> None:
+    client, _, article_id = web_client
+    active_job = {
+        "id": "active-review-job",
+        "articleId": article_id,
+        "perspective": "original",
+        "status": "running",
+        "stage": "ai_review",
+        "progress": 42,
+        "createdAt": "2026-07-22T00:00:00+00:00",
+        "startedAt": "2026-07-22T00:00:01+00:00",
+        "finishedAt": None,
+        "reviewPreview": "partial",
+        "events": [],
+        "error": None,
+    }
+    _review_jobs[active_job["id"]] = active_job
+
+    detail = client.get(f"/api/v1/articles/{article_id}")
+    repeated = client.post(
+        f"/api/v1/articles/{article_id}/review",
+        json={"perspective": "original"},
+    )
+
+    assert detail.status_code == 200
+    assert detail.json()["activeReview"]["id"] == active_job["id"]
+    assert repeated.status_code == 202
+    assert repeated.json()["id"] == active_job["id"]
+    assert len(_review_jobs) == 1
+
+
 def test_frontend_client_routes_serve_spa_entry(web_client) -> None:
     client, _, article_id = web_client
     assert client.get("/app/settings").status_code == 200
@@ -152,6 +210,153 @@ def test_article_can_be_assigned_to_two_level_taxonomy(web_client) -> None:
     assert taxonomy[0]["children"][0]["name"] == "Agent"
     detail = client.get(f"/api/v1/articles/{article_id}").json()
     assert detail["classification"]["subtag_name"] == "Agent"
+
+
+def test_web_mcp_and_cli_share_canonical_taxonomy_ids(web_client, capsys) -> None:
+    client, _, article_id = web_client
+    from src.cli import _main_async, parse_args
+    from src.mcp.server import classify_article as mcp_classify_article
+
+    web_assignment = client.patch(
+        f"/api/v1/articles/{article_id}/classification",
+        json={
+            "tagName": "AI",
+            "tagDescription": "Artificial intelligence",
+            "subtagName": "Agents",
+            "subtagDescription": "Autonomous AI systems",
+            "tagLocalizations": {
+                "en-US": {"name": "AI", "description": "Artificial intelligence", "aliases": ["Artificial Intelligence"]},
+                "zh-CN": {"name": "人工智能", "description": "人工智能相关内容", "aliases": ["AI"]},
+            },
+            "subtagLocalizations": {
+                "en-US": {"name": "Agents", "description": "Autonomous AI systems", "aliases": ["AI Agent"]},
+                "zh-CN": {"name": "智能体", "description": "自主智能系统", "aliases": ["Agent"]},
+            },
+        },
+    ).json()
+
+    mcp_result = asyncio.run(
+        mcp_classify_article(
+            article_id,
+            tag_id=web_assignment["tag_id"],
+            subtag_id=web_assignment["subtag_id"],
+            locale="en-US",
+        )
+    )
+    assert mcp_result["classification"]["tag_id"] == web_assignment["tag_id"]
+    assert mcp_result["classification"]["subtag_id"] == web_assignment["subtag_id"]
+
+    exit_code = asyncio.run(_main_async(parse_args([
+        "taxonomy", "move", article_id,
+        "--tag-id", web_assignment["tag_id"],
+        "--subtag-id", web_assignment["subtag_id"],
+        "--locale", "zh-CN",
+        "--json",
+    ])))
+    assert exit_code == 0
+    cli_payload = json.loads(capsys.readouterr().out)
+    assert cli_payload["classification"]["tag_id"] == web_assignment["tag_id"]
+    assert cli_payload["classification"]["subtag_id"] == web_assignment["subtag_id"]
+
+    chinese = client.get(f"/api/v1/articles/{article_id}?locale=zh-CN").json()["classification"]
+    assert chinese["tag_name"] == "人工智能"
+    assert chinese["subtag_name"] == "智能体"
+
+
+def test_taxonomy_localizes_and_merges_aliases(web_client) -> None:
+    client, _, article_id = web_client
+    from src.core.catalog import CatalogStore
+
+    store = CatalogStore()
+    first = store.assign(
+        article_id,
+        tag_name="AI Agents",
+        locale="en-US",
+        tag_localizations={
+            "en-US": {"name": "AI Agents", "description": "Autonomous AI systems and workflows.", "aliases": ["Agents"]},
+            "zh-CN": {"name": "智能体", "description": "自主智能系统及其工作流。", "aliases": ["AI 智能体"]},
+        },
+    )
+    second = store.assign(
+        "another-article",
+        tag_name="Agents",
+        locale="en-US",
+        tag_localizations={
+            "en-US": {"name": "Agents", "description": "", "aliases": ["AI Agents"]},
+            "zh-CN": {"name": "智能体", "description": "", "aliases": []},
+        },
+    )
+
+    assert first["tag_id"] == second["tag_id"]
+    english = client.get("/api/v1/taxonomy?locale=en-US").json()["tags"][0]
+    chinese = client.get("/api/v1/taxonomy?locale=zh-CN").json()["tags"][0]
+    assert english["name"] == "AI Agents"
+    assert "Agents" in english["aliases"]
+    assert chinese["name"] == "智能体"
+    assert chinese["description"] == "自主智能系统及其工作流。"
+
+
+def test_pipeline_defaults_are_localized_and_read_only(web_client) -> None:
+    client, _, _ = web_client
+    english = client.get("/api/v1/pipeline/settings?locale=en-US").json()
+    chinese = client.get("/api/v1/pipeline/settings?locale=zh-CN").json()
+
+    assert english["perspectives"][0]["label"] == "Source-faithful"
+    assert chinese["perspectives"][0]["label"] == "基于原文"
+    assert english["perspectives"][0]["editable"] is False
+    assert english["commonEditable"] is False
+
+
+def test_pipeline_can_create_update_and_remove_custom_perspective(web_client) -> None:
+    client, config_path, _ = web_client
+    payload = client.get("/api/v1/pipeline/settings?locale=zh-CN").json()
+    custom = dict(payload["perspectives"][0])
+    custom.update({
+        "id": "custom_reader",
+        "label": "研究视角",
+        "description": "突出证据与限制条件。",
+        "prompt": "请从研究者角度分析证据、方法和限制。",
+        "builtin": False,
+        "editable": True,
+    })
+    payload["perspectives"].append(custom)
+    payload["activePerspective"] = "custom_reader"
+
+    created = client.patch("/api/v1/pipeline/settings?locale=zh-CN", json=payload)
+
+    assert created.status_code == 200, created.text
+    created_item = next(item for item in created.json()["perspectives"] if item["id"] == "custom_reader")
+    assert created_item["editable"] is True
+    assert created_item["prompt"] == custom["prompt"]
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    profile = persisted["pipeline"]["perspectives"]["custom_reader"]
+    assert Path(profile["prompt_path"]).read_text(encoding="utf-8") == custom["prompt"]
+    assert Path(profile["template_path"]).is_file()
+
+    remove_payload = created.json()
+    remove_payload["activePerspective"] = "original"
+    remove_payload["perspectives"] = [item for item in remove_payload["perspectives"] if item["id"] != "custom_reader"]
+    removed = client.patch("/api/v1/pipeline/settings?locale=zh-CN", json=remove_payload)
+
+    assert removed.status_code == 200, removed.text
+    assert all(item["id"] != "custom_reader" for item in removed.json()["perspectives"])
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert "custom_reader" not in persisted["pipeline"]["perspectives"]
+
+
+def test_article_operation_counts_are_exposed(web_client) -> None:
+    client, _, article_id = web_client
+    from src.core.activity import ArticleActivityStore
+
+    store = ArticleActivityStore()
+    store.record(article_id, "review", outputLanguage="en-US")
+    store.record(article_id, "review", outputLanguage="zh-CN")
+    store.record(article_id, "upload", target="siyuan")
+
+    operations = client.get(f"/api/v1/articles/{article_id}").json()["operationSummary"]
+    assert operations["reviewCount"] == 2
+    assert operations["rereviewCount"] == 1
+    assert operations["uploadCount"] == 1
 
 
 def test_settings_api_masks_and_preserves_secrets(web_client) -> None:
@@ -286,6 +491,26 @@ def test_active_provider_endpoint_persists_provider_and_model_across_reload(web_
     assert persisted["ai_providers"]["Kimi Backup"]["model"] == "kimi-model-after-switch"
 
 
+def test_active_provider_endpoint_saves_vision_role_for_current_provider(web_client) -> None:
+    client, config_path, _ = web_client
+    settings = client.get("/api/v1/settings").json()
+    current = next(provider for provider in settings["aiProviders"] if provider["name"] == "openai")
+    current["visionCapable"] = True
+    settings["imageProvider"] = "openai"
+
+    response = client.patch(
+        "/api/v1/settings/active-provider",
+        json={"providerName": "openai", "settings": settings},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["imageProvider"] == "openai"
+    assert next(provider for provider in response.json()["aiProviders"] if provider["name"] == "openai")["visionCapable"] is True
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert persisted["ai"]["image_provider"] == "openai"
+    assert persisted["ai_providers"]["openai"]["vision_capable"] is True
+
+
 def test_active_provider_endpoint_rejects_missing_provider(web_client) -> None:
     client, _, _ = web_client
     settings = client.get("/api/v1/settings").json()
@@ -362,14 +587,14 @@ def test_article_can_be_re_reviewed_from_current_reviewed_markdown(web_client, m
     reviewed_path = config_path.parent / "articles" / article_id / "reviewed.md"
     reviewed_path.write_text("# Manually edited\n\nKeep this version.\n", encoding="utf-8")
 
-    async def fake_review(path: Path, *, perspective: str, source_markdown: str):
+    async def fake_review(path: Path, *, perspective: str, source_markdown: str, output_language: str):
         assert path == reviewed_path
         assert perspective == "original"
         assert source_markdown.startswith("# Manually edited")
         path.write_text("# AI reviewed\n\nRewritten.\n", encoding="utf-8")
         return SimpleNamespace(ok=True, issues=[])
 
-    async def fake_classify(classified_article_id: str, path: Path):
+    async def fake_classify(classified_article_id: str, path: Path, locale: str):
         assert classified_article_id == article_id
         return {"tag_name": "AI", "subtag_name": None}
 
@@ -397,12 +622,12 @@ def test_capture_ai_then_manual_runs_review_and_pauses(web_client, monkeypatch) 
         assert url == "https://example.com/article"
         return reviewed_path
 
-    async def fake_review(path: Path, *, perspective: str):
+    async def fake_review(path: Path, *, perspective: str, output_language: str):
         assert path == reviewed_path
         assert perspective == "original"
         return SimpleNamespace(ok=True, issues=[])
 
-    async def fake_classify(classified_article_id: str, path: Path):
+    async def fake_classify(classified_article_id: str, path: Path, locale: str):
         assert classified_article_id == article_id
         assert path == reviewed_path
         return {"tag_name": "AI", "subtag_name": "Agent"}
@@ -432,10 +657,10 @@ def test_capture_waits_for_human_review_by_default(web_client, monkeypatch) -> N
     async def fake_extract(url: str):
         return reviewed_path
 
-    async def fake_review(path: Path, *, perspective: str):
+    async def fake_review(path: Path, *, perspective: str, output_language: str):
         return SimpleNamespace(ok=True, issues=[])
 
-    async def fake_classify(classified_article_id: str, path: Path):
+    async def fake_classify(classified_article_id: str, path: Path, locale: str):
         return {"tag_name": "AI", "subtag_name": None}
 
     monkeypatch.setattr("src.graph.graph.run_extract_graph", fake_extract)
@@ -453,33 +678,55 @@ def test_capture_waits_for_human_review_by_default(web_client, monkeypatch) -> N
     assert job["reviewMode"] == "ai_then_manual"
 
 
-def test_capture_manual_only_skips_ai_review(web_client, monkeypatch) -> None:
+def test_capture_auto_upload_runs_without_human_checkpoint(web_client, monkeypatch) -> None:
     client, config_path, article_id = web_client
     reviewed_path = config_path.parent / "articles" / article_id / "reviewed.md"
 
     async def fake_extract(url: str):
-        assert url == "https://example.com/manual"
         return reviewed_path
 
-    async def unexpected_review(*args, **kwargs):
-        raise AssertionError("manual-only capture must not invoke AI review")
+    async def fake_review(path: Path, *, perspective: str, output_language: str):
+        return SimpleNamespace(ok=True, issues=[])
+
+    async def fake_classify(classified_article_id: str, path: Path, locale: str):
+        return {"tag_name": "AI", "subtag_name": None}
+
+    async def fake_upload(path: Path, target: str):
+        assert path == reviewed_path
+        assert target == "siyuan"
+        return SimpleNamespace(hpath="/Noosphere/Article", created=True)
 
     monkeypatch.setattr("src.graph.graph.run_extract_graph", fake_extract)
-    monkeypatch.setattr("src.graph.graph.run_ai_review_graph", unexpected_review)
+    monkeypatch.setattr("src.graph.graph.run_ai_review_graph", fake_review)
+    monkeypatch.setattr("src.graph.graph.run_upload_graph", fake_upload)
+    monkeypatch.setattr("src.core.catalog.classify_reviewed_article", fake_classify)
+    response = client.post(
+        "/api/v1/captures?locale=en-US",
+        json={"url": "https://example.com/automatic", "reviewMode": "auto_upload", "perspective": "original", "outputLanguage": "follow_ui"},
+    )
+
+    deadline = time.monotonic() + 1
+    job = response.json()
+    while job["status"] not in {"succeeded", "failed"} and time.monotonic() < deadline:
+        job = client.get("/api/v1/captures").json()["jobs"][0]
+        time.sleep(0.01)
+
+    assert job["status"] == "succeeded"
+    assert job["outputLanguage"] == "en-US"
+    assert job["result"] == {"hpath": "/Noosphere/Article", "created": True}
+
+
+def test_capture_manual_only_is_rejected(web_client, monkeypatch) -> None:
+    client, config_path, article_id = web_client
+    reviewed_path = config_path.parent / "articles" / article_id / "reviewed.md"
+
     response = client.post(
         "/api/v1/captures",
         json={"url": "https://example.com/manual", "reviewMode": "manual_only"},
     )
 
-    deadline = time.monotonic() + 1
-    job = response.json()
-    while job["status"] not in {"awaiting_review", "failed"} and time.monotonic() < deadline:
-        job = client.get("/api/v1/captures").json()["jobs"][0]
-        time.sleep(0.01)
-
-    assert job["status"] == "awaiting_review"
-    assert job["reviewMode"] == "manual_only"
-    assert job["articleId"] == article_id
+    assert response.status_code == 400
+    assert "Unsupported review mode" in response.json()["error"]
 
 
 def test_article_reviewed_markdown_can_be_saved_and_uploaded(web_client, monkeypatch) -> None:
@@ -537,6 +784,57 @@ def test_article_image_can_be_removed_and_restored_without_mutating_raw(web_clie
     assert detail["removedAssets"] == []
     assert "assets/image.png" in detail["reviewedMarkdown"]
     assert client.get(f"{article_url}/assets/image.png").status_code == 200
+
+
+def test_mcp_and_cli_share_article_image_state(web_client, capsys) -> None:
+    client, _, article_id = web_client
+    from src.cli import _main_async, parse_args
+    from src.mcp.server import set_article_image_state as mcp_set_article_image_state
+
+    removed = asyncio.run(mcp_set_article_image_state(article_id, "image.png", "removed"))
+    assert removed["state"] == "removed"
+    detail = client.get(f"/api/v1/articles/{article_id}").json()
+    assert detail["assets"] == []
+    assert detail["removedAssets"][0]["name"] == "image.png"
+
+    exit_code = asyncio.run(_main_async(parse_args([
+        "images", "set", article_id, "image.png",
+        "--state", "active",
+        "--json",
+    ])))
+    assert exit_code == 0
+    cli_payload = json.loads(capsys.readouterr().out)
+    assert cli_payload["state"] == "active"
+    restored = client.get(f"/api/v1/articles/{article_id}").json()
+    assert restored["removedAssets"] == []
+    assert restored["assets"][0]["name"] == "image.png"
+
+
+def test_unified_job_endpoints_cover_all_background_kinds(web_client) -> None:
+    client, _, article_id = web_client
+    _capture_jobs["capture-1"] = {
+        "id": "capture-1",
+        "kind": "capture",
+        "articleId": article_id,
+        "status": "running",
+        "createdAt": "2026-07-22T00:00:00+00:00",
+    }
+    _review_jobs["review-1"] = {
+        "id": "review-1",
+        "kind": "review",
+        "articleId": article_id,
+        "status": "succeeded",
+        "createdAt": "2026-07-22T00:00:01+00:00",
+    }
+
+    all_jobs = client.get("/api/v1/jobs").json()
+    capture_jobs = client.get("/api/v1/jobs?kind=capture").json()
+    one_job = client.get("/api/v1/jobs/review-1").json()
+
+    assert {job["id"] for job in all_jobs["jobs"]} == {"capture-1", "review-1"}
+    assert [job["id"] for job in capture_jobs["jobs"]] == ["capture-1"]
+    assert one_job["id"] == "review-1"
+    assert one_job["kind"] == "review"
 
 
 def test_capture_rejects_non_http_url(web_client) -> None:

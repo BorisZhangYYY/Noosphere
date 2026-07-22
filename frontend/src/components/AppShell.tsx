@@ -2,6 +2,7 @@ import {
   BookOpenText,
   Gear,
   Moon,
+  MagicWand,
   Path,
   Plus,
   SidebarSimple,
@@ -18,12 +19,13 @@ import { api } from "../api";
 import { Atmosphere } from "./Atmosphere";
 import { useTheme } from "../theme";
 import { InlineSelect } from "./InlineSelect";
-import type { ReviewMode } from "../types";
+import type { OutputLanguage, ReviewMode } from "../types";
 
 const navItems = [
   { to: "/library", labelKey: "nav.library", icon: BookOpenText },
   { to: "/pipeline", labelKey: "nav.pipeline", icon: Path },
   { to: "/sources", labelKey: "nav.sources", icon: UploadSimple },
+  { to: "/review-studio", labelKey: "nav.reviewStudio", icon: MagicWand },
   { to: "/settings", labelKey: "nav.settings", icon: Gear }
 ];
 
@@ -31,11 +33,12 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [captureUrl, setCaptureUrl] = useState("");
-  const pipelineSettings = useQuery({ queryKey: ["pipeline-settings"], queryFn: api.getPipelineSettings });
+  const { t, i18n } = useTranslation();
+  const pipelineSettings = useQuery({ queryKey: ["pipeline-settings", i18n.resolvedLanguage], queryFn: api.getPipelineSettings });
   const [reviewMode, setReviewMode] = useState<ReviewMode>("ai_then_manual");
   const [perspective, setPerspective] = useState("original");
+  const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("follow_ui");
   const { resolvedTheme, toggleTheme } = useTheme();
-  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const captureMutation = useMutation({
     mutationFn: api.createCapture,
@@ -50,6 +53,7 @@ export function AppShell() {
     if (!pipelineSettings.data) return;
     setReviewMode(pipelineSettings.data.reviewMode);
     setPerspective(pipelineSettings.data.activePerspective);
+    setOutputLanguage(pipelineSettings.data.outputLanguage);
   }, [pipelineSettings.data]);
 
   return (
@@ -104,7 +108,7 @@ export function AppShell() {
 
       {captureOpen && (
         <div className="dialog-layer" role="presentation" onMouseDown={() => setCaptureOpen(false)}>
-          <form className="capture-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-title" onSubmit={(event) => { event.preventDefault(); captureMutation.mutate({ url: captureUrl, reviewMode, perspective }); }} onMouseDown={(event) => event.stopPropagation()}>
+          <form className="capture-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-title" onSubmit={(event) => { event.preventDefault(); captureMutation.mutate({ url: captureUrl, reviewMode, perspective, outputLanguage }); }} onMouseDown={(event) => event.stopPropagation()}>
             <button className="dialog-close" onClick={() => setCaptureOpen(false)} aria-label={t("nav.close")}>
               <X size={19} />
             </button>
@@ -115,9 +119,10 @@ export function AppShell() {
             <input id="capture-url" type="url" placeholder="https://mp.weixin.qq.com/s/..." value={captureUrl} onChange={(event) => setCaptureUrl(event.target.value)} required autoFocus />
             <label className="settings-field"><span>{t("capture.reviewMode")}</span><InlineSelect value={reviewMode} onChange={setReviewMode} ariaLabel={t("capture.reviewMode")} options={[
               { value: "ai_then_manual", label: t("pipeline.modes.aiThenManual"), description: t("pipeline.modes.aiThenManualHelp") },
-              { value: "manual_only", label: t("pipeline.modes.manualOnly"), description: t("pipeline.modes.manualOnlyHelp") }
+              { value: "auto_upload", label: t("pipeline.modes.autoUpload"), description: t("pipeline.modes.autoUploadHelp") }
             ]} /></label>
-            {reviewMode === "ai_then_manual" && <label className="settings-field"><span>{t("capture.perspective")}</span><InlineSelect value={perspective} onChange={setPerspective} ariaLabel={t("capture.perspective")} options={(pipelineSettings.data?.perspectives ?? []).map((item) => ({ value: item.id, label: item.label, description: item.description }))} /></label>}
+            <label className="settings-field"><span>{t("capture.perspective")}</span><InlineSelect value={perspective} onChange={setPerspective} ariaLabel={t("capture.perspective")} options={(pipelineSettings.data?.perspectives ?? []).map((item) => ({ value: item.id, label: item.label, description: item.description }))} /></label>
+            <label className="settings-field"><span>{t("pipeline.outputLanguage")}</span><InlineSelect<OutputLanguage> value={outputLanguage} onChange={setOutputLanguage} ariaLabel={t("pipeline.outputLanguage")} options={(["follow_ui", "source", "zh-CN", "en-US"] as const).map((value) => ({ value, label: t(`pipeline.languages.${value}`), description: t(`pipeline.languagesHelp.${value}`) }))} /></label>
             <div className="dialog-actions">
               <button className="button-secondary" type="button" onClick={() => setCaptureOpen(false)}>{t("common.cancel")}</button>
               <button className="button-primary" type="submit" disabled={captureMutation.isPending}>{captureMutation.isPending ? t("capture.submitting") : t("capture.submit")}</button>

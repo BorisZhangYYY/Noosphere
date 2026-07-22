@@ -47,6 +47,18 @@ class CatalogStore:
         with self._connect() as connection:
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS noosphere_tag_localizations (
+                    tag_id TEXT NOT NULL,
+                    locale TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    aliases_json TEXT NOT NULL DEFAULT '[]',
+                    PRIMARY KEY(tag_id, locale)
+                )
+                """
+            )
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS noosphere_tags (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -69,39 +81,96 @@ class CatalogStore:
                 """
             )
 
-    def list_tree(self) -> list[dict[str, Any]]:
+    def list_tree(self, locale: str = "en-US") -> list[dict[str, Any]]:
         self.ensure_schema()
+        from src.core.localization import normalize_language
+        locale = normalize_language(locale)
+        marker = self._placeholder
         with self._connect() as connection:
             rows = [dict(row) for row in connection.execute(
-                "SELECT id, name, description, parent_id FROM noosphere_tags ORDER BY name"
+                f"""
+                SELECT t.id, COALESCE(l.name, t.name) AS name,
+                       COALESCE(l.description, t.description) AS description,
+                       COALESCE(l.aliases_json, '[]') AS aliases_json,
+                       t.parent_id
+                FROM noosphere_tags t
+                LEFT JOIN noosphere_tag_localizations l ON l.tag_id = t.id AND l.locale = {marker}
+                ORDER BY COALESCE(l.name, t.name)
+                """,
+                (locale,),
             ).fetchall()]
         roots: dict[str, dict[str, Any]] = {}
         for row in rows:
             if not row["parent_id"]:
-                roots[row["id"]] = {**row, "children": []}
+                roots[row["id"]] = self._public_tag(row)
         for row in rows:
             parent_id = row["parent_id"]
             if parent_id and parent_id in roots:
-                roots[parent_id]["children"].append({**row, "children": []})
+                roots[parent_id]["children"].append(self._public_tag(row))
         return list(roots.values())
 
-    def get_assignment(self, article_id: str) -> dict[str, Any] | None:
+    @staticmethod
+    def _public_tag(row: dict[str, Any]) -> dict[str, Any]:
+        try:
+            aliases = json.loads(row.get("aliases_json") or "[]")
+        except json.JSONDecodeError:
+            aliases = []
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "description": row.get("description") or "",
+            "aliases": aliases if isinstance(aliases, list) else [],
+            "parent_id": row.get("parent_id"),
+            "children": [],
+        }
+
+    def get_assignment(self, article_id: str, locale: str = "en-US") -> dict[str, Any] | None:
         self.ensure_schema()
+        from src.core.localization import normalize_language
+        locale = normalize_language(locale)
         marker = self._placeholder
         with self._connect() as connection:
             row = connection.execute(
                 f"""
                 SELECT a.article_id, a.reason,
-                       t.id AS tag_id, t.name AS tag_name,
-                       s.id AS subtag_id, s.name AS subtag_name
+                       t.id AS tag_id, COALESCE(tl.name, t.name) AS tag_name,
+                       s.id AS subtag_id, COALESCE(sl.name, s.name) AS subtag_name
                 FROM noosphere_article_tags a
                 JOIN noosphere_tags t ON t.id = a.tag_id
                 LEFT JOIN noosphere_tags s ON s.id = a.subtag_id
+                LEFT JOIN noosphere_tag_localizations tl ON tl.tag_id = t.id AND tl.locale = {marker}
+                LEFT JOIN noosphere_tag_localizations sl ON sl.tag_id = s.id AND sl.locale = {marker}
+                WHERE a.article_id = {marker}
+                """,
+                (locale, locale, article_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_search_terms(self, article_id: str) -> list[str]:
+        """Return names and aliases from every locale for the assigned tag path."""
+        self.ensure_schema()
+        marker = self._placeholder
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT l.name, l.aliases_json
+                FROM noosphere_article_tags a
+                JOIN noosphere_tag_localizations l ON l.tag_id = a.tag_id OR l.tag_id = a.subtag_id
                 WHERE a.article_id = {marker}
                 """,
                 (article_id,),
-            ).fetchone()
-        return dict(row) if row else None
+            ).fetchall()
+        terms: set[str] = set()
+        for row in rows:
+            data = dict(row)
+            if data.get("name"):
+                terms.add(str(data["name"]))
+            try:
+                aliases = json.loads(data.get("aliases_json") or "[]")
+            except json.JSONDecodeError:
+                aliases = []
+            terms.update(str(alias) for alias in aliases if alias)
+        return sorted(terms, key=str.casefold)
 
     def assign(
         self,
@@ -112,6 +181,11 @@ class CatalogStore:
         subtag_name: str | None = None,
         subtag_description: str = "",
         reason: str = "",
+        locale: str = "en-US",
+        tag_localizations: dict[str, dict[str, Any]] | None = None,
+        subtag_localizations: dict[str, dict[str, Any]] | None = None,
+        tag_id: str | None = None,
+        subtag_id: str | None = None,
     ) -> dict[str, Any]:
         self.ensure_schema()
         tag_name = tag_name.strip()
@@ -119,12 +193,8 @@ class CatalogStore:
         if not tag_name:
             raise ValueError("A top-level tag is required")
         with self._connect() as connection:
-            tag_id = self._upsert_tag(connection, tag_name, tag_description.strip(), None)
-            subtag_id = (
-                self._upsert_tag(connection, subtag_name, subtag_description.strip(), tag_id)
-                if subtag_name
-                else None
-            )
+            tag_id = self._upsert_tag(connection, tag_name, tag_description.strip(), None, tag_localizations, preferred_id=tag_id)
+            subtag_id = self._upsert_tag(connection, subtag_name, subtag_description.strip(), tag_id, subtag_localizations, preferred_id=subtag_id) if subtag_name else None
             marker = self._placeholder
             existing = connection.execute(
                 f"SELECT article_id FROM noosphere_article_tags WHERE article_id = {marker}",
@@ -141,19 +211,54 @@ class CatalogStore:
                     f"INSERT INTO noosphere_article_tags (tag_id, subtag_id, reason, updated_at, article_id) VALUES ({marker}, {marker}, {marker}, {marker}, {marker})",
                     values,
                 )
-        assignment = self.get_assignment(article_id)
+        assignment = self.get_assignment(article_id, locale)
         if assignment is None:
             raise RuntimeError("Tag assignment was not persisted")
         return assignment
 
-    def _upsert_tag(self, connection, name: str, description: str, parent_id: str | None) -> str:
+    def _upsert_tag(
+        self,
+        connection,
+        name: str,
+        description: str,
+        parent_id: str | None,
+        localizations: dict[str, dict[str, Any]] | None = None,
+        *,
+        preferred_id: str | None = None,
+    ) -> str:
         marker = self._placeholder
-        if parent_id is None:
+        row = None
+        if preferred_id:
+            row = connection.execute("SELECT id, description FROM noosphere_tags WHERE id = " + marker, (preferred_id,)).fetchone()
+        if row is None:
+            candidates = {name.casefold()}
+            for localized in (localizations or {}).values():
+                localized_name = str(localized.get("name") or "").strip()
+                candidates.update(item.casefold() for item in [localized_name, *(localized.get("aliases") or [])] if str(item).strip())
+            localization_rows = connection.execute(
+                "SELECT tag_id, name, aliases_json FROM noosphere_tag_localizations"
+            ).fetchall()
+            matched_ids: set[str] = set()
+            for localization_row in localization_rows:
+                data = dict(localization_row)
+                aliases = json.loads(data.get("aliases_json") or "[]")
+                known = {str(data.get("name") or "").casefold(), *(str(alias).casefold() for alias in aliases)}
+                if candidates & known:
+                    matched_ids.add(str(data["tag_id"]))
+            if matched_ids:
+                placeholders = ",".join(marker for _ in matched_ids)
+                parent_clause = "parent_id IS NULL" if parent_id is None else f"parent_id = {marker}"
+                params = (*matched_ids,) if parent_id is None else (*matched_ids, parent_id)
+                row = connection.execute(
+                    f"SELECT id, description FROM noosphere_tags WHERE id IN ({placeholders}) AND {parent_clause} LIMIT 1",
+                    params,
+                ).fetchone()
+        if row is None and parent_id is None:
             row = connection.execute(
                 "SELECT id, description FROM noosphere_tags WHERE parent_id IS NULL AND name = " + marker,
                 (name,),
             ).fetchone()
-        else:
+        elif row is None:
             row = connection.execute(
                 f"SELECT id, description FROM noosphere_tags WHERE parent_id = {marker} AND name = {marker}",
                 (parent_id, name),
@@ -165,13 +270,50 @@ class CatalogStore:
                     f"UPDATE noosphere_tags SET description = {marker} WHERE id = {marker}",
                     (description, row_data["id"]),
                 )
-            return str(row_data["id"])
+            tag_id = str(row_data["id"])
+            self._upsert_localizations(connection, tag_id, localizations or {})
+            return tag_id
         tag_id = uuid.uuid4().hex
         connection.execute(
             f"INSERT INTO noosphere_tags (id, name, description, parent_id, created_at) VALUES ({marker}, {marker}, {marker}, {marker}, {marker})",
             (tag_id, name, description, parent_id, _now()),
         )
+        fallback_localizations = localizations or {"en-US": {"name": name, "description": description, "aliases": []}, "zh-CN": {"name": name, "description": description, "aliases": []}}
+        self._upsert_localizations(connection, tag_id, fallback_localizations)
         return tag_id
+
+    def _upsert_localizations(self, connection, tag_id: str, localizations: dict[str, dict[str, Any]]) -> None:
+        marker = self._placeholder
+        for locale, value in localizations.items():
+            name = str(value.get("name") or "").strip()
+            if not name:
+                continue
+            description = str(value.get("description") or "").strip()
+            aliases = sorted({str(alias).strip() for alias in value.get("aliases") or [] if str(alias).strip() and str(alias).casefold() != name.casefold()})
+            existing = connection.execute(
+                f"SELECT name, description, aliases_json FROM noosphere_tag_localizations WHERE tag_id = {marker} AND locale = {marker}",
+                (tag_id, locale),
+            ).fetchone()
+            if existing:
+                current = dict(existing)
+                current_name = str(current.get("name") or name)
+                current_description = str(current.get("description") or "")
+                try:
+                    current_aliases = json.loads(current.get("aliases_json") or "[]")
+                except json.JSONDecodeError:
+                    current_aliases = []
+                if name.casefold() != current_name.casefold():
+                    aliases.append(name)
+                aliases = sorted({*current_aliases, *aliases}, key=str.casefold)
+                connection.execute(
+                    f"UPDATE noosphere_tag_localizations SET name={marker}, description={marker}, aliases_json={marker} WHERE tag_id={marker} AND locale={marker}",
+                    (current_name, current_description or description, json.dumps(aliases, ensure_ascii=False), tag_id, locale),
+                )
+            else:
+                connection.execute(
+                    f"INSERT INTO noosphere_tag_localizations (tag_id, locale, name, description, aliases_json) VALUES ({marker}, {marker}, {marker}, {marker}, {marker})",
+                    (tag_id, locale, name, description, json.dumps(aliases, ensure_ascii=False)),
+                )
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -185,7 +327,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return payload
 
 
-async def classify_reviewed_article(article_id: str, reviewed_path: Path) -> dict[str, Any]:
+async def classify_reviewed_article(article_id: str, reviewed_path: Path, locale: str = "en-US") -> dict[str, Any]:
     """Classify a reviewed article against the existing taxonomy and persist it."""
     from src.core.review.prompt_metadata import parse_prompt_file
     from src.core.paths import resolve_project_path
@@ -193,7 +335,7 @@ async def classify_reviewed_article(article_id: str, reviewed_path: Path) -> dic
 
     config = load_config()
     store = CatalogStore()
-    taxonomy = store.list_tree()
+    taxonomy = store.list_tree(locale)
     system_prompt = parse_prompt_file(
         resolve_project_path(config.pipeline.classification_prompt_path)
     ).body
@@ -214,15 +356,32 @@ async def classify_reviewed_article(article_id: str, reviewed_path: Path) -> dic
     payload = _extract_json_object(response.text)
     tag = payload.get("tag")
     subtag = payload.get("subtag")
-    if not isinstance(tag, dict) or not str(tag.get("name") or "").strip():
-        raise ValueError("Classification response is missing tag.name")
+    if not isinstance(tag, dict):
+        raise ValueError("Classification response is missing tag")
     if subtag is not None and not isinstance(subtag, dict):
         raise ValueError("Classification subtag must be an object or null")
+    def translations(value: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+        if not value:
+            return {}
+        raw = value.get("translations") or value.get("localizations") or {}
+        return raw if isinstance(raw, dict) else {}
+
+    tag_translations = translations(tag)
+    subtag_translations = translations(subtag) if subtag else {}
+    tag_name = str(tag.get("name") or (tag_translations.get(locale) or {}).get("name") or (next(iter(tag_translations.values()), {})).get("name") or "").strip()
+    subtag_name = str(subtag.get("name") or (subtag_translations.get(locale) or {}).get("name") or (next(iter(subtag_translations.values()), {})).get("name") or "").strip() if subtag else None
+    if not tag_name:
+        raise ValueError("Classification response is missing a tag name")
     return store.assign(
         article_id,
-        tag_name=str(tag["name"]),
+        tag_name=tag_name,
         tag_description=str(tag.get("description") or ""),
-        subtag_name=str(subtag.get("name") or "") if subtag else None,
+        subtag_name=subtag_name,
         subtag_description=str(subtag.get("description") or "") if subtag else "",
         reason=str(payload.get("reason") or ""),
+        locale=locale,
+        tag_localizations=tag_translations,
+        subtag_localizations=subtag_translations,
+        tag_id=str(tag.get("id") or "") or None,
+        subtag_id=str(subtag.get("id") or "") or None if subtag else None,
     )

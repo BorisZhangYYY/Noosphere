@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from bs4 import BeautifulSoup, Tag
 
 from src.core.models.article import Article
@@ -19,6 +21,41 @@ _HEADING_IMAGE_ONLY_RE = re.compile(r"^#{1,3}\s*!\[.*?\]\([^)]+\)\s*$")
 
 # Short heading that looks like a publisher/source label (<=15 chars, no long text)
 _SHORT_HEADING_RE = re.compile(r"^#{1,3}\s*(?:\*\*)?[^*#\n]{1,15}(?:\*\*)?\s*$")
+
+_WECHAT_READER_NOISE = {
+    "在小说阅读器读本章",
+    "去阅读",
+    "在小说阅读器中沉浸阅读",
+}
+_WECHAT_TAIL_MARKERS = {
+    "Send Message",
+    "写留言:",
+    "写留言：",
+    "确认提交投诉",
+    "·联系我们",
+    "推荐阅读",
+}
+
+
+def _author_from_markdown(markdown: str) -> str | None:
+    for line in markdown.splitlines():
+        plain = re.sub(r"[*_]", "", line).replace(r"\|", "|").strip()
+        match = re.search(r"(?:^|\s)作者\s*(?:\||[:：])\s*(.+?)\s*$", plain)
+        if match:
+            return re.sub(r"\s+", " ", match.group(1)).strip()
+    return None
+
+
+def _published_from_markdown(markdown: str) -> str | None:
+    patterns = (
+        r"(?m)^_?\s*(\d{4}年\d{1,2}月\d{1,2}日(?:\s+\d{1,2}:\d{2})?)\s*_?$",
+        r"(?m)^\s*(\d{4}-\d{1,2}-\d{1,2}(?:[ T]\d{1,2}:\d{2})?)\s*$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, markdown)
+        if match:
+            return match.group(1)
+    return None
 
 
 @register_extractor("wechat_mp", url_patterns=["mp.weixin.qq.com/s/"])
@@ -67,6 +104,15 @@ class WechatMpExtractor(BaseArticleExtractor):
     def too_short_message(self, page: CrawledPage) -> str:
         return f"WeChat article body is too short; crawl error={page.error!r}"
 
+    async def _parse(self, page: CrawledPage, url: str) -> Article:
+        """Recover metadata from Firecrawl Markdown when page HTML is absent."""
+        article = await super()._parse(page, url)
+        return replace(
+            article,
+            author=article.author or _author_from_markdown(page.markdown),
+            published_at=article.published_at or _published_from_markdown(page.markdown),
+        )
+
     def clean_body(self, markdown: str, title: str) -> str:
         """Remove the platform banner image that duplicates the cover image.
 
@@ -79,9 +125,25 @@ class WechatMpExtractor(BaseArticleExtractor):
         only an image followed by a short heading (publisher label).
         """
         lines = markdown.split("\n")
+        tail_start: int | None = None
+        minimum_tail_index = min(20, int(len(lines) * 0.2))
+        for index, line in enumerate(lines):
+            marker = re.sub(r"[*_]", "", line).replace(r"\|", "|").strip().lstrip("#").strip()
+            if marker.startswith("微信编辑"):
+                marker = "·联系我们"
+            if index >= minimum_tail_index and marker in _WECHAT_TAIL_MARKERS:
+                tail_start = index
+                break
+        if tail_start is not None:
+            lines = lines[:tail_start]
+
         result: list[str] = []
         i = 0
         while i < len(lines):
+            stripped = lines[i].strip()
+            if stripped in _WECHAT_READER_NOISE or re.match(r"^Original\S", stripped):
+                i += 1
+                continue
             heading_img = _HEADING_IMAGE_ONLY_RE.match(lines[i])
             if heading_img:
                 # Look ahead for a short publisher/source heading

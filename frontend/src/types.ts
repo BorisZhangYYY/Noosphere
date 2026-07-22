@@ -1,6 +1,7 @@
 export type ArticleStatus = "captured" | "reviewed" | "uploaded" | "failed";
 export type CaptureJobStatus = "queued" | "running" | "awaiting_review" | "succeeded" | "failed";
-export type ReviewMode = "manual_only" | "ai_then_manual";
+export type ReviewMode = "auto_upload" | "ai_then_manual";
+export type OutputLanguage = "follow_ui" | "zh-CN" | "en-US" | "source";
 
 export interface CaptureJobEvent {
   id: string;
@@ -20,6 +21,7 @@ export interface CaptureJob {
   finishedAt: string | null;
   reviewMode: ReviewMode;
   perspective: string;
+  outputLanguage: OutputLanguage | "zh-CN" | "en-US" | "source";
   articleId: string | null;
   reviewPreview: string;
   events: CaptureJobEvent[];
@@ -38,6 +40,8 @@ export interface ArticleSummary {
   status: ArticleStatus;
   assetsCount: number;
   classification: ArticleClassification | null;
+  operationSummary: ArticleOperationSummary;
+  searchTerms: string[];
 }
 
 export interface ArticleDetail extends ArticleSummary {
@@ -49,6 +53,7 @@ export interface ArticleDetail extends ArticleSummary {
   validationIssues: string[];
   hasUploaded: boolean;
   activeUpload: UploadJob | null;
+  activeReview: ReviewJob | null;
   assets: Array<{ name: string; url: string }>;
   removedAssets: Array<{ name: string; url: string; reason: string; source: "ai" | "manual" }>;
   classification: ArticleClassification | null;
@@ -86,10 +91,19 @@ export interface ArticleClassification {
   subtag_name: string | null;
 }
 
+export interface ArticleOperationSummary {
+  captureCount: number;
+  reviewCount: number;
+  rereviewCount: number;
+  uploadCount: number;
+  events: Array<{ id: string; type: "capture" | "review" | "upload"; at: string; details: Record<string, unknown> }>;
+}
+
 export interface TaxonomyTag {
   id: string;
   name: string;
   description: string;
+  aliases: string[];
   parent_id: string | null;
   children: TaxonomyTag[];
 }
@@ -100,12 +114,19 @@ export interface PipelinePerspective {
   description: string;
   prompt: string;
   template: string;
+  builtin: boolean;
+  editable: boolean;
+  outputSections: Record<string, string>;
+  bodySection: string;
 }
 
 export interface PipelineSettings {
   reviewMode: ReviewMode;
+  outputLanguage: OutputLanguage;
+  language: "zh-CN" | "en-US";
   activePerspective: string;
   commonPrompt: string;
+  commonEditable: boolean;
   perspectives: PipelinePerspective[];
 }
 
@@ -119,11 +140,13 @@ export interface AIProviderSettings {
   model: string;
   apiBase: string;
   apiKeyConfigured: boolean;
+  visionCapable: boolean;
   apiKey?: string;
 }
 
 export interface SettingsData {
   aiProvider: string;
+  imageProvider: string;
   aiProviders: AIProviderSettings[];
   crawlerPrimary: string;
   crawlerFallback: string;

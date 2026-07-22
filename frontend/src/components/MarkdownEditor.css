@@ -63,6 +63,18 @@
   color: var(--text) !important;
 }
 
+.markdown-editor .vditor-reset :where(pre, pre code),
+.markdown-editor .vditor-wysiwyg__preview,
+.markdown-editor .vditor-wysiwyg__preview :where(code, .hljs) {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.markdown-editor .vditor-wysiwyg > .vditor-reset > :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 96px;
+}
+
 .markdown-editor .vditor-reset code:not(pre code) {
   padding: .16em .38em;
   border-radius: 5px;

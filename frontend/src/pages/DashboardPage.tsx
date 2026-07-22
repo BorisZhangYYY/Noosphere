@@ -1,9 +1,10 @@
 import { ArrowRight, BookOpenText, CloudArrowUp, MagnifyingGlass, Path } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import { InlineSelect } from "../components/InlineSelect";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { localizedPlatformLabel } from "../localization";
@@ -40,12 +41,28 @@ function ArticleRow({ article }: { article: ArticleSummary }) {
 }
 
 export function DashboardPage() {
-  const { t } = useTranslation();
-  const query = useQuery({ queryKey: ["articles"], queryFn: api.listArticles });
-  const taxonomyQuery = useQuery({ queryKey: ["taxonomy"], queryFn: api.getTaxonomy });
+  const { t, i18n } = useTranslation();
+  const query = useQuery({ queryKey: ["articles", i18n.resolvedLanguage], queryFn: api.listArticles });
+  const taxonomyQuery = useQuery({ queryKey: ["taxonomy", i18n.resolvedLanguage], queryFn: api.getTaxonomy });
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [search, setSearch] = useState("");
   const articles = query.data?.articles ?? [];
-  const visibleArticles = categoryFilter ? articles.filter((article) => article.classification?.tag_name === categoryFilter || article.classification?.subtag_name === categoryFilter) : articles;
+  const taxonomyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const article of articles) {
+      const classification = article.classification;
+      if (!classification) continue;
+      counts.set(classification.tag_id, (counts.get(classification.tag_id) ?? 0) + 1);
+      if (classification.subtag_id) counts.set(classification.subtag_id, (counts.get(classification.subtag_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [articles]);
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const visibleArticles = articles.filter((article) => {
+    const categoryMatches = !categoryFilter || article.classification?.tag_id === categoryFilter || article.classification?.subtag_id === categoryFilter;
+    const searchMatches = !normalizedSearch || [article.title, article.author ?? "", article.platformLabel, ...(article.searchTerms ?? [])].join(" ").toLocaleLowerCase().includes(normalizedSearch);
+    return categoryMatches && searchMatches;
+  });
   const reviewed = articles.filter((article) => article.status === "reviewed" || article.status === "uploaded").length;
   const uploaded = articles.filter((article) => article.status === "uploaded").length;
   const needsAttention = articles.filter((article) => article.status === "failed").length;
@@ -60,7 +77,7 @@ export function DashboardPage() {
         </div>
         <label className="search-field">
           <MagnifyingGlass size={19} />
-          <input type="search" placeholder={t("library.search")} aria-label={t("library.search")} disabled />
+          <input type="search" placeholder={t("library.search")} aria-label={t("library.search")} value={search} onChange={(event) => setSearch(event.target.value)} />
           <kbd>⌘K</kbd>
         </label>
       </header>
@@ -78,8 +95,22 @@ export function DashboardPage() {
           <span>{t("library.total", { count: visibleArticles.length })}</span>
         </div>
         {taxonomyQuery.data?.tags.length ? <div className="taxonomy-shelf" aria-label={t("library.taxonomy")}>
-          <button type="button" className={!categoryFilter ? "active" : ""} onClick={() => setCategoryFilter("")}>{t("library.allTags")}</button>
-          {taxonomyQuery.data.tags.map((tag) => <div className="taxonomy-family" key={tag.id}><button type="button" className={categoryFilter === tag.name ? "active" : ""} title={tag.description} onClick={() => setCategoryFilter(tag.name)}>{tag.name}</button>{tag.children.map((child) => <button type="button" className={categoryFilter === child.name ? "active child" : "child"} title={child.description} onClick={() => setCategoryFilter(child.name)} key={child.id}>{child.name}</button>)}</div>)}
+          <button type="button" className={!categoryFilter ? "active taxonomy-all" : "taxonomy-all"} onClick={() => setCategoryFilter("")}><span>{t("library.allTags")}</span><small>{articles.length}</small></button>
+          {taxonomyQuery.data.tags.map((tag) => {
+            const familyValues = new Set([tag.id, ...tag.children.map((child) => child.id)]);
+            const selected = familyValues.has(categoryFilter) ? categoryFilter : tag.id;
+            return <div className={`taxonomy-family${familyValues.has(categoryFilter) ? " active" : ""}`} key={tag.id} title={tag.description}>
+              <InlineSelect
+                value={selected}
+                ariaLabel={tag.name}
+                onChange={setCategoryFilter}
+                options={[
+                  { value: tag.id, label: <span className="taxonomy-option-label"><span>{tag.name}</span><small>{taxonomyCounts.get(tag.id) ?? 0}</small></span>, description: tag.description },
+                  ...tag.children.map((child) => ({ value: child.id, label: <span className="taxonomy-option-label"><span>{child.name}</span><small>{taxonomyCounts.get(child.id) ?? 0}</small></span>, description: child.description }))
+                ]}
+              />
+            </div>;
+          })}
         </div> : null}
         <div className="article-list-header" aria-hidden="true">
           <span>{t("library.columnArticle")}</span><span>{t("library.columnSource")}</span><span>{t("library.columnCaptured")}</span><span>{t("library.columnStatus")}</span>

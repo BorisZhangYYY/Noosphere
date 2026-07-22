@@ -8,6 +8,7 @@ const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) =
 const PipelinePage = lazy(() => import("./pages/PipelinePage").then((module) => ({ default: module.PipelinePage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const SourcesPage = lazy(() => import("./pages/SourcesPage").then((module) => ({ default: module.SourcesPage })));
+const ReviewStudioPage = lazy(() => import("./pages/ReviewStudioPage").then((module) => ({ default: module.ReviewStudioPage })));
 
 export function App() {
   return (
@@ -20,6 +21,7 @@ export function App() {
             <Route path="articles/:articleId" element={<ArticlePage />} />
             <Route path="pipeline" element={<PipelinePage />} />
             <Route path="sources" element={<SourcesPage />} />
+            <Route path="review-studio" element={<ReviewStudioPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

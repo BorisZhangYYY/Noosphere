@@ -64,6 +64,13 @@ def test_contract_rejects_templates_missing_content_slots() -> None:
         validate_output_template("# {{title}}", {"summary": "AI Summary"})
 
 
+def test_contract_requires_each_template_field_exactly_once() -> None:
+    template = TEMPLATE.replace("{{summary}}", "{{summary}}\n\n{{summary}}")
+
+    with pytest.raises(ValueError, match="exactly once"):
+        validate_output_template(template, {"summary": "AI Summary", "main_article": "Main Article"})
+
+
 def test_legacy_perspective_config_is_upgraded() -> None:
     profile = ReviewPerspectiveConfig.model_validate({
         "label": "Original",
@@ -73,3 +80,37 @@ def test_legacy_perspective_config_is_upgraded() -> None:
 
     assert profile.template_path == "prompts/templates/original_article.md"
     assert profile.output_sections["main_article"] == "Main Article"
+
+
+def test_structured_payload_uses_trusted_metadata_and_reserves_top_level_headings() -> None:
+    response = '''{
+      "title": "A clearer title",
+      "slots": {
+        "summary": "Short summary.",
+        "main_article": "## Model tried to own structure\\n\\nBody."
+      }
+    }'''
+    source = """# Original
+
+> Source: [https://example.com](https://example.com)
+> Platform: Web
+> Captured: 2026-07-22
+> Type: article
+
+---
+
+Original body.
+"""
+
+    rendered = materialize_review_output(
+        response,
+        TEMPLATE,
+        {"summary": "AI Summary", "main_article": "Main Article"},
+        source_markdown=source,
+    )
+
+    assert rendered.startswith("# A clearer title")
+    assert "> Author: Unknown" in rendered
+    assert "> Published: Unknown" in rendered
+    assert "### Model tried to own structure" in rendered
+    assert rendered.count("## Main Article") == 1

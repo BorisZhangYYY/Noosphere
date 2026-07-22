@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import tempfile
 import urllib.parse
 import uuid
@@ -32,6 +33,23 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _request_language(request: Request) -> str:
+    from src.core.localization import normalize_language
+    requested = request.query_params.get("locale") or request.headers.get("accept-language", "").split(",", 1)[0]
+    return normalize_language(requested, default="en-US")
+
+
+def _active_job_for_article(
+    jobs: dict[str, dict[str, Any]],
+    article_id: str,
+) -> dict[str, Any] | None:
+    """Return the newest queued/running job for an article, if one exists."""
+    return next((
+        job for job in reversed(list(jobs.values()))
+        if job.get("articleId") == article_id and job.get("status") in {"queued", "running"}
+    ), None)
+
+
 def _add_job_event(
     job: dict[str, Any],
     stage: str,
@@ -52,13 +70,13 @@ def _add_job_event(
     del events[:-80]
 
 
-async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective: str) -> None:
+async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective: str, output_language: str) -> None:
     job = _capture_jobs[job_id]
     job.update(status="running", startedAt=_utc_now())
     _add_job_event(job, "capture", "pipeline.events.captureStarted")
     try:
         from src.core.telemetry import reset_event_sink, set_event_sink
-        from src.graph.graph import run_ai_review_graph, run_extract_graph
+        from src.graph.graph import run_ai_review_graph, run_extract_graph, run_upload_graph
 
         async def event_sink(kind: str, message: str, details: str | None) -> None:
             if kind == "ai_output_delta":
@@ -85,11 +103,7 @@ async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective:
                 level="success",
                 details=f"{len(assets)} assets",
             )
-            if review_mode == "manual_only":
-                _add_job_event(job, "system", "pipeline.events.manualReviewReady", level="success")
-                job.update(status="awaiting_review", finishedAt=_utc_now())
-                return
-            validation = await run_ai_review_graph(reviewed_path, perspective=perspective)
+            validation = await run_ai_review_graph(reviewed_path, perspective=perspective, output_language=output_language)
             if not validation.ok:
                 issues = "; ".join(issue.message for issue in validation.issues[:6])
                 raise ValueError(issues or "AI review validation failed")
@@ -97,13 +111,22 @@ async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective:
                 from src.core.catalog import classify_reviewed_article
 
                 _add_job_event(job, "classification", "pipeline.events.classificationStarted")
-                assignment = await classify_reviewed_article(reviewed_path.parent.name, reviewed_path)
+                from src.core.localization import resolve_output_language
+                classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
+                assignment = await classify_reviewed_article(reviewed_path.parent.name, reviewed_path, classification_language)
                 label = assignment.get("subtag_name") or assignment.get("tag_name") or ""
                 _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
             except Exception as exc:
                 _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
-            _add_job_event(job, "system", "pipeline.events.awaitingReview", level="success")
-            job.update(status="awaiting_review", finishedAt=_utc_now())
+            if review_mode == "auto_upload":
+                _add_job_event(job, "upload", "pipeline.events.uploadStarted")
+                upload_result = await run_upload_graph(reviewed_path, target="siyuan")
+                job["result"] = {"hpath": upload_result.hpath, "created": upload_result.created}
+                _add_job_event(job, "upload", "pipeline.events.uploadCompleted", level="success")
+                job.update(status="succeeded", finishedAt=_utc_now())
+            else:
+                _add_job_event(job, "system", "pipeline.events.awaitingReview", level="success")
+                job.update(status="awaiting_review", finishedAt=_utc_now())
         finally:
             reset_event_sink(token)
     except Exception as exc:  # Preserve pipeline failures for inspection through the job API.
@@ -111,32 +134,39 @@ async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective:
         job.update(status="failed", finishedAt=_utc_now(), error=str(exc))
 
 
-async def create_capture(request: Request) -> JSONResponse:
-    try:
-        payload = await request.json()
-        from src.mcp.server import _validate_url
+async def start_capture_job(
+    url: str,
+    *,
+    review_mode: str | None = None,
+    perspective: str | None = None,
+    output_language: str | None = None,
+) -> dict[str, Any]:
+    """Queue a capture workflow for both REST and MCP callers."""
+    from src.mcp.server import _validate_url
 
-        url = _validate_url(payload.get("url") if isinstance(payload, dict) else None)
-        config = load_config()
-        review_mode = str(payload.get("reviewMode") or config.pipeline.review_mode) if isinstance(payload, dict) else config.pipeline.review_mode
-        perspective = str(payload.get("perspective") or config.pipeline.active_perspective) if isinstance(payload, dict) else config.pipeline.active_perspective
-        if review_mode not in {"manual_only", "ai_then_manual"}:
-            raise ValueError(f"Unsupported review mode: {review_mode}")
-        if perspective not in config.pipeline.perspectives:
-            raise ValueError(f"Unknown review perspective: {perspective}")
-    except (json.JSONDecodeError, ValueError) as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
-
+    validated_url = _validate_url(url)
+    config = load_config()
+    selected_mode = review_mode or config.pipeline.review_mode
+    selected_perspective = perspective or config.pipeline.active_perspective
+    selected_language = output_language or config.pipeline.output_language
+    if selected_mode not in {"auto_upload", "ai_then_manual"}:
+        raise ValueError(f"Unsupported review mode: {selected_mode}")
+    if selected_language not in {"zh-CN", "en-US", "source"}:
+        raise ValueError(f"Unsupported output language: {selected_language}")
+    if selected_perspective not in config.pipeline.perspectives:
+        raise ValueError(f"Unknown review perspective: {selected_perspective}")
     job_id = uuid.uuid4().hex
     _capture_jobs[job_id] = {
         "id": job_id,
-        "url": url,
+        "kind": "capture",
+        "url": validated_url,
         "status": "queued",
         "createdAt": _utc_now(),
         "startedAt": None,
         "finishedAt": None,
-        "reviewMode": review_mode,
-        "perspective": perspective,
+        "reviewMode": selected_mode,
+        "perspective": selected_perspective,
+        "outputLanguage": selected_language,
         "articleId": None,
         "reviewPreview": "",
         "events": [],
@@ -145,8 +175,29 @@ async def create_capture(request: Request) -> JSONResponse:
     }
     while len(_capture_jobs) > 100:
         _capture_jobs.pop(next(iter(_capture_jobs)))
-    asyncio.create_task(_run_capture_job(job_id, url, review_mode, perspective))
-    return JSONResponse(_capture_jobs[job_id], status_code=202)
+    asyncio.create_task(
+        _run_capture_job(job_id, validated_url, selected_mode, selected_perspective, selected_language)
+    )
+    return _capture_jobs[job_id]
+
+
+async def create_capture(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Capture payload must be an object")
+        config = load_config()
+        requested_language = str(payload.get("outputLanguage") or config.pipeline.output_language)
+        output_language = _request_language(request) if requested_language == "follow_ui" else requested_language
+        job = await start_capture_job(
+            str(payload.get("url") or ""),
+            review_mode=str(payload.get("reviewMode") or config.pipeline.review_mode),
+            perspective=str(payload.get("perspective") or config.pipeline.active_perspective),
+            output_language=output_language,
+        )
+    except (json.JSONDecodeError, ValueError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse(job, status_code=202)
 
 
 async def list_capture_jobs(request: Request) -> JSONResponse:
@@ -155,7 +206,7 @@ async def list_capture_jobs(request: Request) -> JSONResponse:
     return JSONResponse({"jobs": jobs})
 
 
-async def _run_article_review_job(job_id: str, article_id: str, perspective: str) -> None:
+async def _run_article_review_job(job_id: str, article_id: str, perspective: str, output_language: str) -> None:
     job = _review_jobs[job_id]
     job.update(status="running", stage="reviewing", progress=12, startedAt=_utc_now())
     _add_job_event(job, "ai_review", "pipeline.events.aiReviewStarted")
@@ -183,6 +234,7 @@ async def _run_article_review_job(job_id: str, article_id: str, perspective: str
                 reviewed_path,
                 perspective=perspective,
                 source_markdown=source_markdown,
+                output_language=output_language,
             )
         finally:
             reset_event_sink(token)
@@ -193,7 +245,9 @@ async def _run_article_review_job(job_id: str, article_id: str, perspective: str
         job.update(stage="classification", progress=90)
         try:
             from src.core.catalog import classify_reviewed_article
-            await classify_reviewed_article(article_id, reviewed_path)
+            from src.core.localization import resolve_output_language
+            classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
+            await classify_reviewed_article(article_id, reviewed_path, classification_language)
         except Exception as exc:
             _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
         _add_job_event(job, "system", "pipeline.events.articleReviewCompleted", level="success")
@@ -203,32 +257,57 @@ async def _run_article_review_job(job_id: str, article_id: str, perspective: str
         job.update(status="failed", stage="failed", error=str(exc), finishedAt=_utc_now())
 
 
-async def create_article_review(request: Request) -> JSONResponse:
-    try:
-        article_id = request.path_params["article_id"]
-        _safe_article_dir(article_id)
-        payload = await request.json()
-        perspective = str(payload.get("perspective") or load_config().pipeline.active_perspective)
-        if perspective not in load_config().pipeline.perspectives:
-            raise ValueError(f"Unknown review perspective: {perspective}")
-        if any(job.get("articleId") == article_id and job.get("status") in {"queued", "running"} for job in _review_jobs.values()):
-            raise ValueError("This article already has an AI review in progress")
-    except json.JSONDecodeError:
-        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
-
+async def start_article_review_job(
+    article_id: str,
+    *,
+    perspective: str | None = None,
+    output_language: str | None = None,
+) -> dict[str, Any]:
+    """Queue a re-review and return the existing active job when present."""
+    _safe_article_dir(article_id)
+    config = load_config()
+    selected_perspective = perspective or config.pipeline.active_perspective
+    selected_language = output_language or config.pipeline.output_language
+    if selected_perspective not in config.pipeline.perspectives:
+        raise ValueError(f"Unknown review perspective: {selected_perspective}")
+    if selected_language not in {"zh-CN", "en-US", "source"}:
+        raise ValueError(f"Unsupported output language: {selected_language}")
+    active_job = _active_job_for_article(_review_jobs, article_id)
+    if active_job is not None:
+        return active_job
     job_id = uuid.uuid4().hex
     _review_jobs[job_id] = {
-        "id": job_id, "articleId": article_id, "perspective": perspective,
+        "id": job_id, "kind": "review", "articleId": article_id,
+        "perspective": selected_perspective, "outputLanguage": selected_language,
         "status": "queued", "stage": "queued", "progress": 0,
         "createdAt": _utc_now(), "startedAt": None, "finishedAt": None,
         "reviewPreview": "", "events": [], "error": None,
     }
     while len(_review_jobs) > 100:
         _review_jobs.pop(next(iter(_review_jobs)))
-    asyncio.create_task(_run_article_review_job(job_id, article_id, perspective))
-    return JSONResponse(_review_jobs[job_id], status_code=202)
+    asyncio.create_task(_run_article_review_job(job_id, article_id, selected_perspective, selected_language))
+    return _review_jobs[job_id]
+
+
+async def create_article_review(request: Request) -> JSONResponse:
+    try:
+        article_id = request.path_params["article_id"]
+        _safe_article_dir(article_id)
+        payload = await request.json()
+        perspective = str(payload.get("perspective") or load_config().pipeline.active_perspective)
+        requested_language = str(payload.get("outputLanguage") or load_config().pipeline.output_language)
+        output_language = _request_language(request) if requested_language == "follow_ui" else requested_language
+        job = await start_article_review_job(
+            article_id,
+            perspective=perspective,
+            output_language=output_language,
+        )
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    return JSONResponse(job, status_code=202)
 
 
 async def get_article_review_job(request: Request) -> JSONResponse:
@@ -257,7 +336,7 @@ def _article_status(article_dir: Path, manifest: dict[str, Any]) -> str:
     return "captured"
 
 
-def _article_summary(manifest_path: Path) -> dict[str, Any] | None:
+def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, Any] | None:
     manifest = _read_json(manifest_path)
     if not manifest:
         return None
@@ -267,9 +346,15 @@ def _article_summary(manifest_path: Path) -> dict[str, Any] | None:
     if not metadata:
         metadata = _markdown_metadata(manifest_path.parent / "raw.md")
     from src.core.catalog import CatalogStore
-    classification = CatalogStore().get_assignment(str(manifest.get("article_id") or manifest_path.parent.name))
+    article_id = str(manifest.get("article_id") or manifest_path.parent.name)
+    catalog = CatalogStore()
+    classification = catalog.get_assignment(article_id, locale)
+    from src.core.activity import ArticleActivityStore
+    activity = ArticleActivityStore()
+    activity.backfill_workspace(article_id, manifest, _read_json(manifest_path.parent / "review.json"))
+    operations = activity.summary(article_id, limit=0)
     return {
-        "id": str(manifest.get("article_id") or manifest_path.parent.name),
+        "id": article_id,
         "title": str(article.get("title") or manifest_path.parent.name),
         "url": str(article.get("url") or ""),
         "platform": str(article.get("platform") or "unknown"),
@@ -279,6 +364,8 @@ def _article_summary(manifest_path: Path) -> dict[str, Any] | None:
         "status": _article_status(manifest_path.parent, manifest),
         "assetsCount": len(downloaded),
         "classification": classification,
+        "operationSummary": operations,
+        "searchTerms": [value for value in [article.get("title"), article.get("author"), article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog.get_search_terms(article_id)] if value],
     }
 
 
@@ -298,9 +385,9 @@ def _markdown_metadata(path: Path) -> dict[str, str]:
         if ":" not in content:
             continue
         key, value = content.split(":", 1)
-        normalized = key.strip().casefold()
+        normalized = key.strip().strip("*_`").casefold()
         if normalized in {"author", "published", "captured", "platform", "type"}:
-            fields[normalized] = value.strip()
+            fields[normalized] = value.strip().strip("*_`")
     return fields
 
 
@@ -360,15 +447,9 @@ def _persistable_reviewed_markdown(markdown: str, removed_names: set[str]) -> st
 
 
 async def list_articles(request: Request) -> JSONResponse:
-    del request
-    output_dir = load_config().output_dir_path
-    articles: list[dict[str, Any]] = []
-    if output_dir.exists():
-        for manifest_path in output_dir.rglob("manifest.json"):
-            summary = _article_summary(manifest_path)
-            if summary:
-                articles.append(summary)
-    articles.sort(key=lambda item: str(item.get("capturedAt") or ""), reverse=True)
+    from src.application.service import list_articles as application_list_articles
+
+    articles = await asyncio.to_thread(application_list_articles, locale=_request_language(request))
     return JSONResponse({"articles": articles})
 
 
@@ -390,7 +471,8 @@ async def get_article(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, status_code=404)
 
     manifest_path = article_dir / "manifest.json"
-    summary = _article_summary(manifest_path)
+    locale = _request_language(request)
+    summary = _article_summary(manifest_path, locale)
     if not summary:
         return JSONResponse({"error": "Article manifest is missing or invalid"}, status_code=404)
 
@@ -410,8 +492,17 @@ async def get_article(request: Request) -> JSONResponse:
     validation_issues = [str(issue.get("message") if isinstance(issue, dict) else issue) for issue in issues]
 
     assets = []
+    referenced_asset_names = {
+        _markdown_image_name(match.group(2))
+        for markdown in (raw_markdown, reviewed_markdown)
+        for match in MARKDOWN_IMAGE_RE.finditer(markdown)
+    }
     if assets_dir.is_dir():
-        for asset in sorted(path for path in assets_dir.iterdir() if path.is_file()):
+        for asset in sorted(
+            path
+            for path in assets_dir.iterdir()
+            if path.is_file() and path.name in referenced_asset_names
+        ):
             assets.append({
                 "name": asset.name,
                 "url": f"/api/v1/articles/{request.path_params['article_id']}/assets/{asset.name}",
@@ -440,11 +531,9 @@ async def get_article(request: Request) -> JSONResponse:
     )
 
     from src.core.catalog import CatalogStore
-    classification = summary.get("classification") or await asyncio.to_thread(CatalogStore().get_assignment, request.path_params["article_id"])
-    active_upload = next((
-        job for job in reversed(list(_upload_jobs.values()))
-        if job.get("articleId") == request.path_params["article_id"] and job.get("status") in {"queued", "running"}
-    ), None)
+    classification = summary.get("classification") or await asyncio.to_thread(CatalogStore().get_assignment, request.path_params["article_id"], locale)
+    active_upload = _active_job_for_article(_upload_jobs, request.path_params["article_id"])
+    active_review = _active_job_for_article(_review_jobs, request.path_params["article_id"])
 
     return JSONResponse({
         **summary,
@@ -456,9 +545,11 @@ async def get_article(request: Request) -> JSONResponse:
         "validationIssues": validation_issues,
         "hasUploaded": bool(manifest.get("uploaded")),
         "activeUpload": active_upload,
+        "activeReview": active_review,
         "assets": assets,
         "removedAssets": removed_assets,
         "classification": classification,
+        "operationSummary": summary["operationSummary"],
     })
 
 
@@ -504,25 +595,14 @@ async def update_article(request: Request) -> JSONResponse:
     reviewed_markdown = payload.get("reviewedMarkdown") if isinstance(payload, dict) else None
     if not isinstance(reviewed_markdown, str):
         return JSONResponse({"error": "reviewedMarkdown must be a string"}, status_code=400)
-    if len(reviewed_markdown.encode("utf-8")) > 10 * 1024 * 1024:
-        return JSONResponse({"error": "Reviewed Markdown exceeds the 10 MB limit"}, status_code=413)
-
-    removed_dir = article_dir / "removed"
-    removed_names = {path.name for path in removed_dir.iterdir() if path.is_file()} if removed_dir.is_dir() else set()
-    reviewed_markdown = _persistable_reviewed_markdown(reviewed_markdown, removed_names)
-    destination = article_dir / "reviewed.md"
-    descriptor, temporary_name = tempfile.mkstemp(prefix=".reviewed-", suffix=".md", dir=article_dir)
-    temporary_path = Path(temporary_name)
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(reviewed_markdown)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_path, destination)
-    finally:
-        if temporary_path.exists():
-            temporary_path.unlink()
-    return JSONResponse({"ok": True})
+        from src.application.service import save_reviewed_markdown
+
+        result = await asyncio.to_thread(save_reviewed_markdown, request.path_params["article_id"], reviewed_markdown)
+    except ValueError as exc:
+        status_code = 413 if "10 MB" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status_code)
+    return JSONResponse(result)
 
 
 async def update_article_image(request: Request) -> JSONResponse:
@@ -542,70 +622,23 @@ async def update_article_image(request: Request) -> JSONResponse:
     reviewed_markdown = payload.get("reviewedMarkdown")
     if not isinstance(reviewed_markdown, str):
         return JSONResponse({"error": "reviewedMarkdown must be a string"}, status_code=400)
-    if len(reviewed_markdown.encode("utf-8")) > 10 * 1024 * 1024:
-        return JSONResponse({"error": "Reviewed Markdown exceeds the 10 MB limit"}, status_code=413)
-
-    assets_dir = article_dir / "assets"
-    removed_dir = article_dir / "removed"
-    assets_dir.mkdir(exist_ok=True)
-    removed_dir.mkdir(exist_ok=True)
-    state = str(payload["state"])
-    source = assets_dir / asset_name if state == "removed" else removed_dir / asset_name
-    destination = removed_dir / asset_name if state == "removed" else assets_dir / asset_name
-    if not source.is_file():
-        if destination.is_file():
-            return JSONResponse({"ok": True, "name": asset_name, "state": state})
-        return JSONResponse({"error": "Image asset not found"}, status_code=404)
-    if destination.exists():
-        return JSONResponse({"error": "An image with this name already exists in the target state"}, status_code=409)
-
-    raw_path = article_dir / "raw.md"
-    raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
-    if state == "removed":
-        persisted_markdown = _replace_image_target(reviewed_markdown, asset_name, None)
-    else:
-        persisted_markdown = _replace_image_target(reviewed_markdown, asset_name, f"assets/{asset_name}")
-        present = {_markdown_image_name(match.group(2)) for match in MARKDOWN_IMAGE_RE.finditer(persisted_markdown)}
-        if asset_name not in present:
-            from src.core.review.image_filter import _restore_images_to_original_positions
-
-            persisted_markdown = _restore_images_to_original_positions(
-                persisted_markdown,
-                raw_markdown,
-                {f"assets/{asset_name}"},
-            )
-            present = {_markdown_image_name(match.group(2)) for match in MARKDOWN_IMAGE_RE.finditer(persisted_markdown)}
-            if asset_name not in present:
-                persisted_markdown = persisted_markdown.rstrip() + f"\n\n![{Path(asset_name).stem}](assets/{asset_name})\n"
-
-    manifest_path = article_dir / "manifest.json"
-    manifest = _read_json(manifest_path)
-    image_filter = manifest.setdefault("image_filter", {})
-    manual_removed = set(image_filter.get("manual_removed_images") or [])
-    removed_files = set(image_filter.get("removed_files") or [])
-    relative_asset = f"assets/{asset_name}"
-    relative_removed = f"removed/{asset_name}"
-    if state == "removed":
-        manual_removed.add(relative_asset)
-        removed_files.add(relative_removed)
-    else:
-        manual_removed.discard(relative_asset)
-        removed_files.discard(relative_removed)
-        promotion_images = set(image_filter.get("promotion_images") or [])
-        promotion_images.discard(relative_asset)
-        image_filter["promotion_images"] = sorted(promotion_images)
-    image_filter["manual_removed_images"] = sorted(manual_removed)
-    image_filter["removed_files"] = sorted(removed_files)
-
     try:
-        source.rename(destination)
-        _atomic_write_text(article_dir / "reviewed.md", persisted_markdown.rstrip() + "\n")
-        _atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+        from src.application.service import set_article_image_state
+
+        result = await asyncio.to_thread(
+            set_article_image_state,
+            request.path_params["article_id"],
+            asset_name,
+            str(payload["state"]),
+            reviewed_markdown=reviewed_markdown,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if "not found" in message.lower() else 413 if "10 MB" in message else 409 if "already exists" in message else 400
+        return JSONResponse({"error": message}, status_code=status_code)
     except OSError as exc:
-        if destination.exists() and not source.exists():
-            destination.rename(source)
         return JSONResponse({"error": str(exc)}, status_code=500)
-    return JSONResponse({"ok": True, "name": asset_name, "state": state})
+    return JSONResponse(result)
 
 
 async def _run_upload_job(job_id: str, article_dir: Path, target: str) -> None:
@@ -628,21 +661,19 @@ async def _run_upload_job(job_id: str, article_dir: Path, target: str) -> None:
         job.update(status="failed", stage="failed", finishedAt=_utc_now(), error=str(exc))
 
 
-async def upload_web_article(request: Request) -> JSONResponse:
-    try:
-        article_dir = _safe_article_dir(request.path_params["article_id"])
-        payload = await request.json()
-    except json.JSONDecodeError:
-        payload = {}
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=404)
-    target = str(payload.get("target") or "siyuan") if isinstance(payload, dict) else "siyuan"
+async def start_upload_job(article_id: str, *, target: str = "siyuan") -> dict[str, Any]:
+    """Queue an article upload for REST and MCP callers."""
+    article_dir = _safe_article_dir(article_id)
     if target not in {"siyuan", "local"}:
-        return JSONResponse({"error": f"Unsupported upload target: {target}"}, status_code=400)
+        raise ValueError(f"Unsupported upload target: {target}")
+    active_job = _active_job_for_article(_upload_jobs, article_id)
+    if active_job is not None:
+        return active_job
     job_id = uuid.uuid4().hex
     _upload_jobs[job_id] = {
         "id": job_id,
-        "articleId": request.path_params["article_id"],
+        "kind": "upload",
+        "articleId": article_id,
         "target": target,
         "status": "queued",
         "stage": "queued",
@@ -656,7 +687,61 @@ async def upload_web_article(request: Request) -> JSONResponse:
     while len(_upload_jobs) > 100:
         _upload_jobs.pop(next(iter(_upload_jobs)))
     asyncio.create_task(_run_upload_job(job_id, article_dir, target))
-    return JSONResponse(_upload_jobs[job_id], status_code=202)
+    return _upload_jobs[job_id]
+
+
+async def upload_web_article(request: Request) -> JSONResponse:
+    try:
+        article_dir = _safe_article_dir(request.path_params["article_id"])
+        payload = await request.json()
+    except json.JSONDecodeError:
+        payload = {}
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    target = str(payload.get("target") or "siyuan") if isinstance(payload, dict) else "siyuan"
+    try:
+        job = await start_upload_job(request.path_params["article_id"], target=target)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse(job, status_code=202)
+
+
+def get_background_job(job_id: str) -> dict[str, Any]:
+    """Return a capture, review, or upload job by ID."""
+    for jobs in (_capture_jobs, _review_jobs, _upload_jobs):
+        if job_id in jobs:
+            return jobs[job_id]
+    raise ValueError(f"Background job not found: {job_id}")
+
+
+def list_background_jobs(*, kind: str = "all") -> list[dict[str, Any]]:
+    """List recent in-process jobs for agent clients and diagnostics."""
+    groups = {
+        "capture": _capture_jobs,
+        "review": _review_jobs,
+        "upload": _upload_jobs,
+    }
+    if kind != "all" and kind not in groups:
+        raise ValueError("kind must be one of: all, capture, review, upload")
+    selected = groups.values() if kind == "all" else (groups[kind],)
+    jobs = [job for group in selected for job in group.values()]
+    return sorted(jobs, key=lambda job: str(job.get("createdAt") or ""), reverse=True)
+
+
+async def list_jobs(request: Request) -> JSONResponse:
+    try:
+        jobs = list_background_jobs(kind=request.query_params.get("kind", "all"))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"jobs": jobs})
+
+
+async def get_job(request: Request) -> JSONResponse:
+    try:
+        job = get_background_job(request.path_params["job_id"])
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    return JSONResponse(job)
 
 
 async def get_upload_job(request: Request) -> JSONResponse:
@@ -679,9 +764,11 @@ def _settings_payload(config: Config) -> dict[str, Any]:
             "model": item.model,
             "apiBase": item.api_base,
             "apiKeyConfigured": bool(item.api_key),
+            "visionCapable": item.vision_capable,
         })
     return {
         "aiProvider": provider_name,
+        "imageProvider": config.ai.image_provider or "",
         "aiProviders": provider_payloads,
         "model": provider.model if provider else "",
         "apiBase": provider.api_base if provider else "",
@@ -707,39 +794,52 @@ def _settings_response(config: Config, status_code: int = 200) -> JSONResponse:
 
 async def get_settings(request: Request) -> JSONResponse:
     del request
-    return _settings_response(load_config())
+    from src.application.service import get_settings as application_get_settings
+
+    return JSONResponse(
+        await asyncio.to_thread(application_get_settings),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
-def _pipeline_payload(config: Config) -> dict[str, Any]:
+def _pipeline_payload(config: Config, language: str = "en-US") -> dict[str, Any]:
     perspectives = []
     for key, profile in config.pipeline.perspectives.items():
-        prompt_path = config.pipeline.resolve_review_prompt(key)
-        del prompt_path
-        perspective_file = Path(config.pipeline.perspectives[key].prompt_path)
-        template_file = Path(config.pipeline.perspectives[key].template_path)
+        localized = profile.localized(language)
+        perspective_file = Path(localized.prompt_path)
+        template_file = Path(localized.template_path)
         from src.core.paths import resolve_project_path
 
         perspectives.append({
             "id": key,
-            "label": profile.label,
-            "description": profile.description,
+            "label": localized.label,
+            "description": localized.description,
             "prompt": resolve_project_path(perspective_file).read_text(encoding="utf-8"),
             "template": resolve_project_path(template_file).read_text(encoding="utf-8"),
+            "builtin": profile.builtin,
+            "editable": not profile.builtin,
+            "outputSections": localized.output_sections,
+            "bodySection": localized.body_section,
         })
     from src.core.paths import resolve_project_path
 
     return {
         "reviewMode": config.pipeline.review_mode,
+        "outputLanguage": config.pipeline.output_language,
+        "language": language,
         "activePerspective": config.pipeline.active_perspective,
-        "commonPrompt": resolve_project_path(config.pipeline.common_prompt_path).read_text(encoding="utf-8"),
+        "commonPrompt": resolve_project_path(config.pipeline.common_prompt_paths.get(language, config.pipeline.common_prompt_path)).read_text(encoding="utf-8"),
+        "commonEditable": False,
         "perspectives": perspectives,
     }
 
 
 async def get_pipeline_settings(request: Request) -> JSONResponse:
-    del request
     try:
-        return JSONResponse(_pipeline_payload(load_config()))
+        from src.application.service import get_pipeline_settings as application_get_pipeline_settings
+
+        payload = await asyncio.to_thread(application_get_pipeline_settings, locale=_request_language(request))
+        return JSONResponse(payload)
     except (OSError, ValueError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -768,54 +868,18 @@ async def update_pipeline_settings(request: Request) -> JSONResponse:
         return JSONResponse({"error": "Pipeline settings payload must be an object"}, status_code=400)
     async with _settings_lock:
         try:
-            config = load_config()
-            review_mode = str(payload.get("reviewMode") or config.pipeline.review_mode)
-            active = str(payload.get("activePerspective") or config.pipeline.active_perspective)
-            if review_mode not in {"manual_only", "ai_then_manual"}:
-                raise ValueError(f"Unsupported review mode: {review_mode}")
-            if active not in config.pipeline.perspectives:
-                raise ValueError(f"Unknown review perspective: {active}")
-            common_prompt = payload.get("commonPrompt")
-            perspective_payloads = payload.get("perspectives")
-            if not isinstance(common_prompt, str) or not isinstance(perspective_payloads, list):
-                raise ValueError("Prompt contents are required")
-            if any(len(str(value).encode("utf-8")) > 1024 * 1024 for value in [common_prompt, *perspective_payloads]):
-                raise ValueError("A prompt exceeds the 1 MB limit")
+            from src.application.service import save_pipeline_settings
 
-            data = config.model_dump(mode="json")
-            data.setdefault("pipeline", {})["review_mode"] = review_mode
-            data["pipeline"]["active_perspective"] = active
-            updated = Config.model_validate(data)
-            from src.core.paths import resolve_project_path
-
-            await asyncio.to_thread(_atomic_write_text, resolve_project_path(updated.pipeline.common_prompt_path), common_prompt)
-            by_id = {str(item.get("id")): item for item in perspective_payloads if isinstance(item, dict)}
-            for key, profile in updated.pipeline.perspectives.items():
-                item = by_id.get(key)
-                if item is None:
-                    continue
-                prompt = item.get("prompt")
-                template = item.get("template")
-                if not isinstance(prompt, str) or not isinstance(template, str):
-                    raise ValueError(f"Perspective {key} is missing prompt content")
-                from src.core.review.output_contract import validate_output_template
-
-                validate_output_template(template, profile.output_sections)
-                await asyncio.to_thread(_atomic_write_text, resolve_project_path(profile.prompt_path), prompt)
-                await asyncio.to_thread(_atomic_write_text, resolve_project_path(profile.template_path), template)
-            await asyncio.to_thread(_atomic_write_config, updated)
-            clear_config_cache()
-            persisted = load_config()
+            persisted = await asyncio.to_thread(save_pipeline_settings, payload, locale=_request_language(request))
         except (OSError, ValueError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
-    return JSONResponse(_pipeline_payload(persisted))
+    return JSONResponse(persisted)
 
 
 async def get_taxonomy(request: Request) -> JSONResponse:
-    del request
-    from src.core.catalog import CatalogStore
+    from src.application.service import list_taxonomy
 
-    tree = await asyncio.to_thread(CatalogStore().list_tree)
+    tree = await asyncio.to_thread(list_taxonomy, locale=_request_language(request))
     return JSONResponse({"tags": tree})
 
 
@@ -830,17 +894,21 @@ async def update_article_classification(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(exc)}, status_code=404)
     if not isinstance(payload, dict):
         return JSONResponse({"error": "Classification payload must be an object"}, status_code=400)
-    from src.core.catalog import CatalogStore
-
     try:
+        from src.application.service import classify_article
+
         assignment = await asyncio.to_thread(
-            CatalogStore().assign,
+            classify_article,
             request.path_params["article_id"],
             tag_name=str(payload.get("tagName") or ""),
             tag_description=str(payload.get("tagDescription") or ""),
             subtag_name=str(payload.get("subtagName") or "") or None,
             subtag_description=str(payload.get("subtagDescription") or ""),
-            reason="Manual assignment",
+            locale=_request_language(request),
+            tag_id=str(payload.get("tagId") or "") or None,
+            subtag_id=str(payload.get("subtagId") or "") or None,
+            tag_localizations=payload.get("tagLocalizations") if isinstance(payload.get("tagLocalizations"), dict) else None,
+            subtag_localizations=payload.get("subtagLocalizations") if isinstance(payload.get("subtagLocalizations"), dict) else None,
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
@@ -903,6 +971,8 @@ def _merge_settings(current: Config, payload: dict[str, Any]) -> Config:
     data = current.model_dump(mode="json")
     provider_name = str(payload.get("aiProvider") or current.ai.provider)
     data.setdefault("ai", {})["provider"] = provider_name
+    requested_image_provider = str(payload.get("imageProvider") or "").strip()
+    data["ai"]["image_provider"] = requested_image_provider or None
     providers = data.setdefault("ai_providers", {})
     requested_providers = payload.get("aiProviders")
     if isinstance(requested_providers, list):
@@ -940,6 +1010,7 @@ def _merge_settings(current: Config, payload: dict[str, Any]) -> Config:
             if provider_type not in _AI_PROVIDER_TYPES:
                 raise ValueError(f"Unsupported AI provider type: {provider_type}")
             existing_provider["provider_type"] = provider_type
+            existing_provider["vision_capable"] = bool(requested.get("visionCapable", False))
             if str(requested.get("apiKey") or "").strip():
                 existing_provider["api_key"] = str(requested["apiKey"]).strip()
             providers[name] = existing_provider
@@ -951,6 +1022,15 @@ def _merge_settings(current: Config, payload: dict[str, Any]) -> Config:
             data["ai"]["provider"] = normalized_active_name
         elif provider_name not in providers:
             data["ai"]["provider"] = next(iter(providers))
+        if requested_image_provider:
+            normalized_image_name = requested_names.get(requested_image_provider.casefold())
+            if not normalized_image_name:
+                raise ValueError(f"Image-review provider not found: {requested_image_provider}")
+            data["ai"]["image_provider"] = normalized_image_name
+            if not providers[normalized_image_name].get("vision_capable", False):
+                raise ValueError(
+                    f"Image-review provider is not marked as vision capable: {normalized_image_name}"
+                )
     else:
         existing_provider = providers.get(provider_name) or {
             "model": "",
@@ -967,6 +1047,9 @@ def _merge_settings(current: Config, payload: dict[str, Any]) -> Config:
         if provider_type not in _AI_PROVIDER_TYPES:
             raise ValueError(f"Unsupported AI provider type: {provider_type}")
         existing_provider["provider_type"] = provider_type
+        existing_provider["vision_capable"] = bool(
+            payload.get("visionCapable", existing_provider.get("vision_capable", False))
+        )
         if str(payload.get("apiKey") or "").strip():
             existing_provider["api_key"] = str(payload["apiKey"]).strip()
         providers[provider_name] = existing_provider
@@ -1029,13 +1112,12 @@ async def update_settings(request: Request) -> JSONResponse:
 
     async with _settings_lock:
         try:
-            updated = _merge_settings(load_config(), payload)
-            await asyncio.to_thread(_atomic_write_config, updated)
-            clear_config_cache()
-            persisted = load_config()
+            from src.application.service import save_settings
+
+            persisted = await asyncio.to_thread(save_settings, payload)
         except (OSError, ValueError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
-    return _settings_response(persisted)
+    return JSONResponse(persisted, headers={"Cache-Control": "no-store"})
 
 
 async def activate_ai_provider(request: Request) -> JSONResponse:
@@ -1062,17 +1144,12 @@ async def activate_ai_provider(request: Request) -> JSONResponse:
 
     async with _settings_lock:
         try:
-            activation_draft = dict(draft)
-            activation_draft["aiProvider"] = provider_name
-            updated = _merge_settings(load_config(), activation_draft)
-            await asyncio.to_thread(_atomic_write_config, updated)
-            clear_config_cache()
-            persisted = load_config()
-            if persisted.ai.provider.casefold() != provider_name.casefold():
-                raise ValueError(f"Failed to activate AI provider: {provider_name}")
+            from src.application.service import save_settings
+
+            persisted = await asyncio.to_thread(save_settings, draft, active_provider=provider_name)
         except (OSError, ValueError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
-    return _settings_response(persisted)
+    return JSONResponse(persisted, headers={"Cache-Control": "no-store"})
 
 
 async def test_settings_service(request: Request) -> JSONResponse:
@@ -1085,53 +1162,13 @@ async def test_settings_service(request: Request) -> JSONResponse:
 
     service = str(payload.get("service") or "ai")
     try:
-        if service == "ai":
-            from dataclasses import replace
+        from src.application.service import test_service
 
-            from src.integrations.ai_client import AIClient, resolve_ai_settings
-
-            draft = payload.get("settings")
-            test_config = _merge_settings(load_config(), draft) if isinstance(draft, dict) else load_config()
-            provider_name = str(payload.get("providerName") or test_config.ai.provider)
-            settings = replace(
-                resolve_ai_settings(test_config, provider_name),
-                # Reasoning-capable models may consume a small hidden budget
-                # before emitting final text, so 32 tokens can produce an
-                # authenticated but empty connection-test response.
-                max_output_tokens=512,
-                temperature=0,
-                timeout_seconds=60,
-            )
-            response = await AIClient(settings).generate_text(
-                "You are a connection test. Follow the user instruction exactly.",
-                "Reply with exactly NOOSPHERE_OK",
-            )
-            passed = response.text.strip() == "NOOSPHERE_OK"
-            if not passed:
-                raise ValueError("Provider returned an unexpected connection-test response")
-            return JSONResponse({
-                "ok": True,
-                "service": "ai",
-                "provider": provider_name,
-                "model": response.model,
-            })
-        if service == "firecrawl":
-            from src.integrations.crawler import _crawl_page_firecrawl
-
-            result = await _crawl_page_firecrawl(
-                "https://example.com",
-                delay_before_return_html=0,
-            )
-            if not result.success:
-                raise ValueError(result.error or "Firecrawl test failed")
-            return JSONResponse({
-                "ok": True,
-                "service": "firecrawl",
-                "statusCode": result.status_code,
-            })
-        raise ValueError(f"Unsupported service test: {service}")
-    except Exception as exc:
-        message = str(exc)
-        if "nodename nor servname" in message.lower() or "name or service not known" in message.lower():
-            message = f"DNS resolution failed for the provider host. Check Docker/host DNS and proxy settings. Original error: {message}"
-        return JSONResponse({"error": message}, status_code=400)
+        result = await test_service(
+            service,
+            provider_name=str(payload.get("providerName") or ""),
+            settings=payload.get("settings") if isinstance(payload.get("settings"), dict) else None,
+        )
+        return JSONResponse(result)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)

@@ -98,6 +98,7 @@ def _looks_like_image_url(url: str) -> bool:
     # 3) Known image CDN hosts
     if parsed.hostname and parsed.hostname in {
         "mmbiz.qpic.cn", "mmbiz.qlogo.cn",
+        "res.wx.qq.com",
     }:
         return True
 
@@ -123,10 +124,19 @@ async def download_images(
 
     result = ImageDownloadResult(asset_dir=asset_dir)
     urls = []
+    ignored_remote_urls: set[str] = set()
     for match in MARKDOWN_IMAGE_RE.finditer(markdown):
         url, _ = split_image_target(match.group(2))
-        if is_remote_url(url) and url not in urls and _looks_like_image_url(url):
-            urls.append(url)
+        if not is_remote_url(url):
+            continue
+        if _looks_like_image_url(url):
+            if url not in urls:
+                urls.append(url)
+        else:
+            # Some crawlers expose link targets as image Markdown (for example
+            # a WeChat jump/QR widget pointing back to the article page). It is
+            # not an image asset and must not survive into uploadable Markdown.
+            ignored_remote_urls.add(url)
 
     semaphore = asyncio.Semaphore(5)
     timeout = aiohttp.ClientTimeout(total=45, connect=15)
@@ -145,12 +155,24 @@ async def download_images(
         replacements[downloaded.source_url] = rel_path
         result.downloaded.append(downloaded)
 
-    if replacements:
-        updated = MARKDOWN_IMAGE_RE.sub(lambda m: _replace_image_url(m, replacements), markdown)
-    else:
-        updated = markdown
+    unavailable = {*ignored_remote_urls, *result.failed.keys()}
+    updated = MARKDOWN_IMAGE_RE.sub(
+        lambda match: _rewrite_downloaded_image(match, replacements, unavailable),
+        markdown,
+    )
 
     return updated, result
+
+
+def _rewrite_downloaded_image(
+    match: re.Match[str],
+    replacements: dict[str, str],
+    unavailable: set[str],
+) -> str:
+    url, _ = split_image_target(match.group(2))
+    if url in unavailable:
+        return ""
+    return _replace_image_url(match, replacements)
 
 
 async def download_markdown_images(

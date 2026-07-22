@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 
 const sections = [
   { id: "settings-ai", labelKey: "settings.aiTitle", lineClass: "line-medium" },
-  { id: "settings-review", labelKey: "pipeline.controlTitle", lineClass: "line-short" },
   { id: "settings-crawlers", labelKey: "settings.crawlersTitle", lineClass: "line-long" },
   { id: "settings-destinations", labelKey: "settings.destinationsTitle", lineClass: "line-medium" }
 ] as const;
@@ -12,6 +11,11 @@ export function SettingsSectionNav() {
   const { t } = useTranslation();
   const [activeId, setActiveId] = useState(sections[0].id);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const itemHeight = Math.max(10, Math.min(18, 84 / sections.length));
+  const navStyle = {
+    "--settings-nav-item-height": `${itemHeight}px`,
+    "--settings-nav-half-height": `${(itemHeight * sections.length) / 2}px`
+  } as CSSProperties;
 
   useEffect(() => {
     const elements = sections.map(({ id }) => document.getElementById(id)).filter((element): element is HTMLElement => Boolean(element));
@@ -29,7 +33,12 @@ export function SettingsSectionNav() {
   }
 
   return (
-    <nav className="settings-section-nav" aria-label={t("settings.sectionNavLabel")} onPointerLeave={() => setHoveredIndex(null)}>
+    <nav
+      className="settings-section-nav"
+      aria-label={t("settings.sectionNavLabel")}
+      onPointerLeave={() => setHoveredIndex(null)}
+      style={navStyle}
+    >
       <div className="settings-section-nav-inner">
         {sections.map((section, index) => {
           const waveDistance = hoveredIndex === null ? "idle" : String(Math.min(Math.abs(index - hoveredIndex), 3));

@@ -6,10 +6,7 @@ from pathlib import Path
 from langgraph.graph import END, START, StateGraph
 from langchain_core.runnables import RunnableConfig
 
-from src.core.review.ai_review_data import (
-    feedback_from_validation_issues,
-    write_completed_review_report,
-)
+from src.core.review.ai_review_data import write_completed_review_report
 from src.core.config.config import load_config
 from src.core.models.manifest import write_article_manifest
 from src.core.paths.output_paths import article_output_paths
@@ -29,7 +26,6 @@ from src.graph.tools import (
     edit_article,
     filter_images,
     upload_article,
-    validate_article,
 )
 
 
@@ -89,11 +85,16 @@ async def _crawl_node(state: ArticleState) -> dict[str, object]:
     output_dir = Path(state.get("output_dir") or config.output_dir_path)
     paths = article_output_paths(output_dir, article)
 
+    from src.core.localization import detect_text_language, resolve_output_language
+
+    source_language = detect_text_language(article.title + "\n" + article.markdown)
     return {
         "platform": article.platform,
         "platform_label": article.platform_label,
         "content_type": article.content_type,
         "title": article.title,
+        "source_language": source_language,
+        "output_language": resolve_output_language(state.get("output_language") or "source", article.markdown),
         "article_author": article.author or "",
         "article_published_at": article.published_at or "",
         "raw_markdown": article.to_review_markdown(),
@@ -159,6 +160,8 @@ async def _download_node(state: ArticleState) -> dict[str, object]:
         manifest_path=manifest_path,
     )
     write_article_manifest(article, paths, image_result)
+    from src.core.activity import ArticleActivityStore
+    ArticleActivityStore().record(state["article_id"], "capture", sourceLanguage=state.get("source_language", ""))
 
     return {
         "raw_markdown": updated_markdown,
@@ -202,7 +205,10 @@ async def _filter_images_node(state: ArticleState) -> dict[str, object]:
     await emit_event(
         "image_review",
         "pipeline.events.imageReviewCompleted",
-        f"{len(result.relevant_images)} relevant, {len(result.promotion_images)} removed",
+        (
+            f"{len(result.relevant_images)} relevant, {len(result.promotion_images)} removed, "
+            f"{len(result.failed_images)} unreviewed"
+        ),
     )
     return {
         "image_filter_result": result,
@@ -211,9 +217,8 @@ async def _filter_images_node(state: ArticleState) -> dict[str, object]:
 
 
 def _after_ai_review_router(state: ArticleState) -> str:
-    """Route after AI review: human review if valid, otherwise fail."""
-    validation_result = state.get("validation_result")
-    if isinstance(validation_result, ValidationResult) and validation_result.ok:
+    """Route after deterministic rendering without persisting custom validator objects."""
+    if state.get("status") == "reviewed" and not state.get("error"):
         return "human_review"
     return "failed"
 
@@ -284,6 +289,13 @@ def _export_upload_node(state: ArticleState) -> dict[str, object]:
             "hpath": hpath,
             "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
+        from src.core.activity import ArticleActivityStore
+        ArticleActivityStore().record(
+            state.get("article_id", ""),
+            "upload",
+            target=upload_platform,
+            created=bool(upload_result.created) if upload_result else False,
+        )
         manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("Failed to persist upload result to manifest: %s", exc)
@@ -292,22 +304,12 @@ def _export_upload_node(state: ArticleState) -> dict[str, object]:
 
 
 def build_ai_review_subgraph() -> StateGraph:
-    """Return the edit → validate → retry sub-graph."""
+    """Return the structured content → deterministic render sub-graph."""
     builder = StateGraph(ArticleState)
 
     builder.add_node("edit", _edit_node)
-    builder.add_node("validate", _validate_node)
-
     builder.add_edge(START, "edit")
-    builder.add_edge("edit", "validate")
-    builder.add_conditional_edges(
-        "validate",
-        _review_router,
-        {
-            "retry": "edit",
-            "done": END,
-        },
-    )
+    builder.add_edge("edit", END)
 
     return builder
 
@@ -326,6 +328,7 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
             "platform": state["platform"],
             "content_type": state["content_type"],
             "perspective": state.get("review_perspective", ""),
+            "output_language": state.get("output_language", "en-US"),
             "image_filter_result": state.get("image_filter_result"),
         }
     )
@@ -334,17 +337,22 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
     image_filter_result = state.get("image_filter_result")
     assets_dir = state.get("assets_dir")
     removed_files: list[str] = []
-    if image_filter_result is not None and assets_dir:
+    if assets_dir:
         assets_path = Path(assets_dir)
-        if image_filter_result.has_promotions:
+        if image_filter_result is not None and image_filter_result.has_promotions:
             reviewed_markdown, removed_files = remove_promotion_images_from_markdown(
                 reviewed_markdown,
                 image_filter_result.get_promotion_paths(),
                 assets_dir=assets_path,
             )
+        preserved_paths = (
+            image_filter_result.get_preserved_paths()
+            if image_filter_result is not None
+            else _local_image_paths(state["raw_markdown"])
+        )
         reviewed_markdown = ensure_relevant_images_present(
             reviewed_markdown,
-            image_filter_result.get_relevant_paths(),
+            preserved_paths,
             assets_dir=assets_path if assets_dir else None,
             raw_markdown=state["raw_markdown"],
         )
@@ -354,62 +362,29 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
     reviewed_path.write_text(reviewed_markdown, encoding="utf-8")
     await emit_event("ai_review", "pipeline.events.aiReviewCompleted", f"{len(reviewed_markdown)} characters")
 
-    return {
+    completed = {
         "reviewed_markdown": reviewed_markdown,
         "attempts": attempts,
         "review_model": edit_result.get("model", ""),
         "review_provider": edit_result.get("provider", ""),
         "removed_files": removed_files,
-        "status": "reviewing",
+        "validation_result": None,
+        "feedback": "",
+        "status": "reviewed",
     }
+    _write_success_report({**state, **completed})
+    return completed
 
 
-async def _validate_node(state: ArticleState) -> dict[str, object]:
-    """Validate the reviewed Markdown on disk."""
-    from src.core.telemetry import emit_event
+def _local_image_paths(markdown: str) -> set[str]:
+    from src.integrations.assets import MARKDOWN_IMAGE_RE, split_image_target
 
-    await emit_event("validation", "pipeline.events.validationStarted")
-    validation_result = await validate_article.ainvoke(
-        {
-            "reviewed_path": state["reviewed_path"],
-            "platform": state["platform"],
-            "perspective": state.get("review_perspective", ""),
-        }
-    )
-
-    if validation_result.ok:
-        _write_success_report(state)
-        await emit_event("validation", "pipeline.events.validationPassed")
-        return {
-            "validation_result": validation_result,
-            "status": "reviewed",
-            "feedback": "",
-        }
-
-    await emit_event(
-        "validation",
-        "pipeline.events.validationRetry",
-        "; ".join(issue.message for issue in validation_result.issues[:6]),
-    )
-    return {
-        "validation_result": validation_result,
-        "status": "reviewing",
-        "feedback": feedback_from_validation_issues(validation_result.issues),
-    }
-
-
-def _review_router(state: ArticleState) -> str:
-    """Route the review sub-graph: retry, finish, or fail after max attempts."""
-    validation_result = state.get("validation_result")
-    if isinstance(validation_result, ValidationResult) and validation_result.ok:
-        return "done"
-
-    attempts = state.get("attempts", 0)
-    max_attempts = state.get("max_attempts", 1)
-    if attempts >= max_attempts:
-        return "done"
-
-    return "retry"
+    paths: set[str] = set()
+    for match in MARKDOWN_IMAGE_RE.finditer(markdown):
+        target, _ = split_image_target(match.group(2))
+        if not target.startswith(("http://", "https://")):
+            paths.add(target.lstrip("./"))
+    return paths
 
 
 def _write_success_report(state: ArticleState) -> None:
@@ -422,6 +397,15 @@ def _write_success_report(state: ArticleState) -> None:
     write_completed_review_report(
         reviewed_path,
         manifest_path,
+        model=state.get("review_model", ""),
+        provider=state.get("review_provider", ""),
+    )
+    from src.core.activity import ArticleActivityStore
+    ArticleActivityStore().record(
+        state.get("article_id", ""),
+        "review",
+        perspective=state.get("review_perspective", ""),
+        outputLanguage=state.get("output_language", ""),
         model=state.get("review_model", ""),
         provider=state.get("review_provider", ""),
     )
@@ -566,6 +550,8 @@ def _default_initial_state() -> ArticleState:
         "platform_label": "",
         "content_type": "article",
         "title": "",
+        "source_language": "",
+        "output_language": "source",
         "article_author": "",
         "article_published_at": "",
         "output_dir": "",
@@ -616,6 +602,7 @@ async def run_ai_review_graph(
     *,
     perspective: str | None = None,
     source_markdown: str | None = None,
+    output_language: str | None = None,
 ) -> ValidationResult:
     """Run the AI review graph starting from an existing reviewed.md path."""
     reviewed_path = Path(reviewed_path)
@@ -639,6 +626,9 @@ async def run_ai_review_graph(
 
     config = load_config()
     initial_state = _default_initial_state()
+    from src.core.localization import detect_text_language, resolve_output_language
+    source_language = detect_text_language(raw_markdown)
+    resolved_language = resolve_output_language(output_language or config.pipeline.output_language, raw_markdown)
     initial_state.update(
         {
             "article_id": manifest.get("article_id", manifest_path.parent.name),
@@ -652,22 +642,26 @@ async def run_ai_review_graph(
             "raw_markdown": raw_markdown,
             "max_attempts": max_attempts if max_attempts is not None else config.ai.max_attempts,
             "review_perspective": perspective or "",
+            "source_language": source_language,
+            "output_language": resolved_language,
         }
     )
 
     checkpointer, close_cb = await _get_checkpointer()
     try:
         graph = build_ai_review_graph().compile(checkpointer=checkpointer)
+        import hashlib
+
+        source_digest = hashlib.sha256(raw_markdown.encode("utf-8")).hexdigest()[:12]
         final_state = await graph.ainvoke(
             initial_state,
-            config={"configurable": {"thread_id": f"ai-review:{reviewed_path}"}},
+            config={"configurable": {"thread_id": f"ai-review:{reviewed_path}:{resolved_language}:{source_digest}"}},
         )
     finally:
         await close_cb()
-    validation_result = final_state.get("validation_result")
-    if validation_result is None:
-        raise RuntimeError("AI review graph did not produce a validation result")
-    return validation_result
+    if final_state.get("status") != "reviewed":
+        raise RuntimeError(str(final_state.get("error") or "AI review graph did not complete"))
+    return ValidationResult(reviewed_path, [])
 
 
 async def run_upload_graph(reviewed_path: Path, target: str | None = None) -> UploadResult:
@@ -741,6 +735,8 @@ async def run_pipeline_graph(
     output_dir: Path | str | None = None,
     *,
     auto_confirm: bool = False,
+    perspective: str | None = None,
+    output_language: str | None = None,
 ) -> UploadResult:
     """Run the full extract → ai-review → upload pipeline graph.
 
@@ -752,6 +748,8 @@ async def run_pipeline_graph(
     initial_state["url"] = url
     initial_state["output_dir"] = str(output_dir) if output_dir else str(config.output_dir_path)
     initial_state["max_attempts"] = config.ai.max_attempts
+    initial_state["review_perspective"] = perspective or ""
+    initial_state["output_language"] = output_language or config.pipeline.output_language
 
     checkpointer, close_cb = await _get_checkpointer()
     try:
