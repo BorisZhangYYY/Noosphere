@@ -1,21 +1,21 @@
 # Noosphere TODO
 
-## Bug Fixes
+## Completed for v0.3.1
 
-1. **AI review job persistence on article page.** When a user starts an AI review and navigates away, returning to the page resets the UI and re-clicking the button conflicts with the still-running job. The review job state should survive navigation — show a progress indicator and keep the button disabled until the job actually completes.
+1. [x] **AI review job persistence on article page.** Article detail responses now include the active review job, the page resumes polling after navigation, and repeated review requests return the existing job idempotently.
 
-2. **Article page layout: stray horizontal lines and scroll behaviour.** There is an unwanted horizontal line between the top toolbar and the article/source panels, and another at the bottom. Both should be removed. Scrolling should move the entire article panel as a single block, not a fixed outer frame with an inner scroll area.
+2. [x] **Article page layout: stray horizontal lines and scroll behaviour.** The toolbar separators and nested reader scroll were removed. The article is now one document scroll surface with a sticky toolbar and inspection rail.
 
-3. **Read-only mode: disable action controls.** In read-only mode the classification, AI review, and upload buttons should all be disabled. Only editing mode enables them.
+3. [x] **Read-only mode: disable action controls.** Classification selectors and actions, AI review controls, and upload controls remain disabled until edit mode is selected.
 
-4. **Code blocks are missing line breaks.** All code inside fenced code blocks is collapsed onto a single line, overflowing the container and making it unreadable. Code blocks should preserve line breaks from the source Markdown.
+4. [x] **Code blocks are missing line breaks.** Vditor previews now preserve fenced source line breaks and wrap long lines within the article surface.
 
-5. **`perspective` not wired through MCP or CLI.** The `perspective` parameter is supported at the graph layer via `run_ai_review_graph(perspective=...)` and exposed in the web API, but MCP tools and CLI commands pass nothing through.
+5. [x] **Web-only business operations in MCP and CLI.** All three interfaces now use the shared application service for article content, taxonomy, images, perspectives, settings, and job state. Core CLI workflows and management commands support JSON output; MCP has structured synchronous tools plus pollable background jobs.
 
    **Affected files:**
-   - `src/graph/graph.py` — add `perspective` kwarg to `run_pipeline_graph`
-   - `src/mcp/server.py` — add `perspective` param to `review_article` and `run_pipeline`
-   - `src/cli.py` — add `--perspective` flag to `ai-review` and `run`
+   - `src/application/service.py` — shared business rules and persistence
+   - `src/mcp/server.py` — 23 structured tools, including asynchronous jobs
+   - `src/cli.py` — pipeline and workspace-management commands
 
    <details>
    <summary>Full feature coverage matrix</summary>
@@ -25,61 +25,70 @@
    | Capability | Web API | MCP Tools | CLI |
    |---|---|---|---|
    | Extract article | `POST /captures` with `reviewMode` + `perspective` | `extract_article(url)` — no `perspective` | `nsphr extract` — no `--perspective` |
-   | AI review | `POST /articles/:id/review` with `perspective` | `review_article(id)` — no `perspective` | `nsphr ai-review` — no `--perspective` |
-   | Full pipeline | — | `run_pipeline(url)` — no `perspective` | `nsphr run` — no `--perspective` |
+   | AI review | `POST /articles/:id/review` with `perspective` | `review_article(id, perspective)` | `nsphr ai-review --perspective ID` |
+   | Full pipeline | — | `run_pipeline(url, perspective=...)` | `nsphr run --perspective ID` |
    | Upload | `POST /articles/:id/upload` | `upload_article(id, target)` | `nsphr upload` + `--target` |
-   | Image review | `PATCH /articles/:id/images/:name` | — | `nsphr review-images` |
+   | Image review | `PATCH /articles/:id/images/:name` | `list_article_images`, `set_article_image_state` | `nsphr images list/set` |
 
    #### Content
 
    | Capability | Web API | MCP Tools | CLI |
    |---|---|---|---|
-   | Article list / detail | `GET /articles`, `GET /articles/:id` | — (web-only) | — |
-   | Article editing | `PATCH /articles/:id` | — (web-only) | — |
+   | Article list / detail | `GET /articles`, `GET /articles/:id` | `list_articles`, `get_article` | `nsphr articles list/show` |
+   | Article editing | `PATCH /articles/:id` | `update_article_content` | `nsphr articles update` |
 
    #### Classification
 
    | Capability | Web API | MCP Tools | CLI |
    |---|---|---|---|
-   | Taxonomy | `GET /taxonomy` | — (web-only) | — |
-   | Assign classification | `PATCH /articles/:id/classification` | — (web-only) | — |
+   | Taxonomy | `GET /taxonomy` | `list_taxonomy` | `nsphr taxonomy list` |
+   | Assign classification | `PATCH /articles/:id/classification` | `classify_article` | `nsphr taxonomy assign/move` |
 
    #### Settings
 
    | Capability | Web API | MCP Tools | CLI |
    |---|---|---|---|
-   | General settings | `GET\|PATCH /settings`, `/settings/active-provider`, `/settings/secrets/reveal`, `/settings/test` | — (web-only) | — |
-   | Pipeline settings | `GET\|PATCH /pipeline/settings` | — (web-only) | — |
+   | General settings | `GET\|PATCH /settings`, provider/test endpoints | masked get/update/activate/test tools | `nsphr config show/apply/activate/test` |
+   | Pipeline settings | `GET\|PATCH /pipeline/settings` | list/save/delete perspectives | `nsphr perspectives ...` |
 
    #### Operations
 
    | Capability | Web API | MCP Tools | CLI |
    |---|---|---|---|
-   | Job polling | `GET /uploads/:id`, `GET /reviews/:id` | — (web-only) | — |
+   | Job polling | `GET /jobs`, `GET /jobs/:id` | `start_*`, `get_job`, `list_jobs` | `nsphr jobs list/show` |
    | Email | — | — | `nsphr email` |
    | Terminal UI | — | — | `nsphr tui` |
    | MCP server | — | — | `nsphr mcp` |
 
    </details>
 
-6. **`.claude-plugin/plugin.json` is tracked by Git.** It was committed before the `.gitignore` rule was added. Needs `git rm --cached` and a PR to stop tracking. The fix branch `fix/untrack-claude-plugin` is already open.
+6. [x] **`.claude-plugin/plugin.json` is tracked by Git.** Verified already resolved on the current branch: the directory is ignored and `plugin.json` is absent from the Git index.
 
 ---
 
-## Polish
+## Completed polish
 
-- **Settings sidebar: hamburger menu positioning.** The hamburger menu (three-line icon) needs to sit closer to the left navigation column and farther from the right-side settings form fields. The spacing between menu lines is also too loose — tighten them.
-
----
-
-## New Features
-
-1. **Article heading outline.** Add a floating table-of-contents sidebar that extracts headings from the article, mirroring the sidebar pattern used in the Settings page. Clicking a heading scrolls directly to that section.
-
-2. **Hierarchical category display in Recent Articles.** When a parent category (e.g., "AIGC") has subcategories (e.g., "3D Modeling", "Prompt Engineering"), the recent articles list should reflect this hierarchy. Use a dropdown under the parent label showing each subcategory with its article count. By default, show the parent name and its total count.
-
-3. **Self-healing extraction quality loop** *(major feature)*. The internal pipeline agent detects extraction issues automatically during `nsphr run` — missing images, short body, missing metadata. Quality metrics are written per-article to `manifest.json` and aggregated into `.noosphere/extraction-metrics.json`. When any issue category reaches 3 occurrences, the agent proposes an extractor code fix. This makes the one-click pipeline self-improving without depending on external user reports or community contributions. Full design: [.project/self-healing-extraction.md](.project/self-healing-extraction.md).
+- [x] **Settings sidebar: hamburger menu positioning.** Verified the compact rail is left-aligned, isolated from the settings form, and uses tightly spaced wave lines.
 
 ---
 
-*Fix the above and then release v0.3.1.*
+## Completed features
+
+1. [x] **Article heading outline.** A sticky outline extracts rendered Markdown headings, tracks the active section, and scrolls to a selected heading.
+
+2. [x] **Hierarchical category display in Recent Articles.** Parent selectors show their total article count and expose subcategories with individual counts in a styled dropdown.
+
+## Deferred
+
+- [ ] **Self-healing extraction quality loop** *(major feature, explicitly deferred)*. Full design: [.project/self-healing-extraction.md](.project/self-healing-extraction.md).
+
+- [ ] **Bilingual terminology glossary.** Let users define preferred translations
+  and protected product names, for example `Agent -> 智能体`,
+  `Embedding -> 向量嵌入`, or a product name that must never be translated.
+  Apply the glossary consistently during review and translation without
+  rewriting user-authored custom prompts. The data model, conflict precedence,
+  import/export format, and editing experience require a separate design pass.
+
+---
+
+*Release v0.3.1 after explicit approval.*

@@ -4,6 +4,85 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [0.3.1] - 2026-07-22
+
+### Added
+- Deterministic review-output assembly: models return typed content slots while
+  Noosphere owns source metadata, headings, section order, and image placement.
+- Independent image-review provider selection with an explicit vision-capable
+  declaration; missing vision configuration preserves images and skips safely.
+- A dedicated Review Studio for built-in localized perspectives and custom
+  review prompt/template configuration.
+- Review Studio now presents immutable shared rules separately from each
+  perspective and its Markdown template, with recognized-field guidance and
+  persistent custom perspective creation and removal.
+- Resilient long-article review with bounded concurrent chunks, persistent
+  successful-part caching, recursive retry splits, and source-preserving
+  fallback for provider timeouts or empty part responses.
+- (2026-07-22) Single-language review output can follow the interface, preserve
+  the source language, or explicitly target English or Simplified Chinese from
+  the web UI, CLI, and MCP tools; switching the UI never rewrites old articles.
+- (2026-07-22) Bilingual taxonomy names and descriptions with aliases and
+  canonical identity matching, plus lightweight cross-language library search.
+- (2026-07-22) Append-only per-article capture, review, re-review, and upload
+  history with visible review and upload counts in the inspection rail.
+- (2026-07-22) A sticky article outline that follows the current heading and
+  scrolls the full article surface to a selected section.
+- (2026-07-22) Hierarchical library category selectors with parent totals and
+  per-subcategory article counts.
+- (2026-07-22) Review-perspective selection for the MCP `review_article` and
+  `run_pipeline` tools and the CLI `ai-review` and `run` commands.
+- (2026-07-22) Full business-operation parity across web, MCP, and CLI for
+  article editing, bilingual taxonomy assignment, image recovery, review
+  perspectives, masked runtime settings, provider testing, and job inspection.
+- (2026-07-22) Structured MCP responses and asynchronous capture, re-review,
+  and upload tools with unified pollable job records.
+- (2026-07-22) Machine-readable `--json` output for core CLI workflows and all
+  workspace-management commands.
+
+### Changed
+- Markdown validation is now a diagnostic instead of a model retry gate; final
+  structural correctness comes from deterministic application rendering.
+- Article inspection no longer presents the retired mechanical-validation
+  status block.
+- (2026-07-22) The pipeline now offers AI review with a human upload checkpoint
+  or one-click AI review and SiYuan upload; the former capture-only manual mode
+  has been removed.
+- (2026-07-22) Built-in source-faithful and beginner-friendly perspectives now
+  have immutable English and Chinese definitions selected by interface locale.
+- (2026-07-22) Article reading now uses one document scroll surface while the
+  top toolbar, outline, and inspection rail remain sticky.
+- (2026-07-22) Web handlers, MCP tools, and CLI commands now delegate to one
+  application service so validation and persisted state cannot drift between
+  interfaces.
+
+### Fixed
+- WeChat Firecrawl fallback now recovers author/publication metadata, removes
+  reader chrome and recommendation/contact tails, and keeps actual article
+  images without retaining fake page URLs.
+- Reviewed output deterministically restores any source image a text-only model
+  omits, while the article API hides stale asset files left by earlier captures.
+- Dark-mode reviewed status badges now use a readable high-contrast foreground,
+  border, and translucent background.
+- (2026-07-22) Desktop article reading now keeps the toolbar, reader frame,
+  outline, and inspection rail fixed to the viewport while only the document
+  content scrolls; the toolbar no longer adds a blurred background panel.
+- (2026-07-22) Active article review jobs are recovered after navigation and
+  repeated review requests resume the existing job instead of conflicting.
+- (2026-07-22) Read-only article mode now disables classification, AI review,
+  and upload controls until editing is enabled.
+- (2026-07-22) Fenced code blocks preserve source line breaks and wrap safely
+  inside the editor surface.
+- Vision-capable provider changes can be reapplied even when the provider is
+  already active, and newly marked models immediately become available for the
+  independent image-review role.
+- Settings dropdowns now float above following sections, the image-review role
+  aligns with provider details, and taxonomy counts share one right edge.
+- Web taxonomy updates now preserve bilingual names, descriptions, and aliases
+  before writing the canonical assignment.
+
 ## [0.3.0] - 2026-07-21
 
 ### Added
