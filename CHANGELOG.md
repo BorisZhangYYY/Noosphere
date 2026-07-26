@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.1.5] - 2026-07-26
+
+### Added
+
+- Added soft article deletion backed by persistent recycle-bin records, including multi-select deletion, batch restore, permanent removal, and database cleanup for article taxonomy and operation history.
+- Added explicit text and image capability badges to AI provider cards so vision-enabled models are distinguishable at a glance.
+- Added retry controls for failed capture runs; retries preserve the original URL and pipeline settings while retaining the failed run as history.
+
+### Fixed
+
+- Restyled custom review-perspective metadata fields with the active day/night theme and responsive field layout.
+- Canonicalized the complete source metadata block before article display so images cannot split `Captured` from `Type`; restored lead images now appear only below the metadata separator, and blurred removed-image previews no longer dominate the reader.
+- Marked failed capture runs as recovered when a later AI re-review of the same article succeeds, while retaining the original failure in the event history.
+- Kept article files browsable when PostgreSQL-backed taxonomy or activity metadata is temporarily unavailable instead of returning an unhelpful server error.
+- Replaced empty or generic background-job failures with actionable upstream status and error details.
+
+### Changed
+
+- Reorganized project documentation around a concise README and dedicated user guides for installation, CLI, MCP, configuration, and portable data; added core concepts, project structure, FAQ, contribution, license, and support links.
+- Clarified repository guidance so development starts by reading the active TODO and completed work moves to the changelog instead of accumulating in the task list.
+- Replaced the completed v0.3.1 task inventory with a focused v0.3.2 plan for a bilingual terminology glossary, cross-interface management, and release verification.
+- Documented that PostgreSQL is a required service in Docker Compose, how the application degrades when it is unavailable, and how to restart the complete stack.
+
 ## [0.3.1] - 2026-07-22
 
 ### Added
