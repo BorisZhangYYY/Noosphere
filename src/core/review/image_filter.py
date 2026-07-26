@@ -428,6 +428,22 @@ def _find_image_insertion_point(reviewed_md: str, raw_md: str, image_path: str) 
     if image_index is None:
         return None
 
+    preceding_rule = next(
+        (
+            index
+            for index in range(image_index - 1, -1, -1)
+            if re.fullmatch(r"\s*(?:---|\*\*\*|___)\s*", lines[index])
+        ),
+        None,
+    )
+    if preceding_rule is not None and not any(
+        _usable_image_anchor(line)
+        for line in lines[preceding_rule + 1 : image_index]
+    ):
+        reviewed_rule = re.search(r"(?m)^\s*(?:---|\*\*\*|___)\s*$", reviewed_md)
+        if reviewed_rule:
+            return reviewed_rule.end()
+
     for distance in range(1, 41):
         previous = image_index - distance
         if previous >= 0:
@@ -448,6 +464,12 @@ def _find_image_insertion_point(reviewed_md: str, raw_md: str, image_path: str) 
 
 def _usable_image_anchor(line: str) -> str | None:
     if MARKDOWN_IMAGE_RE.search(line):
+        return None
+    if re.match(
+        r"^\s*>\s*(?:\*\*)?(?:source|platform|author|published|captured|type)(?:\*\*)?\s*:",
+        line,
+        flags=re.IGNORECASE,
+    ):
         return None
     plain = re.sub(r"^[#>*\-\s]+", "", line)
     plain = re.sub(r"[*_`\[\]]", "", plain)

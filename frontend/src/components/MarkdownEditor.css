@@ -119,6 +119,29 @@
   display: block;
 }
 
+.markdown-editor .noosphere-image-shell img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.markdown-editor .noosphere-image-shell[data-image-state="removed"] {
+  max-height: clamp(180px, 24vw, 260px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.markdown-editor .noosphere-image-shell[data-image-state="removed"] img {
+  width: 100%;
+  height: clamp(180px, 24vw, 260px);
+  object-fit: cover;
+  object-position: center;
+}
+
 .markdown-editor img.noosphere-image-removed {
   filter: blur(13px) saturate(.45);
   opacity: .56;

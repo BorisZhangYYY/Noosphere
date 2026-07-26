@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import tempfile
@@ -27,6 +28,7 @@ _review_jobs: dict[str, dict[str, Any]] = {}
 _AI_API_FORMATS = {"anthropic", "openai_chat", "openai_responses"}
 _AI_PROVIDER_TYPES = {"kimi", "minimax", "zhipu", "volcengine", "custom"}
 _LOCAL_SECRET_REVEAL_HOSTS = {"localhost", "127.0.0.1", "::1", "testserver"}
+logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> str:
@@ -68,6 +70,49 @@ def _add_job_event(
         "details": details,
     })
     del events[:-80]
+
+
+def _exception_message(exc: Exception) -> str:
+    """Return an actionable job error instead of an empty or generic HTTP label."""
+    message = str(exc).strip()
+    response = getattr(exc, "response", None)
+    if response is not None:
+        status_code = getattr(response, "status_code", None)
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            upstream = payload.get("error") or payload.get("message") or payload.get("detail")
+            if isinstance(upstream, dict):
+                upstream = upstream.get("message") or upstream.get("detail")
+            if upstream:
+                message = str(upstream).strip()
+        if status_code and (not message or message == "Internal Server Error"):
+            message = f"Upstream service returned HTTP {status_code}"
+    return message or exc.__class__.__name__
+
+
+def _recover_failed_capture_jobs(article_id: str, review_job_id: str) -> None:
+    """Resolve earlier capture failures after the same article reviews successfully."""
+    for capture_job in _capture_jobs.values():
+        if capture_job.get("articleId") != article_id or capture_job.get("status") != "failed":
+            continue
+        original_error = str(capture_job.get("error") or "")
+        capture_job.update(
+            status="recovered",
+            error=None,
+            originalError=original_error or None,
+            recoveredAt=_utc_now(),
+            recoveredByReviewJobId=review_job_id,
+        )
+        _add_job_event(
+            capture_job,
+            "system",
+            "pipeline.events.recoveredByReview",
+            level="success",
+            details=review_job_id,
+        )
 
 
 async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective: str, output_language: str) -> None:
@@ -130,8 +175,9 @@ async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective:
         finally:
             reset_event_sink(token)
     except Exception as exc:  # Preserve pipeline failures for inspection through the job API.
-        _add_job_event(job, "system", "pipeline.events.failed", level="error", details=str(exc))
-        job.update(status="failed", finishedAt=_utc_now(), error=str(exc))
+        error = _exception_message(exc)
+        _add_job_event(job, "system", "pipeline.events.failed", level="error", details=error)
+        job.update(status="failed", finishedAt=_utc_now(), error=error)
 
 
 async def start_capture_job(
@@ -206,6 +252,23 @@ async def list_capture_jobs(request: Request) -> JSONResponse:
     return JSONResponse({"jobs": jobs})
 
 
+async def retry_capture_job(request: Request) -> JSONResponse:
+    original = _capture_jobs.get(request.path_params["job_id"])
+    if original is None:
+        return JSONResponse({"error": "Capture job not found"}, status_code=404)
+    if original.get("status") != "failed":
+        return JSONResponse({"error": "Only failed capture jobs can be retried"}, status_code=409)
+    retried = await start_capture_job(
+        str(original.get("url") or ""),
+        review_mode=str(original.get("reviewMode") or ""),
+        perspective=str(original.get("perspective") or ""),
+        output_language=str(original.get("outputLanguage") or ""),
+    )
+    retried["retryOfJobId"] = original["id"]
+    original["retriedByJobId"] = retried["id"]
+    return JSONResponse(retried, status_code=202)
+
+
 async def _run_article_review_job(job_id: str, article_id: str, perspective: str, output_language: str) -> None:
     job = _review_jobs[job_id]
     job.update(status="running", stage="reviewing", progress=12, startedAt=_utc_now())
@@ -252,9 +315,11 @@ async def _run_article_review_job(job_id: str, article_id: str, perspective: str
             _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
         _add_job_event(job, "system", "pipeline.events.articleReviewCompleted", level="success")
         job.update(status="succeeded", stage="completed", progress=100, finishedAt=_utc_now())
+        _recover_failed_capture_jobs(article_id, job_id)
     except Exception as exc:
-        _add_job_event(job, "system", "pipeline.events.failed", level="error", details=str(exc))
-        job.update(status="failed", stage="failed", error=str(exc), finishedAt=_utc_now())
+        error = _exception_message(exc)
+        _add_job_event(job, "system", "pipeline.events.failed", level="error", details=error)
+        job.update(status="failed", stage="failed", error=error, finishedAt=_utc_now())
 
 
 async def start_article_review_job(
@@ -345,14 +410,32 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
     metadata = _markdown_metadata(manifest_path.parent / "reviewed.md")
     if not metadata:
         metadata = _markdown_metadata(manifest_path.parent / "raw.md")
-    from src.core.catalog import CatalogStore
     article_id = str(manifest.get("article_id") or manifest_path.parent.name)
-    catalog = CatalogStore()
-    classification = catalog.get_assignment(article_id, locale)
-    from src.core.activity import ArticleActivityStore
-    activity = ArticleActivityStore()
-    activity.backfill_workspace(article_id, manifest, _read_json(manifest_path.parent / "review.json"))
-    operations = activity.summary(article_id, limit=0)
+    classification = None
+    catalog_search_terms: list[str] = []
+    operations = {
+        "captureCount": 0,
+        "reviewCount": 0,
+        "rereviewCount": 0,
+        "uploadCount": 0,
+        "events": [],
+    }
+    try:
+        from src.core.catalog import CatalogStore
+
+        catalog = CatalogStore()
+        classification = catalog.get_assignment(article_id, locale)
+        catalog_search_terms = catalog.get_search_terms(article_id)
+    except Exception as exc:
+        logger.warning("Article taxonomy unavailable for %s: %s", article_id, _exception_message(exc))
+    try:
+        from src.core.activity import ArticleActivityStore
+
+        activity = ArticleActivityStore()
+        activity.backfill_workspace(article_id, manifest, _read_json(manifest_path.parent / "review.json"))
+        operations = activity.summary(article_id, limit=0)
+    except Exception as exc:
+        logger.warning("Article activity unavailable for %s: %s", article_id, _exception_message(exc))
     return {
         "id": article_id,
         "title": str(article.get("title") or manifest_path.parent.name),
@@ -365,7 +448,7 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         "assetsCount": len(downloaded),
         "classification": classification,
         "operationSummary": operations,
-        "searchTerms": [value for value in [article.get("title"), article.get("author"), article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog.get_search_terms(article_id)] if value],
+        "searchTerms": [value for value in [article.get("title"), article.get("author"), article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog_search_terms] if value],
     }
 
 
@@ -418,14 +501,16 @@ def _ensure_inventory_images_visible(
 ) -> str:
     """Project every local image into the editor without mutating reviewed.md."""
     from src.core.review.image_filter import _restore_images_to_original_positions
+    from src.core.review.output_contract import normalize_source_metadata_boundary
 
     inventory = active_names | removed_names
-    present = {_markdown_image_name(match.group(2)) for match in MARKDOWN_IMAGE_RE.finditer(markdown)}
+    visible = normalize_source_metadata_boundary(markdown, raw_markdown)
+    present = {_markdown_image_name(match.group(2)) for match in MARKDOWN_IMAGE_RE.finditer(visible)}
     missing_paths = {
         f"assets/{name}"
         for name in inventory - present
     }
-    visible = _restore_images_to_original_positions(markdown, raw_markdown, missing_paths)
+    visible = _restore_images_to_original_positions(visible, raw_markdown, missing_paths)
     present = {_markdown_image_name(match.group(2)) for match in MARKDOWN_IMAGE_RE.finditer(visible)}
     for name in sorted(inventory - present):
         alt = Path(name).stem.replace("_", " ").replace("-", " ")
@@ -451,6 +536,92 @@ async def list_articles(request: Request) -> JSONResponse:
 
     articles = await asyncio.to_thread(application_list_articles, locale=_request_language(request))
     return JSONResponse({"articles": articles})
+
+
+def _article_ids_from_payload(payload: Any) -> list[str]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("articleIds"), list):
+        raise ValueError("articleIds must be an array")
+    article_ids = [str(value).strip() for value in payload["articleIds"] if str(value).strip()]
+    if not article_ids:
+        raise ValueError("At least one article id is required")
+    return article_ids
+
+
+async def trash_article(request: Request) -> JSONResponse:
+    try:
+        from src.application.service import trash_articles
+
+        records = await asyncio.to_thread(trash_articles, [request.path_params["article_id"]])
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    return JSONResponse({"articles": records})
+
+
+async def batch_trash_articles(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+        article_ids = _article_ids_from_payload(payload)
+        from src.application.service import trash_articles
+
+        records = await asyncio.to_thread(trash_articles, article_ids)
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"articles": records})
+
+
+async def list_article_trash(request: Request) -> JSONResponse:
+    del request
+    from src.application.service import list_trashed_articles
+
+    records = await asyncio.to_thread(list_trashed_articles)
+    return JSONResponse({"articles": records})
+
+
+async def restore_article_trash(request: Request) -> JSONResponse:
+    try:
+        from src.application.service import restore_trashed_articles
+
+        records = await asyncio.to_thread(restore_trashed_articles, [request.path_params["article_id"]])
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    return JSONResponse({"articles": records})
+
+
+async def permanently_delete_article(request: Request) -> JSONResponse:
+    try:
+        from src.application.service import permanently_delete_trashed_articles
+
+        deleted = await asyncio.to_thread(
+            permanently_delete_trashed_articles,
+            [request.path_params["article_id"]],
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    return JSONResponse({"deletedArticleIds": deleted})
+
+
+async def batch_article_trash_action(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+        article_ids = _article_ids_from_payload(payload)
+        action = str(payload.get("action") or "").strip()
+        if action == "restore":
+            from src.application.service import restore_trashed_articles
+
+            records = await asyncio.to_thread(restore_trashed_articles, article_ids)
+            return JSONResponse({"articles": records})
+        if action == "delete":
+            from src.application.service import permanently_delete_trashed_articles
+
+            deleted = await asyncio.to_thread(permanently_delete_trashed_articles, article_ids)
+            return JSONResponse({"deletedArticleIds": deleted})
+        raise ValueError("action must be restore or delete")
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
 
 
 def _safe_article_dir(article_id: str) -> Path:

@@ -172,6 +172,16 @@ class CatalogStore:
             terms.update(str(alias) for alias in aliases if alias)
         return sorted(terms, key=str.casefold)
 
+    def delete_assignment(self, article_id: str) -> None:
+        """Delete an article's taxonomy assignment during permanent removal."""
+        self.ensure_schema()
+        marker = self._placeholder
+        with self._connect() as connection:
+            connection.execute(
+                f"DELETE FROM noosphere_article_tags WHERE article_id = {marker}",
+                (article_id,),
+            )
+
     def assign(
         self,
         article_id: str,

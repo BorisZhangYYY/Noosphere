@@ -11,7 +11,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from src.core.review.ai_review_data import strip_markdown_fence
-from src.core.review.review_validation import H1_RE, extract_source_metadata_block
+from src.core.review.review_validation import (
+    H1_RE,
+    HORIZONTAL_RULE_RE,
+    SOURCE_METADATA_LINE_RE,
+    extract_source_metadata_block,
+)
 
 
 TOKEN_RE = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\s*\}\}")
@@ -107,6 +112,63 @@ def trusted_source_metadata(source_markdown: str) -> str:
         if match:
             normalized[match] = value.strip()
     return "\n".join(f"> {field}: {normalized.get(field) or 'Unknown'}" for field in SOURCE_FIELDS)
+
+
+def normalize_source_metadata_boundary(markdown: str, source_markdown: str) -> str:
+    """Keep trusted metadata contiguous and move misplaced content below its rule."""
+    if not extract_source_metadata_block(source_markdown):
+        return markdown
+
+    lines = markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    h1_index = next(
+        (index for index, line in enumerate(lines) if H1_RE.fullmatch(line.strip())),
+        None,
+    )
+    if h1_index is None:
+        return markdown
+
+    rule_index = next(
+        (
+            index
+            for index in range(h1_index + 1, len(lines))
+            if HORIZONTAL_RULE_RE.fullmatch(lines[index])
+        ),
+        None,
+    )
+    if rule_index is None:
+        return markdown
+
+    displaced: list[str] = []
+    for line in lines[h1_index + 1 : rule_index]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = SOURCE_METADATA_LINE_RE.fullmatch(stripped)
+        if match:
+            field = re.sub(r"[*_`]", "", match.group(1)).strip().casefold()
+            if any(field == expected.casefold() for expected in SOURCE_FIELDS):
+                continue
+        displaced.append(line)
+
+    tail = lines[rule_index + 1 :]
+    while tail and not tail[0].strip():
+        tail.pop(0)
+    while displaced and not displaced[-1].strip():
+        displaced.pop()
+
+    rebuilt = [
+        *lines[: h1_index + 1],
+        "",
+        *trusted_source_metadata(source_markdown).splitlines(),
+        "",
+        "---",
+        "",
+    ]
+    if displaced:
+        rebuilt.extend(displaced)
+        rebuilt.append("")
+    rebuilt.extend(tail)
+    return "\n".join(rebuilt).rstrip() + "\n"
 
 
 def render_review_payload(

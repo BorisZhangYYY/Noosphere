@@ -52,6 +52,7 @@ const resources = {
         queued: "Queued",
         running: "Running",
         awaiting_review: "Awaiting review",
+        recovered: "Recovered",
         succeeded: "Completed"
       },
       library: {
@@ -80,7 +81,32 @@ const resources = {
         activityIssues_one: "{{count}} item needs review.",
         activityIssues_other: "{{count}} items need review.",
         viewPipeline: "View pipeline",
-        justNow: "Just now"
+        justNow: "Just now",
+        viewMode: "Library view",
+        activeArticles: "Articles",
+        recycleBin: "Recycle bin",
+        selectArticle: "Select {{title}}",
+        selectAll: "Select all",
+        clearSelection: "Clear selection",
+        selectedCount: "{{count}} selected",
+        trashTotal: "{{count}} in recycle bin",
+        moveToTrash: "Move to recycle bin",
+        restore: "Restore",
+        restoreSelected: "Restore selected",
+        deletePermanently: "Delete permanently",
+        trashEmptyTitle: "The recycle bin is empty.",
+        trashEmptyDescription: "Deleted articles stay here until you remove them permanently.",
+        confirm: {
+          trashTitle: "Move {{count}} article to the recycle bin?",
+          trashDescription: "The workspace will disappear from the library and can be restored later.",
+          trashAction: "Move to recycle bin",
+          restoreTitle: "Restore {{count}} article?",
+          restoreDescription: "The workspace and its existing classification and activity history will return to the library.",
+          restoreAction: "Restore",
+          deleteTitle: "Permanently delete {{count}} article?",
+          deleteDescription: "This removes its files, classification, and operation history. This action cannot be undone.",
+          deleteAction: "Delete permanently"
+        }
       },
       pipeline: {
         eyebrow: "Processing history",
@@ -139,8 +165,10 @@ const resources = {
         stageUpload: "Upload",
         currentTitle: "Current runs",
         currentDescription: "Background work started from the web interface.",
+        retry: "Retry",
         working: "Pipeline is working",
         awaitingReviewHelp: "AI review completed. Waiting for your edits or approval.",
+        recoveredHelp: "A later AI review completed successfully. The earlier pipeline error is resolved.",
         eventLog: "Pipeline event log",
         reviewStream: "Live reviewed Markdown",
         reviewArticle: "Review article",
@@ -167,7 +195,8 @@ const resources = {
           uploadCompleted: "SiYuan upload completed",
           awaitingReview: "Review completed and paused for user approval",
           failed: "Pipeline stopped with an error",
-          articleReviewCompleted: "Article re-review completed"
+          articleReviewCompleted: "Article re-review completed",
+          recoveredByReview: "Earlier pipeline error resolved by a successful AI review"
         },
         articleStateTitle: "Article state",
         articleStateDescription: "Current status inferred from each protected workspace.",
@@ -266,6 +295,8 @@ const resources = {
         aiDescription: "Keep multiple provider configurations and choose one for the next review run.",
         visionCapability: "This model can understand images",
         visionCapabilityHelp: "Enable only when the model accepts image input; otherwise image review is skipped safely.",
+        textCapabilityBadge: "Text",
+        imageCapabilityBadge: "Image",
         imageProviderTitle: "Image-review model",
         imageProviderDescription: "Independent from the text model. It classifies article images before copy-editing.",
         imageProviderDisabled: "Not configured",
@@ -424,6 +455,7 @@ const resources = {
         queued: "等待中",
         running: "处理中",
         awaiting_review: "等待审核",
+        recovered: "已恢复",
         succeeded: "已完成"
       },
       library: {
@@ -451,7 +483,32 @@ const resources = {
         activityClear: "当前没有失败任务需要处理。",
         activityIssues: "有 {{count}} 项需要检查。",
         viewPipeline: "查看流水线",
-        justNow: "刚刚"
+        justNow: "刚刚",
+        viewMode: "文章视图",
+        activeArticles: "文章",
+        recycleBin: "回收站",
+        selectArticle: "选择 {{title}}",
+        selectAll: "全选",
+        clearSelection: "取消全选",
+        selectedCount: "已选择 {{count}} 篇",
+        trashTotal: "回收站共 {{count}} 篇",
+        moveToTrash: "移入回收站",
+        restore: "恢复",
+        restoreSelected: "恢复所选",
+        deletePermanently: "永久删除",
+        trashEmptyTitle: "回收站是空的。",
+        trashEmptyDescription: "删除的文章会保留在这里，直到你永久清除。",
+        confirm: {
+          trashTitle: "将 {{count}} 篇文章移入回收站？",
+          trashDescription: "文章工作区会从知识库隐藏，之后仍可恢复。",
+          trashAction: "移入回收站",
+          restoreTitle: "恢复 {{count}} 篇文章？",
+          restoreDescription: "文章工作区及原有分类、操作记录将返回知识库。",
+          restoreAction: "恢复",
+          deleteTitle: "永久删除 {{count}} 篇文章？",
+          deleteDescription: "文章文件、分类和操作记录都会被移除，此操作无法撤销。",
+          deleteAction: "永久删除"
+        }
       },
       pipeline: {
         eyebrow: "处理记录",
@@ -510,8 +567,10 @@ const resources = {
         stageUpload: "上传",
         currentTitle: "当前任务",
         currentDescription: "从网页界面启动的后台任务。",
+        retry: "重试",
         working: "流水线正在处理",
         awaitingReviewHelp: "AI 审阅已完成，正在等待你的编辑或确认。",
+        recoveredHelp: "后续 AI 审阅已成功完成，先前的流水线错误已修复。",
         eventLog: "流水线事件日志",
         reviewStream: "实时审阅 Markdown",
         reviewArticle: "审核文章",
@@ -538,7 +597,8 @@ const resources = {
           uploadCompleted: "思源上传完成",
           awaitingReview: "审阅完成，已暂停并等待用户确认",
           failed: "流水线因错误停止",
-          articleReviewCompleted: "文章二次审阅完成"
+          articleReviewCompleted: "文章二次审阅完成",
+          recoveredByReview: "后续 AI 审阅成功，先前的流水线错误已修复"
         },
         articleStateTitle: "文章状态",
         articleStateDescription: "根据每个受保护工作区推断出的当前状态。",
@@ -634,6 +694,8 @@ const resources = {
         aiDescription: "保存多个供应商配置，并选择下一次审阅任务使用的配置。",
         visionCapability: "此模型支持图像理解",
         visionCapabilityHelp: "仅在模型确实接受图片输入时开启；否则图片审阅会安全跳过。",
+        textCapabilityBadge: "文本",
+        imageCapabilityBadge: "图像",
         imageProviderTitle: "图片审阅模型",
         imageProviderDescription: "与文本模型独立配置，在文章改写前判断图片是否相关。",
         imageProviderDisabled: "未配置",

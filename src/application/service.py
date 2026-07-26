@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -111,6 +112,149 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
     if include_content:
         payload.update(rawMarkdown=raw_markdown, reviewedMarkdown=reviewed_markdown)
     return payload
+
+
+def _article_trash_dir(article_id: str) -> Path:
+    """Resolve an article's recycle-bin directory outside the active library."""
+    from src.mcp.server import _validate_article_id
+
+    _validate_article_id(article_id)
+    output_dir = load_config().output_dir_path.resolve()
+    trash_root = (output_dir.parent / "trash" / "articles").resolve()
+    trash_dir = (trash_root / article_id).resolve()
+    if trash_dir.parent != trash_root:
+        raise ValueError(f"Invalid article id: {article_id}")
+    return trash_dir
+
+
+def trash_articles(article_ids: list[str]) -> list[dict[str, Any]]:
+    """Move active article workspaces into the persistent recycle bin."""
+    if not article_ids:
+        raise ValueError("At least one article id is required")
+    unique_ids = list(dict.fromkeys(str(article_id) for article_id in article_ids))
+    from src.core.trash import ArticleTrashStore
+
+    store = ArticleTrashStore()
+    plans: list[tuple[str, Path, Path, dict[str, Any]]] = []
+    for article_id in unique_ids:
+        article_dir = _web_helpers()._safe_article_dir(article_id)
+        trash_dir = _article_trash_dir(article_id)
+        if trash_dir.exists() or store.get(article_id) is not None:
+            raise ValueError(f"Article is already in the recycle bin: {article_id}")
+        plans.append((article_id, article_dir, trash_dir, _web_helpers()._read_json(article_dir / "manifest.json")))
+
+    results: list[dict[str, Any]] = []
+    moved: list[tuple[str, Path, Path]] = []
+    try:
+        for article_id, article_dir, trash_dir, manifest in plans:
+            article = manifest.get("article") or {}
+            title = str(article.get("title") or article_id)
+            url = str(article.get("url") or "")
+            trash_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(article_dir), str(trash_dir))
+            moved.append((article_id, article_dir, trash_dir))
+            record = store.add(
+                article_id,
+                title=title,
+                url=url,
+                details={
+                    "platform": str(article.get("platform") or "unknown"),
+                    "platformLabel": str(article.get("platform_label") or article.get("platform") or "Unknown"),
+                    "capturedAt": article.get("captured_at"),
+                    "assetsCount": len((manifest.get("assets") or {}).get("downloaded") or []),
+                },
+            )
+            results.append(record)
+    except Exception:
+        for moved_id, article_dir, trash_dir in reversed(moved):
+            try:
+                store.remove(moved_id)
+            finally:
+                if trash_dir.exists() and not article_dir.exists():
+                    shutil.move(str(trash_dir), str(article_dir))
+        raise
+    return results
+
+
+def list_trashed_articles() -> list[dict[str, Any]]:
+    """Return recycle-bin records whose workspaces still exist."""
+    from src.core.trash import ArticleTrashStore
+
+    return [
+        record
+        for record in ArticleTrashStore().list()
+        if _article_trash_dir(record["id"]).is_dir()
+    ]
+
+
+def restore_trashed_articles(article_ids: list[str]) -> list[dict[str, Any]]:
+    """Move articles from the recycle bin back into the active library."""
+    if not article_ids:
+        raise ValueError("At least one article id is required")
+    from src.core.trash import ArticleTrashStore
+
+    store = ArticleTrashStore()
+    output_dir = load_config().output_dir_path.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plans: list[tuple[str, dict[str, Any], Path, Path]] = []
+    for article_id in dict.fromkeys(str(article_id) for article_id in article_ids):
+        record = store.get(article_id)
+        if record is None:
+            raise ValueError(f"Article is not in the recycle bin: {article_id}")
+        trash_dir = _article_trash_dir(article_id)
+        article_dir = (output_dir / article_id).resolve()
+        if article_dir.parent != output_dir or article_dir.exists():
+            raise ValueError(f"An active article already uses this id: {article_id}")
+        if not trash_dir.is_dir():
+            raise ValueError(f"Recycle-bin workspace is missing: {article_id}")
+        plans.append((article_id, record, trash_dir, article_dir))
+
+    results: list[dict[str, Any]] = []
+    restored: list[tuple[str, Path, Path, dict[str, Any]]] = []
+    try:
+        for article_id, record, trash_dir, article_dir in plans:
+            shutil.move(str(trash_dir), str(article_dir))
+            restored.append((article_id, trash_dir, article_dir, record))
+            store.remove(article_id)
+            results.append(record)
+    except Exception:
+        for restored_id, trash_dir, article_dir, record in reversed(restored):
+            if article_dir.exists() and not trash_dir.exists():
+                shutil.move(str(article_dir), str(trash_dir))
+            if store.get(restored_id) is None:
+                store.add(
+                    restored_id,
+                    title=record["title"],
+                    url=record["url"],
+                    details=record.get("details") or {},
+                )
+        raise
+    return results
+
+
+def permanently_delete_trashed_articles(article_ids: list[str]) -> list[str]:
+    """Permanently delete trashed workspaces and their database metadata."""
+    if not article_ids:
+        raise ValueError("At least one article id is required")
+    from src.core.activity import ArticleActivityStore
+    from src.core.catalog import CatalogStore
+    from src.core.trash import ArticleTrashStore
+
+    trash_store = ArticleTrashStore()
+    unique_ids = list(dict.fromkeys(str(article_id) for article_id in article_ids))
+    for article_id in unique_ids:
+        if trash_store.get(article_id) is None:
+            raise ValueError(f"Article is not in the recycle bin: {article_id}")
+    deleted: list[str] = []
+    for article_id in unique_ids:
+        trash_dir = _article_trash_dir(article_id)
+        if trash_dir.is_dir():
+            shutil.rmtree(trash_dir)
+        CatalogStore().delete_assignment(article_id)
+        ArticleActivityStore().delete_article(article_id)
+        trash_store.remove(article_id)
+        deleted.append(article_id)
+    return deleted
 
 
 def save_reviewed_markdown(article_id: str, reviewed_markdown: str) -> dict[str, Any]:

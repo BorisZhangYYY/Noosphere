@@ -1,5 +1,5 @@
 export type ArticleStatus = "captured" | "reviewed" | "uploaded" | "failed";
-export type CaptureJobStatus = "queued" | "running" | "awaiting_review" | "succeeded" | "failed";
+export type CaptureJobStatus = "queued" | "running" | "awaiting_review" | "succeeded" | "recovered" | "failed";
 export type ReviewMode = "auto_upload" | "ai_then_manual";
 export type OutputLanguage = "follow_ui" | "zh-CN" | "en-US" | "source";
 
@@ -27,6 +27,11 @@ export interface CaptureJob {
   events: CaptureJobEvent[];
   result: { hpath: string; created: boolean } | null;
   error: string | null;
+  originalError?: string | null;
+  recoveredAt?: string | null;
+  recoveredByReviewJobId?: string | null;
+  retryOfJobId?: string | null;
+  retriedByJobId?: string | null;
 }
 
 export interface ArticleSummary {
@@ -42,6 +47,19 @@ export interface ArticleSummary {
   classification: ArticleClassification | null;
   operationSummary: ArticleOperationSummary;
   searchTerms: string[];
+}
+
+export interface TrashedArticle {
+  id: string;
+  title: string;
+  url: string;
+  deletedAt: string;
+  details: {
+    platform?: string;
+    platformLabel?: string;
+    capturedAt?: string | null;
+    assetsCount?: number;
+  };
 }
 
 export interface ArticleDetail extends ArticleSummary {

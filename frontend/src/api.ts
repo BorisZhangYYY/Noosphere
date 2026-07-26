@@ -1,5 +1,5 @@
 import i18n from "./i18n";
-import type { ArticleDetail, ArticleSummary, CaptureJob, OutputLanguage, PipelineSettings, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TaxonomyTag, UploadJob } from "./types";
+import type { ArticleDetail, ArticleSummary, CaptureJob, OutputLanguage, PipelineSettings, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TaxonomyTag, TrashedArticle, UploadJob } from "./types";
 
 function locale() { return i18n.resolvedLanguage?.startsWith("zh") ? "zh-CN" : "en-US"; }
 function localized(path: string) { return `${path}${path.includes("?") ? "&" : "?"}locale=${encodeURIComponent(locale())}`; }
@@ -23,9 +23,23 @@ export const api = {
   listArticles: () => request<{ articles: ArticleSummary[] }>(localized("/api/v1/articles")),
   getArticle: (articleId: string) => request<ArticleDetail>(localized(`/api/v1/articles/${encodeURIComponent(articleId)}`)),
   listCaptureJobs: () => request<{ jobs: CaptureJob[] }>("/api/v1/captures"),
+  retryCaptureJob: (jobId: string) => request<CaptureJob>(`/api/v1/captures/${encodeURIComponent(jobId)}/retry`, { method: "POST" }),
   createCapture: ({ url, reviewMode, perspective, outputLanguage }: { url: string; reviewMode: ReviewMode; perspective: string; outputLanguage: OutputLanguage }) => request<CaptureJob>(localized("/api/v1/captures"), {
     method: "POST",
     body: JSON.stringify({ url, reviewMode, perspective, outputLanguage })
+  }),
+  trashArticles: (articleIds: string[]) => request<{ articles: TrashedArticle[] }>("/api/v1/articles/batch-delete", {
+    method: "POST",
+    body: JSON.stringify({ articleIds })
+  }),
+  listTrashedArticles: () => request<{ articles: TrashedArticle[] }>("/api/v1/trash/articles"),
+  restoreTrashedArticles: (articleIds: string[]) => request<{ articles: TrashedArticle[] }>("/api/v1/trash/articles/batch", {
+    method: "POST",
+    body: JSON.stringify({ articleIds, action: "restore" })
+  }),
+  permanentlyDeleteTrashedArticles: (articleIds: string[]) => request<{ deletedArticleIds: string[] }>("/api/v1/trash/articles/batch", {
+    method: "POST",
+    body: JSON.stringify({ articleIds, action: "delete" })
   }),
   saveReviewedMarkdown: (articleId: string, reviewedMarkdown: string) =>
     request<{ ok: boolean }>(`/api/v1/articles/${encodeURIComponent(articleId)}`, {

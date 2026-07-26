@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -122,6 +123,117 @@ def test_list_and_read_article(web_client) -> None:
     assert detail.json()["assets"][0]["name"] == "image.png"
 
 
+def test_article_listing_degrades_when_database_metadata_is_unavailable(web_client, monkeypatch) -> None:
+    client, _, article_id = web_client
+
+    def unavailable(*args, **kwargs):
+        del args, kwargs
+        raise ConnectionError("database offline")
+
+    monkeypatch.setattr("src.core.catalog.CatalogStore.get_assignment", unavailable)
+    monkeypatch.setattr("src.core.activity.ArticleActivityStore.backfill_workspace", unavailable)
+
+    response = client.get("/api/v1/articles")
+
+    assert response.status_code == 200
+    article = response.json()["articles"][0]
+    assert article["id"] == article_id
+    assert article["classification"] is None
+    assert article["operationSummary"]["captureCount"] == 0
+
+
+def test_articles_support_batch_trash_restore_and_permanent_delete(web_client) -> None:
+    client, config_path, article_id = web_client
+    output_dir = config_path.parent / "articles"
+    second_id = "wechat_mp_second_87654321"
+    second_dir = output_dir / second_id
+    shutil.copytree(output_dir / article_id, second_dir)
+    second_manifest_path = second_dir / "manifest.json"
+    second_manifest = json.loads(second_manifest_path.read_text(encoding="utf-8"))
+    second_manifest["article_id"] = second_id
+    second_manifest["article"]["title"] = "Second article"
+    second_manifest_path.write_text(json.dumps(second_manifest), encoding="utf-8")
+    assert client.patch(
+        f"/api/v1/articles/{article_id}/classification",
+        json={"tagName": "Release QA", "subtagName": "Deletion"},
+    ).status_code == 200
+    assert client.get(f"/api/v1/articles/{article_id}").json()["operationSummary"]["captureCount"] == 1
+
+    trashed = client.post(
+        "/api/v1/articles/batch-delete",
+        json={"articleIds": [article_id, second_id]},
+    )
+
+    assert trashed.status_code == 200
+    assert {article["id"] for article in trashed.json()["articles"]} == {article_id, second_id}
+    assert client.get("/api/v1/articles").json()["articles"] == []
+    assert {article["id"] for article in client.get("/api/v1/trash/articles").json()["articles"]} == {article_id, second_id}
+
+    restored = client.post(
+        "/api/v1/trash/articles/batch",
+        json={"articleIds": [article_id, second_id], "action": "restore"},
+    )
+    assert restored.status_code == 200
+    assert {article["id"] for article in client.get("/api/v1/articles").json()["articles"]} == {article_id, second_id}
+
+    assert client.delete(f"/api/v1/articles/{article_id}").status_code == 200
+    deleted = client.delete(f"/api/v1/trash/articles/{article_id}")
+    assert deleted.status_code == 200
+    assert deleted.json()["deletedArticleIds"] == [article_id]
+    assert client.get(f"/api/v1/articles/{article_id}").status_code == 404
+    assert client.get("/api/v1/trash/articles").json()["articles"] == []
+    from src.core.activity import ArticleActivityStore
+    from src.core.catalog import CatalogStore
+    from src.core.trash import ArticleTrashStore
+
+    assert CatalogStore().get_assignment(article_id) is None
+    assert ArticleActivityStore().summary(article_id)["captureCount"] == 0
+    assert ArticleTrashStore().get(article_id) is None
+
+
+def test_failed_capture_job_can_be_retried_with_original_settings(web_client, monkeypatch) -> None:
+    client, _, _ = web_client
+    original = {
+        "id": "failed-capture",
+        "kind": "capture",
+        "url": "https://example.com/retry",
+        "status": "failed",
+        "reviewMode": "ai_then_manual",
+        "perspective": "original",
+        "outputLanguage": "zh-CN",
+        "createdAt": "2026-07-26T00:00:00+00:00",
+        "error": "network unavailable",
+        "events": [],
+    }
+    _capture_jobs[original["id"]] = original
+    captured: dict[str, object] = {}
+
+    async def fake_start(url: str, **settings):
+        captured.update(url=url, **settings)
+        job = {
+            **original,
+            "id": "retry-capture",
+            "status": "queued",
+            "error": None,
+        }
+        _capture_jobs[job["id"]] = job
+        return job
+
+    monkeypatch.setattr("src.api.web.start_capture_job", fake_start)
+
+    response = client.post("/api/v1/captures/failed-capture/retry")
+
+    assert response.status_code == 202
+    assert response.json()["retryOfJobId"] == "failed-capture"
+    assert original["retriedByJobId"] == "retry-capture"
+    assert captured == {
+        "url": "https://example.com/retry",
+        "review_mode": "ai_then_manual",
+        "perspective": "original",
+        "output_language": "zh-CN",
+    }
+
+
 def test_article_detail_hides_stale_unreferenced_asset_files(web_client) -> None:
     client, config_path, article_id = web_client
     stale = config_path.parent / "articles" / article_id / "assets" / "stale.png"
@@ -131,6 +243,56 @@ def test_article_detail_hides_stale_unreferenced_asset_files(web_client) -> None
 
     assert [asset["name"] for asset in detail["assets"]] == ["image.png"]
     assert "stale.png" not in detail["displayMarkdown"]
+
+
+def test_article_display_keeps_image_outside_complete_metadata_block(web_client) -> None:
+    client, config_path, article_id = web_client
+    article_dir = config_path.parent / "articles" / article_id
+    source = """# Raw
+
+> Source: [https://mp.weixin.qq.com/s/example](https://mp.weixin.qq.com/s/example)
+> Platform: WeChat
+> Author: Lin
+> Published: 2026-07-01
+> Captured: 2026-07-20T08:00:00+00:00
+> Type: article
+
+---
+
+![Cover](assets/image.png)
+
+Raw body.
+"""
+    malformed = """# Reviewed
+
+> Source: [https://mp.weixin.qq.com/s/example](https://mp.weixin.qq.com/s/example)
+> Platform: WeChat
+> Author: Lin
+> Published: 2026-07-01
+> Captured: 2026-07-20T08:00:00+00:00
+
+![Cover](assets/image.png)
+
+> Type: article
+
+---
+
+## AI Summary
+
+Summary.
+"""
+    (article_dir / "raw.md").write_text(source, encoding="utf-8")
+    (article_dir / "reviewed.md").write_text(malformed, encoding="utf-8")
+
+    detail = client.get(f"/api/v1/articles/{article_id}")
+
+    assert detail.status_code == 200
+    display = detail.json()["displayMarkdown"]
+    assert display.count("> Type: article") == 1
+    assert display.index("> Captured:") < display.index("> Type: article")
+    assert display.index("> Type: article") < display.index("---")
+    assert display.index("---") < display.index("assets/image.png")
+    assert display.index("assets/image.png") < display.index("## AI Summary")
 
 
 def test_markdown_metadata_accepts_bold_field_names(web_client) -> None:
@@ -586,6 +748,15 @@ def test_article_can_be_re_reviewed_from_current_reviewed_markdown(web_client, m
     client, config_path, article_id = web_client
     reviewed_path = config_path.parent / "articles" / article_id / "reviewed.md"
     reviewed_path.write_text("# Manually edited\n\nKeep this version.\n", encoding="utf-8")
+    _capture_jobs["failed-capture"] = {
+        "id": "failed-capture",
+        "kind": "capture",
+        "articleId": article_id,
+        "status": "failed",
+        "createdAt": "2026-07-23T00:00:00+00:00",
+        "events": [],
+        "error": "Provider rejected the original request",
+    }
 
     async def fake_review(path: Path, *, perspective: str, source_markdown: str, output_language: str):
         assert path == reviewed_path
@@ -612,6 +783,12 @@ def test_article_can_be_re_reviewed_from_current_reviewed_markdown(web_client, m
     assert job["status"] == "succeeded"
     assert job["progress"] == 100
     assert reviewed_path.read_text(encoding="utf-8").startswith("# AI reviewed")
+    recovered = client.get("/api/v1/captures").json()["jobs"][0]
+    assert recovered["status"] == "recovered"
+    assert recovered["error"] is None
+    assert recovered["originalError"] == "Provider rejected the original request"
+    assert recovered["recoveredByReviewJobId"] == job["id"]
+    assert recovered["events"][-1]["message"] == "pipeline.events.recoveredByReview"
 
 
 def test_capture_ai_then_manual_runs_review_and_pauses(web_client, monkeypatch) -> None:

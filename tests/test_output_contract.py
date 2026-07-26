@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from src.core.config.schema import ReviewPerspectiveConfig
-from src.core.review.output_contract import materialize_review_output, validate_output_template
+from src.core.review.output_contract import (
+    materialize_review_output,
+    normalize_source_metadata_boundary,
+    validate_output_template,
+)
 
 
 TEMPLATE = """# {{title}}
@@ -114,3 +118,55 @@ Original body.
     assert "> Published: Unknown" in rendered
     assert "### Model tried to own structure" in rendered
     assert rendered.count("## Main Article") == 1
+
+
+def test_metadata_boundary_moves_misplaced_image_below_type_and_rule() -> None:
+    source = """# Original
+
+> Source: [https://example.com](https://example.com)
+> Platform: Web
+> Author: Lin
+> Published: 2026-07-01
+> Captured: 2026-07-23T00:00:00+00:00
+> Type: article
+
+---
+
+![Cover](assets/cover.png)
+
+Original body.
+"""
+    malformed = """# Reviewed
+
+> Source: [https://example.com](https://example.com)
+> Platform: Web
+> Author: Lin
+> Published: 2026-07-01
+> Captured: 2026-07-23T00:00:00+00:00
+
+![Cover](assets/cover.png)
+
+> Type: article
+
+---
+
+## AI Summary
+
+Summary.
+"""
+
+    normalized = normalize_source_metadata_boundary(malformed, source)
+
+    metadata = (
+        "> Source: [https://example.com](https://example.com)\n"
+        "> Platform: Web\n"
+        "> Author: Lin\n"
+        "> Published: 2026-07-01\n"
+        "> Captured: 2026-07-23T00:00:00+00:00\n"
+        "> Type: article"
+    )
+    assert metadata in normalized
+    assert normalized.count("> Type: article") == 1
+    assert normalized.index("> Type: article") < normalized.index("---")
+    assert normalized.index("---") < normalized.index("assets/cover.png")
+    assert normalized.index("assets/cover.png") < normalized.index("## AI Summary")

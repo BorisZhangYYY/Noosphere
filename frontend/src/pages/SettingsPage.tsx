@@ -3,6 +3,7 @@ import {
   CheckCircle,
   Eye,
   EyeSlash,
+  FileText,
   FireSimple,
   FloppyDisk,
   Hexagon,
@@ -457,7 +458,11 @@ export function SettingsPage() {
                         <ProviderMark type={provider.providerType} />
                         <span className="provider-card-copy">
                           <strong>{provider.name}</strong>
-                          <small>{t(`settings.providerTypes.${provider.providerType}`)}</small>
+                          <span className="provider-card-meta">
+                            <small>{t(`settings.providerTypes.${provider.providerType}`)}</small>
+                            <span className="provider-capability-badge"><FileText size={11} />{t("settings.textCapabilityBadge")}</span>
+                            {provider.visionCapable && <span className="provider-capability-badge provider-capability-image"><ImageSquare size={11} />{t("settings.imageCapabilityBadge")}</span>}
+                          </span>
                         </span>
                         {isActive && <span className="provider-active-badge"><Check size={13} weight="bold" />{t("settings.active")}</span>}
                       </button>

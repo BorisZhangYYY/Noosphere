@@ -120,3 +120,13 @@ class ArticleActivityStore:
             "uploadCount": counts["upload"],
             "events": events,
         }
+
+    def delete_article(self, article_id: str) -> None:
+        """Delete operation history after an article leaves the recycle bin."""
+        self.ensure_schema()
+        marker = self._placeholder
+        with self._connect() as connection:
+            connection.execute(
+                f"DELETE FROM noosphere_article_events WHERE article_id = {marker}",
+                (article_id,),
+            )

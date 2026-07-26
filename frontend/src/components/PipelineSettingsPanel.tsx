@@ -105,8 +105,8 @@ export function PipelineSettingsPanel() {
       <div className="perspective-selector-row">
         <label className="settings-field"><span>{t("pipeline.perspective")}</span><InlineSelect value={draft.activePerspective} onChange={(activePerspective) => { setDraft({ ...draft, activePerspective }); setPendingDelete(null); }} ariaLabel={t("pipeline.perspective")} options={draft.perspectives.map((item) => ({ value: item.id, label: item.label, description: item.description }))} /></label>
         {active?.editable ? <div className="perspective-meta-fields">
-          <label><span>{t("pipeline.perspectiveName")}</span><input value={active.label} maxLength={80} onChange={(event) => updateActive({ label: event.target.value })} /></label>
-          <label><span>{t("pipeline.perspectiveDescription")}</span><input value={active.description} maxLength={400} onChange={(event) => updateActive({ description: event.target.value })} /></label>
+          <label className="settings-field perspective-meta-field"><span>{t("pipeline.perspectiveName")}</span><input value={active.label} maxLength={80} onChange={(event) => updateActive({ label: event.target.value })} /></label>
+          <label className="settings-field perspective-meta-field"><span>{t("pipeline.perspectiveDescription")}</span><input value={active.description} maxLength={400} onChange={(event) => updateActive({ description: event.target.value })} /></label>
         </div> : <div className="builtin-perspective-note"><span className="readonly-badge">{t("pipeline.builtin")}</span><p>{t("pipeline.builtinPerspectiveHelp")}</p></div>}
       </div>
 
