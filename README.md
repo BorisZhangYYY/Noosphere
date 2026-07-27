@@ -13,7 +13,7 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 - Extract articles and local assets from supported platforms with configurable primary and fallback crawlers.
 - Review, translate, and restructure content through built-in or custom perspectives.
 - Keep source metadata and final Markdown structure deterministic instead of relying on the model to reproduce a fragile document skeleton.
-- Organize articles with a built-in developer processing profile, a bilingual two-level taxonomy, and canonical aliases.
+- Organize articles with a user-defined bilingual taxonomy of at most two levels; new workspaces start without product-owned categories.
 - Review images independently, then remove or restore them without changing `raw.md`.
 - Archive locally or upload reviewed content to SiYuan.
 - Use the same data, configuration, and business rules through the web app, MCP service, or CLI.

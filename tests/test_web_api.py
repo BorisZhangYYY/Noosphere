@@ -469,22 +469,16 @@ def test_taxonomy_localizes_and_merges_aliases(web_client) -> None:
     assert chinese["description"] == "自主智能系统及其工作流。"
 
 
-def test_taxonomy_exposes_builtin_developer_processing_profile(web_client) -> None:
+def test_taxonomy_does_not_seed_product_categories(web_client) -> None:
     client, _, _ = web_client
 
     english = client.get("/api/v1/taxonomy?locale=en-US").json()
     chinese = client.get("/api/v1/taxonomy?locale=zh-CN").json()
 
-    assert english["profile"]["id"] == "developer"
-    assert english["profile"]["builtin"] is True
-    assert english["profile"]["editable"] is False
-    assert english["profile"]["name"] == "Developer"
-    assert chinese["profile"]["name"] == "开发者"
-    assert english["profile"]["inboxCategoryId"] == "builtin-developer-inbox"
-    assert any(
-        tag["id"] == "builtin-developer-tools-productivity"
-        for tag in english["tags"]
-    )
+    assert "profile" not in english
+    assert "profile" not in chinese
+    assert all(not tag["id"].startswith("builtin-") for tag in english["tags"])
+    assert all(not tag["id"].startswith("builtin-") for tag in chinese["tags"])
 
 
 def test_pipeline_defaults_are_localized_and_read_only(web_client) -> None:

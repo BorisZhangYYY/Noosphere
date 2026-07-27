@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- (2026-07-27) Added a versioned, built-in developer processing profile that idempotently seeds a localized two-level starter taxonomy across Web, MCP, and CLI without importing personal data or depending on another project.
+- (2026-07-27) Added an empty, user-owned taxonomy foundation: new workspaces no longer receive product-owned categories or profiles, while existing user-created bilingual category paths remain intact across Web, MCP, and CLI.
 
 ### Fixed
 

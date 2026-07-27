@@ -10,7 +10,6 @@ The v0.3.2 goal is to make article organization predictable while keeping Noosph
 
 Two of the eight issue slots are already consumed by completed work recorded under `[Unreleased]` in `CHANGELOG.md`. The approved Docker Compose restart correction remains pre-scope Issue 0.
 
-- [ ] **Issue 3 — Empty, user-owned taxonomy foundation.** Remove product-owned starter categories and profiles. New workspaces start without categories, and existing user-created categories remain intact.
 - [ ] **Issue 4 — Two-level category management in Review Studio.** Let users create, rename, describe, retire, and restore categories and one optional child level; reject deeper nesting and prevent automatic category creation.
 - [ ] **Issue 5 — Three-column knowledge workspace.** Replace the library list as the primary reading surface with a category-and-article tree, an article outline, and a read-only content pane while retaining search, recycle-bin access, and a path to the full article workbench.
 - [ ] **Issue 6 — Closed-set automatic organization.** Classify only against active user-defined category IDs, persist reason and confidence, and leave articles explicitly unclassified when no suitable category exists.

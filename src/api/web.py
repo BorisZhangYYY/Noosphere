@@ -1066,12 +1066,11 @@ async def update_pipeline_settings(request: Request) -> JSONResponse:
 
 
 async def get_taxonomy(request: Request) -> JSONResponse:
-    from src.application.service import get_processing_profile, list_taxonomy
+    from src.application.service import list_taxonomy
 
     locale = _request_language(request)
-    profile = await asyncio.to_thread(get_processing_profile, locale=locale)
     tree = await asyncio.to_thread(list_taxonomy, locale=locale)
-    return JSONResponse({"profile": profile, "tags": tree})
+    return JSONResponse({"tags": tree})
 
 
 async def update_article_classification(request: Request) -> JSONResponse:

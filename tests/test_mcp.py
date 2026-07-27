@@ -127,11 +127,7 @@ async def test_classify_article_prefers_canonical_ids(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_taxonomy_includes_processing_profile(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "src.application.service.get_processing_profile",
-        lambda **kwargs: {"id": "developer", "locale": kwargs["locale"]},
-    )
+async def test_list_taxonomy_returns_user_owned_categories(monkeypatch) -> None:
     monkeypatch.setattr(
         "src.application.service.list_taxonomy",
         lambda **kwargs: [{"id": "category-1", "locale": kwargs["locale"]}],
@@ -139,7 +135,7 @@ async def test_list_taxonomy_includes_processing_profile(monkeypatch) -> None:
 
     result = await list_taxonomy("zh-CN")
 
-    assert result["profile"] == {"id": "developer", "locale": "zh-CN"}
+    assert "profile" not in result
     assert result["tags"] == [{"id": "category-1", "locale": "zh-CN"}]
 
 

@@ -445,14 +445,11 @@ async def _main_async(args: argparse.Namespace) -> int:
             return 1
 
     if args.command == "taxonomy":
-        from src.application.service import classify_article, get_processing_profile, list_taxonomy
+        from src.application.service import classify_article, list_taxonomy
 
         try:
             if args.taxonomy_command == "list":
-                payload = {
-                    "profile": get_processing_profile(locale=args.locale),
-                    "tags": list_taxonomy(locale=args.locale),
-                }
+                payload = {"tags": list_taxonomy(locale=args.locale)}
             else:
                 if not args.tag_id and not args.tag_name:
                     raise ValueError("Provide --tag-id for an existing category or --tag-name for a new category")
