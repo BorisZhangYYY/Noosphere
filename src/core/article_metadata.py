@@ -1,7 +1,12 @@
 """Protected source metadata and controlled enrichment for article workspaces."""
 from __future__ import annotations
 
+import json
+import os
 import re
+import tempfile
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from src.core.review.review_validation import extract_source_metadata_block
@@ -79,6 +84,8 @@ def article_metadata_state(manifest: dict[str, Any], raw_markdown: str) -> dict[
             "editable": bool(source_missing and not enriched_value),
             "origin": str(enrichment.get("source") or "missing") if enriched_value else ("missing" if source_missing else "source"),
             "evidence": str(enrichment.get("evidence") or "") if enriched_value else "",
+            "model": str(enrichment.get("model") or "") if enriched_value else "",
+            "provider": str(enrichment.get("provider") or "") if enriched_value else "",
             "updatedAt": enrichment.get("updated_at") if enriched_value else None,
         }
     return result
@@ -124,3 +131,109 @@ def render_protected_review(
     if body:
         parts.extend(["", body])
     return "\n".join(parts).rstrip() + "\n"
+
+
+def apply_ai_metadata_candidates(
+    manifest_path: Path,
+    raw_markdown: str,
+    reviewed_markdown: str,
+    candidates: dict[str, dict[str, str]],
+    *,
+    model: str,
+    provider: str,
+) -> tuple[str, list[dict[str, str]]]:
+    """Accept only evidence-backed candidates for still-empty source fields."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    enrichment = manifest.setdefault("metadata_enrichment", {})
+    fields = enrichment.setdefault("fields", {})
+    history = enrichment.setdefault("history", [])
+    state = article_metadata_state(manifest, raw_markdown)
+    source_evidence = " ".join(raw_markdown.split()).casefold()
+    now = datetime.now(UTC).isoformat()
+    outcomes: list[dict[str, str]] = []
+
+    for key in ("author", "publishedAt"):
+        candidate = candidates.get(key)
+        if not isinstance(candidate, dict):
+            continue
+        value = str(candidate.get("value") or "").strip()
+        evidence = str(candidate.get("evidence") or "").strip()
+        if not value or not evidence:
+            continue
+        reason = ""
+        if state[key]["origin"] == "source":
+            reason = "captured source value is protected"
+        elif isinstance(fields.get(key), dict) and str(fields[key].get("value") or "").strip():
+            reason = "field was already enriched"
+        elif len(" ".join(evidence.split())) < 4 or " ".join(evidence.split()).casefold() not in source_evidence:
+            reason = "evidence was not found verbatim in the captured article"
+        elif not _value_supported_by_evidence(value, evidence):
+            reason = "candidate value was not supported by its evidence"
+
+        if reason:
+            action = "reverted"
+        else:
+            action = "accepted"
+            fields[key] = {
+                "value": value,
+                "source": "ai",
+                "evidence": evidence,
+                "model": model,
+                "provider": provider,
+                "updated_at": now,
+            }
+        record = {
+            "field": key,
+            "action": action,
+            "source": "ai",
+            "value": value,
+            "previous_value": str((fields.get(key) or {}).get("value") or "") if action == "reverted" else "",
+            "evidence": evidence,
+            "model": model,
+            "provider": provider,
+            "reason": reason,
+            "at": now,
+        }
+        history.append(record)
+        outcomes.append({key: str(value) for key, value in record.items()})
+
+    if outcomes:
+        _atomic_write_json(manifest_path, manifest)
+    return render_protected_review(reviewed_markdown, manifest, raw_markdown), outcomes
+
+
+def _value_supported_by_evidence(value: str, evidence: str) -> bool:
+    date_match = re.fullmatch(r"\s*(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?\s*", value)
+    if date_match:
+        year, month, day = (str(int(part)) for part in date_match.groups())
+        evidence_folded = evidence.casefold()
+        evidence_numbers = {str(int(part)) for part in re.findall(r"\d+", evidence_folded)}
+        month_names = (
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december",
+        )
+        month_supported = month in evidence_numbers or month_names[int(month) - 1] in evidence_folded
+        return year in evidence_numbers and day in evidence_numbers and month_supported
+
+    def tokens(text: str) -> list[str]:
+        values = re.findall(r"[\w\u3400-\u9fff]+", text.casefold(), flags=re.UNICODE)
+        return [item.lstrip("0") or "0" if item.isdigit() else item for item in values]
+
+    candidate_tokens = tokens(value)
+    evidence_tokens = set(tokens(evidence))
+    return bool(candidate_tokens) and all(token in evidence_tokens for token in candidate_tokens)
+
+
+def _atomic_write_json(destination: Path, payload: dict[str, Any]) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}-", dir=destination.parent)
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, destination)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()

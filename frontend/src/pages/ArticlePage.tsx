@@ -203,6 +203,13 @@ export function ArticlePage() {
                   <div><dt>{t("article.captured")}</dt><dd>{article.metadata.capturedAt.value}</dd></div>
                   <div><dt>{t("article.type")}</dt><dd>{t(`article.types.${article.contentType}`, { defaultValue: article.contentType })}</dd></div>
                 </dl>
+                {(["author", "publishedAt"] as const).map((key) => article.metadata[key].origin === "ai" && article.metadata[key].evidence
+                  ? <div className="metadata-evidence" key={key}>
+                    <strong>{t("article.aiMetadataEvidence", { field: key === "author" ? t("article.author") : t("article.published") })}</strong>
+                    <q>{article.metadata[key].evidence}</q>
+                    <span>{[article.metadata[key].provider, article.metadata[key].model].filter(Boolean).join(" · ")}</span>
+                  </div>
+                  : null)}
                 {!readOnly && (article.metadata.author.editable || article.metadata.publishedAt.editable) && <button className="button-secondary metadata-save-button" type="button" onClick={() => metadataMutation.mutate()} disabled={metadataMutation.isPending}>{t("article.saveMissingMetadata")}</button>}
                 {!readOnly && !article.metadata.author.editable && !article.metadata.publishedAt.editable && <p className="rail-note">{t("article.metadataProtected")}</p>}
                 {metadataMutation.isError && <p className="article-action-error" role="alert">{(metadataMutation.error as Error).message}</p>}

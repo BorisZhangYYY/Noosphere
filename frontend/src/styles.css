@@ -344,6 +344,10 @@ body.article-route-active .content-shell { height: 100dvh; min-height: 0; paddin
 .metadata-field-input { width: 100%; min-width: 0; padding: .48rem .6rem; border: 1px solid var(--line); border-radius: .55rem; background: var(--surface-raised); color: var(--text); font: inherit; }
 .metadata-field-input:focus { border-color: var(--accent-strong); outline: 2px solid color-mix(in srgb, var(--accent-strong) 20%, transparent); outline-offset: 1px; }
 .metadata-save-button { width: 100%; margin: .75rem 0; }
+.metadata-evidence { display: grid; gap: .28rem; margin-top: .75rem; padding: .7rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--surface-soft); color: var(--text-muted); font-size: .78rem; }
+.metadata-evidence strong { color: var(--text); font-size: .76rem; }
+.metadata-evidence q { line-height: 1.5; }
+.metadata-evidence span { font-size: .7rem; }
 .inspection-section dl { display: grid; gap: 14px; margin: 18px 0; }
 .inspection-section dl div { display: grid; gap: 3px; }
 .inspection-section dt { color: var(--text-muted); font-size: 10.5px; }

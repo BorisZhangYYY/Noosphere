@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - (2026-07-27) Added a dedicated three-column knowledge workspace with a category-and-article tree, article outline, read-only Markdown reader, responsive small-screen layout, and direct navigation to category management, the overview, and the full article workbench.
 - (2026-07-27) Added closed-set automatic organization: AI review can select only active user-configured category IDs, persists its reason and confidence, and leaves an article unclassified when no category is a sufficiently strong match.
 - (2026-07-27) Added protected article metadata boundaries across Web, MCP, and CLI: article prose is edited separately, trusted source fields are rebuilt canonically for storage and export, and only genuinely missing author or publication values can be filled through controlled inputs.
+- (2026-07-27) Added evidence-backed AI metadata enrichment during review: missing Author and Published values are accepted only when an exact source excerpt and the candidate value agree, while protected values, replacements, and unverifiable candidates are reverted with model, provider, evidence, reason, and timestamp history.
 
 ### Fixed
 

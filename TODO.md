@@ -10,8 +10,6 @@ The v0.3.2 goal is to make article organization predictable while keeping Noosph
 
 Two of the eight issue slots are already consumed by completed work recorded under `[Unreleased]` in `CHANGELOG.md`. The approved Docker Compose restart correction remains pre-scope Issue 0.
 
-- [ ] **Issue 8 — Evidence-backed AI metadata enrichment.** Allow review to fill only missing enrichable fields, require source evidence and provenance, reject overwrites, and record every accepted or reverted enrichment.
-
 ### Documentation and release quality
 
 - [ ] Add troubleshooting cases from real extraction, provider-connectivity, image-review, and SiYuan-upload failures as they are reproduced.

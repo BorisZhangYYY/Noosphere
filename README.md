@@ -99,7 +99,7 @@ Each article workspace keeps the original extraction in `raw.md` and the canonic
 
 ### Deterministic review assembly
 
-AI fills typed content slots. Noosphere assembles the final metadata block, headings, sections, and retained image references. Validation can diagnose malformed content, but it is not an AI retry loop or a prerequisite for producing the document.
+AI fills typed content slots. Noosphere assembles the final metadata block, headings, sections, and retained image references. When Author or Published is absent, review may submit a candidate only with a short exact excerpt from the captured article; Noosphere verifies both evidence and value before accepting it and records accepted or reverted attempts with provider provenance. Validation can diagnose malformed content, but it is not an AI retry loop or a prerequisite for producing the document.
 
 ### Canonical bilingual taxonomy
 

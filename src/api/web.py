@@ -748,6 +748,7 @@ async def get_article(request: Request) -> JSONResponse:
         "displayMarkdown": display_markdown,
         "editableMarkdown": editable_article_markdown(display_markdown),
         "metadata": protected_metadata,
+        "metadataHistory": list((manifest.get("metadata_enrichment") or {}).get("history") or []),
         "validationIssues": validation_issues,
         "hasUploaded": bool(manifest.get("uploaded")),
         "activeUpload": active_upload,

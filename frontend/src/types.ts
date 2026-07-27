@@ -74,7 +74,20 @@ export interface ArticleDetail extends ArticleSummary {
     editable: boolean;
     origin: "source" | "missing" | "manual" | "ai" | string;
     evidence: string;
+    model: string;
+    provider: string;
     updatedAt: string | null;
+  }>;
+  metadataHistory: Array<{
+    field: string;
+    action: "accepted" | "reverted" | string;
+    source: "manual" | "ai" | string;
+    value: string;
+    evidence: string;
+    model?: string;
+    provider?: string;
+    reason?: string;
+    at: string;
   }>;
   validationIssues: string[];
   hasUploaded: boolean;

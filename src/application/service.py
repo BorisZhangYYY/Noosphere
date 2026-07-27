@@ -112,6 +112,7 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
         "assets": assets,
         "removedAssets": removed_assets,
         "metadata": protected_metadata,
+        "metadataHistory": list((manifest.get("metadata_enrichment") or {}).get("history") or []),
     }
     if include_content:
         payload.update(
