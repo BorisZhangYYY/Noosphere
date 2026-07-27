@@ -25,7 +25,7 @@ Categories: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## Before Every Commit
 
-- Read `CHANGELOG.md` and record notable changes under `[Unreleased]` with the date.
+- Read `CHANGELOG.md` and record **user-notable** changes (not implementation details) under `[Unreleased]` with the date.
 - Keep commits grouped by intent: implementation, docs, and small corrections separately.
 
 ## What NOT to Commit

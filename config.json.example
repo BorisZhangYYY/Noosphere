@@ -46,6 +46,7 @@
   },
   "ai": {
     "provider": "anthropic",
+    "image_provider": null,
     "max_attempts": 2,
     "rewrite_prompt_path": "prompts/edit_article.md",
     "platform_prompts": {
@@ -56,52 +57,31 @@
   },
   "pipeline": {
     "review_mode": "ai_then_manual",
+    "output_language": "follow_ui",
     "active_perspective": "original",
-    "common_prompt_path": "prompts/common_review.md",
-    "classification_prompt_path": "prompts/classify_article.md",
-    "perspectives": {
-      "original": {
-        "label": "基于原文",
-        "description": "保留作者的论证结构，只清理噪音并优化表达。",
-        "prompt_path": "prompts/perspectives/original.md",
-        "template_path": "prompts/templates/original_article.md",
-        "output_sections": {
-          "summary": "AI Summary",
-          "main_article": "Main Article"
-        },
-        "body_section": "main_article"
-      },
-      "novice": {
-        "label": "小白视角",
-        "description": "补充必要背景与术语解释，降低首次阅读门槛。",
-        "prompt_path": "prompts/perspectives/novice.md",
-        "template_path": "prompts/templates/novice_article.md",
-        "output_sections": {
-          "summary": "快速理解",
-          "prerequisites": "阅读前准备",
-          "main_article": "正文与讲解"
-        },
-        "body_section": "main_article"
-      }
-    }
+    "classification_prompt_path": "prompts/classify_article.md"
   },
   "ai_providers": {
     "openai": {
+      "provider_type": "custom",
       "api_format": "openai_responses",
       "model": "your-openai-model",
       "api_base": "https://api.openai.com/v1",
       "api_key": "your-openai-api-key-here",
       "max_output_tokens": 12000,
-      "temperature": 0.2
+      "temperature": 0.2,
+      "vision_capable": false
     },
     "anthropic": {
+      "provider_type": "custom",
       "api_format": "anthropic",
       "model": "your-anthropic-model",
       "api_base": "https://api.anthropic.com",
       "api_key": "your-anthropic-api-key-here",
       "max_output_tokens": 12000,
       "temperature": 0.2,
-      "timeout_seconds": 300
+      "timeout_seconds": 300,
+      "vision_capable": false
     }
   },
   "crawler": {

@@ -4,10 +4,13 @@ Noosphere is an article web extraction, AI review, sharing and storing tool.
 
 ## Project Rules
 
-- Read `README.md`, `skills/noosphere/SKILL.md`, and `CHANGELOG.md` before changing workflow behavior.
+- Read `README.md`, `TODO.md`, `CHANGELOG.md`, and `skills/noosphere/SKILL.md` before changing workflow behavior.
+- Keep user-facing installation, deployment, and operation guides in `docs/`. Keep repository-internal development rules in `.project/`; use this file as a compact index rather than a complete handbook.
 - `references/` contains Crawl4AI and SiYuan documentation that can be used as reference when developing new features.
 - Preserve clear output boundaries inside `outputs/<article_id>/`: do not edit or rewrite `raw.md`, and perform all review, editing, and AI rewriting based on `reviewed.md`. Keep `manifest.json`, `review.json`, and `assets/` tied to the same article workspace.
 - Keep long prompts in `prompts/`; keep `config.json.example` easy and human-readable.
+- Platform extraction strategies are documented in [.project/platform-extractors.md](.project/platform-extractors.md). When changing extractor behavior, read and update this doc.
+- Record unresolved product decisions and deliberately deferred work in `TODO.md`; completed user-visible work belongs in `CHANGELOG.md` instead.
 
 ## Verification
 
@@ -45,6 +48,10 @@ NOOSPHERE_DATA_DIR=/path/to/noosphere-data docker compose up --build
 ## Git & Changelog
 
 See [.project/git-conventions.md](.project/git-conventions.md) for commit format, changelog management, and push/PR rules.
+
+## Release Planning
+
+See [.project/release-planning.md](.project/release-planning.md) for version scope limits and issue-counting rules.
 
 ## Comments
 

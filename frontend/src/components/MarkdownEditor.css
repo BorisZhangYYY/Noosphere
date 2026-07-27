@@ -63,6 +63,18 @@
   color: var(--text) !important;
 }
 
+.markdown-editor .vditor-reset :where(pre, pre code),
+.markdown-editor .vditor-wysiwyg__preview,
+.markdown-editor .vditor-wysiwyg__preview :where(code, .hljs) {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.markdown-editor .vditor-wysiwyg > .vditor-reset > :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 96px;
+}
+
 .markdown-editor .vditor-reset code:not(pre code) {
   padding: .16em .38em;
   border-radius: 5px;
@@ -105,6 +117,29 @@
 .markdown-editor .noosphere-image-shell {
   position: relative;
   display: block;
+}
+
+.markdown-editor .noosphere-image-shell img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.markdown-editor .noosphere-image-shell[data-image-state="removed"] {
+  max-height: clamp(180px, 24vw, 260px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.markdown-editor .noosphere-image-shell[data-image-state="removed"] img {
+  width: 100%;
+  height: clamp(180px, 24vw, 260px);
+  object-fit: cover;
+  object-position: center;
 }
 
 .markdown-editor img.noosphere-image-removed {

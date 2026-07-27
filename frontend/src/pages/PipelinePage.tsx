@@ -1,5 +1,5 @@
-import { CaretDown, CaretUp, Check, Circle, CloudArrowDown, MagicWand, TerminalWindow, UploadSimple, WarningCircle } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { ArrowClockwise, CaretDown, CaretUp, Check, Circle, CloudArrowDown, MagicWand, SpinnerGap, TerminalWindow, UploadSimple, WarningCircle } from "@phosphor-icons/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -16,6 +16,7 @@ const stages = [
 
 export function PipelinePage() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const query = useQuery({ queryKey: ["articles"], queryFn: api.listArticles });
   const jobsQuery = useQuery({
@@ -25,6 +26,13 @@ export function PipelinePage() {
   });
   const articles = query.data?.articles ?? [];
   const jobs = jobsQuery.data?.jobs ?? [];
+  const retryMutation = useMutation({
+    mutationFn: api.retryCaptureJob,
+    onSuccess: async (job) => {
+      setExpandedJob(job.id);
+      await queryClient.invalidateQueries({ queryKey: ["capture-jobs"] });
+    }
+  });
 
   return (
     <div className="page pipeline-page">
@@ -44,11 +52,17 @@ export function PipelinePage() {
           <div className="section-heading"><div><h2>{t("pipeline.currentTitle")}</h2><p>{t("pipeline.currentDescription")}</p></div></div>
           {jobs.slice(0, 8).map((job) => {
             const expanded = expandedJob === job.id;
-            const detail = job.error || job.result?.hpath || (job.status === "awaiting_review" ? t("pipeline.awaitingReviewHelp") : t("pipeline.working"));
+            const detail = job.error || job.result?.hpath || (
+              job.status === "recovered"
+                ? t("pipeline.recoveredHelp")
+                : job.status === "awaiting_review"
+                  ? t("pipeline.awaitingReviewHelp")
+                  : t("pipeline.working")
+            );
             return (
               <article className={`job-card${expanded ? " job-card-expanded" : ""}`} key={job.id}>
                 <button className="run-row job-row" type="button" aria-expanded={expanded} onClick={() => setExpandedJob(expanded ? null : job.id)}>
-                  <span className="run-state-icon">{job.status === "failed" ? <WarningCircle size={21} /> : job.status === "succeeded" || job.status === "awaiting_review" ? <Check size={20} /> : <Circle size={18} />}</span>
+                  <span className="run-state-icon">{job.status === "failed" ? <WarningCircle size={21} /> : job.status === "succeeded" || job.status === "awaiting_review" || job.status === "recovered" ? <Check size={20} /> : <Circle size={18} />}</span>
                   <span><strong>{job.url}</strong><small>{detail}</small></span>
                   <span className="job-row-tail"><span className={`job-status job-${job.status}`}>{t(`status.${job.status}`)}</span>{expanded ? <CaretUp size={16} /> : <CaretDown size={16} />}</span>
                 </button>
@@ -65,7 +79,23 @@ export function PipelinePage() {
                     {job.reviewPreview && (
                       <div className="review-stream"><div><TerminalWindow size={17} /><strong>{t("pipeline.reviewStream")}</strong></div><pre>{job.reviewPreview}</pre></div>
                     )}
-                    {job.articleId && <Link className="button-secondary job-review-link" to={`/articles/${encodeURIComponent(job.articleId)}`}>{job.status === "awaiting_review" ? t("pipeline.reviewArticle") : t("pipeline.openArticle")}</Link>}
+                    <div className="job-actions">
+                      {job.status === "failed" && (
+                        <button
+                          className="button-primary job-retry-button"
+                          type="button"
+                          disabled={retryMutation.isPending}
+                          onClick={() => retryMutation.mutate(job.id)}
+                        >
+                          {retryMutation.isPending && retryMutation.variables === job.id
+                            ? <SpinnerGap className="spin" size={17} />
+                            : <ArrowClockwise size={17} />}
+                          {t("pipeline.retry")}
+                        </button>
+                      )}
+                      {job.articleId && <Link className="button-secondary job-review-link" to={`/articles/${encodeURIComponent(job.articleId)}`}>{job.status === "awaiting_review" ? t("pipeline.reviewArticle") : t("pipeline.openArticle")}</Link>}
+                    </div>
+                    {retryMutation.isError && retryMutation.variables === job.id && <p className="job-action-error" role="alert">{(retryMutation.error as Error).message}</p>}
                   </div>
                 )}
               </article>

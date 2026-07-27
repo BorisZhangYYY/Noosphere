@@ -15,6 +15,7 @@ from src.graph.graph import (
     build_pipeline_graph,
     build_upload_graph,
     run_ai_review_graph,
+    run_pipeline_graph,
 )
 
 
@@ -31,6 +32,8 @@ def test_default_initial_state_has_required_keys(initial_state):
         "platform_label",
         "content_type",
         "title",
+        "source_language",
+        "output_language",
         "article_author",
         "article_published_at",
         "output_dir",
@@ -71,6 +74,42 @@ def test_default_initial_state_has_required_keys(initial_state):
 def test_graph_compiles(builder):
     graph = builder().compile(checkpointer=MemorySaver())
     assert graph is not None
+
+
+@pytest.mark.asyncio
+async def test_pipeline_graph_sets_review_perspective(monkeypatch, tmp_path: Path) -> None:
+    received: dict[str, object] = {}
+
+    class FakeGraph:
+        async def ainvoke(self, state, config):
+            received.update(state=state, config=config)
+            return {"upload_result": object()}
+
+    class FakeBuilder:
+        def compile(self, *, checkpointer):
+            received["checkpointer"] = checkpointer
+            return FakeGraph()
+
+    async def fake_checkpointer():
+        async def close():
+            received["closed"] = True
+
+        return object(), close
+
+    monkeypatch.setattr("src.graph.graph.build_pipeline_graph", lambda: FakeBuilder())
+    monkeypatch.setattr("src.graph.graph._get_checkpointer", fake_checkpointer)
+
+    result = await run_pipeline_graph(
+        "https://example.com/article",
+        tmp_path,
+        auto_confirm=True,
+        perspective="novice",
+    )
+
+    assert result is not None
+    assert received["state"]["review_perspective"] == "novice"
+    assert received["config"]["configurable"]["auto_confirm"] is True
+    assert received["closed"] is True
 
 
 @pytest.mark.asyncio

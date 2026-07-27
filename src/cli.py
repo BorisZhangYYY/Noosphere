@@ -2,8 +2,10 @@
 CLI command definitions and entry points. Currently supported:
 - extract: Extract an article from a website (single URL or batch file).
 - upload: Upload a Markdown file to Siyuan.
-- ai-review: AI-powered rewrite and format validation.
+- ai-review: AI-assisted content review and deterministic Markdown assembly.
 - run: Pipeline of extract -> ai-review -> upload.
+- articles/taxonomy/images: Manage the shared knowledge workspace.
+- perspectives/config/jobs: Manage review contracts, runtime settings, and jobs.
 - email: Send Markdown-styled emails via SMTP.
 - mcp: Start an MCP server for AI clients.
 """
@@ -14,6 +16,7 @@ import asyncio
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
@@ -49,18 +52,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Re-extract URLs that have already been extracted.",
     )
+    extract_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     upload_parser = subparsers.add_parser("upload", help="Upload one Markdown file, article directory, or article ID to SiYuan or local archive.")
     upload_parser.add_argument("file", type=Path, help="Markdown file, article directory, or article ID to upload.")
     upload_parser.add_argument("--force", "-f", action="store_true", help="Re-upload even if the article was already uploaded.")
     upload_parser.add_argument("--target", "-t", choices=["local", "siyuan"], default=None, help="Upload target platform (default: auto-select from config).")
+    upload_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     ai_review_parser = subparsers.add_parser("ai-review", help="Use the configured AI model to rewrite and check one reviewed Markdown file, article directory, or article ID.")
     ai_review_parser.add_argument("file", type=Path, help="Reviewed Markdown file, article directory, or article ID.")
     ai_review_parser.add_argument("--force", "-f", action="store_true", help="Re-run AI review even if review.json is already marked completed.")
+    ai_review_parser.add_argument("--perspective", help="Review perspective ID from the pipeline configuration.")
+    ai_review_parser.add_argument("--language", choices=["zh-CN", "en-US", "source"], help="Reviewed article output language.")
+    ai_review_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     run_parser = subparsers.add_parser("run", help="Extract one URL, AI-review it, then upload it to SiYuan.")
     run_parser.add_argument("url", help="Article URL to extract.")
+    run_parser.add_argument("--perspective", help="Review perspective ID from the pipeline configuration.")
+    run_parser.add_argument("--language", choices=["zh-CN", "en-US", "source"], help="Reviewed article output language.")
+    run_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     email_parser = subparsers.add_parser("email", help="Send reviewed article as HTML email via SMTP.")
     email_parser.add_argument("article_id", help="Article ID to send as email.")
@@ -104,6 +115,112 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mcp_parser.add_argument("--host", default="127.0.0.1", help="Host to bind the MCP HTTP server (default: 127.0.0.1).")
     mcp_parser.add_argument("--port", type=int, default=8080, help="Port to bind the MCP HTTP server (default: 8080).")
 
+    articles_parser = subparsers.add_parser("articles", help="Inspect and edit article workspaces.")
+    articles_subparsers = articles_parser.add_subparsers(dest="articles_command", required=True)
+    articles_list = articles_subparsers.add_parser("list", help="List articles with search and taxonomy filters.")
+    articles_list.add_argument("--query", default="")
+    articles_list.add_argument("--status", choices=["captured", "reviewed", "uploaded", "failed"], default="")
+    articles_list.add_argument("--tag-id", default="")
+    articles_list.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    articles_list.add_argument("--json", action="store_true")
+    articles_show = articles_subparsers.add_parser("show", help="Show article metadata, classification, and content.")
+    articles_show.add_argument("article_id")
+    articles_show.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    articles_show.add_argument("--no-content", action="store_true")
+    articles_show.add_argument("--json", action="store_true")
+    articles_update = articles_subparsers.add_parser("update", help="Replace reviewed.md from a UTF-8 Markdown file.")
+    articles_update.add_argument("article_id")
+    articles_update.add_argument("--from", dest="source_file", type=Path, required=True)
+    articles_update.add_argument("--json", action="store_true")
+
+    taxonomy_parser = subparsers.add_parser("taxonomy", help="Inspect taxonomy and move articles by stable IDs.")
+    taxonomy_subparsers = taxonomy_parser.add_subparsers(dest="taxonomy_command", required=True)
+    taxonomy_list = taxonomy_subparsers.add_parser("list", help="List the canonical two-level taxonomy.")
+    taxonomy_list.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_list.add_argument("--json", action="store_true")
+    taxonomy_assign = taxonomy_subparsers.add_parser("assign", aliases=["move"], help="Assign an article to a tag path.")
+    taxonomy_assign.add_argument("article_id")
+    taxonomy_assign.add_argument("--tag-id")
+    taxonomy_assign.add_argument("--subtag-id")
+    taxonomy_assign.add_argument("--tag-name", default="")
+    taxonomy_assign.add_argument("--subtag-name", default="")
+    taxonomy_assign.add_argument("--tag-description", default="")
+    taxonomy_assign.add_argument("--subtag-description", default="")
+    taxonomy_assign.add_argument("--tag-localizations", default="", help="JSON object containing zh-CN/en-US names, descriptions, and aliases.")
+    taxonomy_assign.add_argument("--subtag-localizations", default="", help="JSON object containing zh-CN/en-US names, descriptions, and aliases.")
+    taxonomy_assign.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_assign.add_argument("--json", action="store_true")
+
+    images_parser = subparsers.add_parser("images", help="Inspect, remove, and restore article images.")
+    images_subparsers = images_parser.add_subparsers(dest="images_command", required=True)
+    images_list = images_subparsers.add_parser("list", help="List active and removed images.")
+    images_list.add_argument("article_id")
+    images_list.add_argument("--json", action="store_true")
+    images_set = images_subparsers.add_parser("set", help="Set an image state and update reviewed.md.")
+    images_set.add_argument("article_id")
+    images_set.add_argument("asset_name")
+    images_set.add_argument("--state", choices=["active", "removed"], required=True)
+    images_set.add_argument("--json", action="store_true")
+
+    perspectives_parser = subparsers.add_parser("perspectives", help="Manage review perspectives and templates.")
+    perspectives_subparsers = perspectives_parser.add_subparsers(dest="perspectives_command", required=True)
+    perspectives_list = perspectives_subparsers.add_parser("list", help="List built-in and custom perspectives.")
+    perspectives_list.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    perspectives_list.add_argument("--json", action="store_true")
+    perspectives_show = perspectives_subparsers.add_parser("show", help="Show one perspective, prompt, and template.")
+    perspectives_show.add_argument("perspective_id")
+    perspectives_show.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    perspectives_show.add_argument("--json", action="store_true")
+    perspectives_save = perspectives_subparsers.add_parser("save", help="Create or update a custom perspective.")
+    perspectives_save.add_argument("perspective_id")
+    perspectives_save.add_argument("--label", required=True)
+    perspectives_save.add_argument("--description", default="")
+    perspectives_save.add_argument("--prompt-file", type=Path, required=True)
+    perspectives_save.add_argument("--template-file", type=Path, required=True)
+    perspectives_save.add_argument("--sections", required=True, help='JSON object, for example {"summary":"Summary","main":"Article"}.')
+    perspectives_save.add_argument("--body-section", required=True)
+    perspectives_save.add_argument("--activate", action="store_true")
+    perspectives_save.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    perspectives_save.add_argument("--json", action="store_true")
+    perspectives_delete = perspectives_subparsers.add_parser("delete", help="Delete a custom perspective.")
+    perspectives_delete.add_argument("perspective_id")
+    perspectives_delete.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    perspectives_delete.add_argument("--json", action="store_true")
+    perspectives_use = perspectives_subparsers.add_parser("use", help="Set the active review perspective.")
+    perspectives_use.add_argument("perspective_id")
+    perspectives_use.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    perspectives_use.add_argument("--json", action="store_true")
+
+    config_parser = subparsers.add_parser("config", help="Manage masked runtime settings and service connectivity.")
+    config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
+    config_show = config_subparsers.add_parser("show", help="Show masked provider, crawler, and archive settings.")
+    config_show.add_argument("--json", action="store_true")
+    config_apply = config_subparsers.add_parser("apply", help="Apply a web-compatible settings JSON object.")
+    config_apply.add_argument("file", type=Path)
+    config_apply.add_argument("--json", action="store_true")
+    config_activate = config_subparsers.add_parser("activate", help="Activate an existing AI provider.")
+    config_activate.add_argument("provider_name")
+    config_activate.add_argument("--json", action="store_true")
+    config_test = config_subparsers.add_parser("test", help="Test AI or Firecrawl connectivity.")
+    config_test.add_argument("service", choices=["ai", "firecrawl"])
+    config_test.add_argument("--provider", default="")
+    config_test.add_argument("--json", action="store_true")
+    config_reveal = config_subparsers.add_parser("reveal", help="Reveal one secret explicitly on the local terminal.")
+    config_reveal.add_argument("service", choices=["ai", "firecrawl", "siyuan"])
+    config_reveal.add_argument("--provider", default="")
+    config_reveal.add_argument("--yes", action="store_true", help="Required acknowledgement for printing a secret.")
+
+    jobs_parser = subparsers.add_parser("jobs", help="Inspect background jobs from a running Noosphere server.")
+    jobs_subparsers = jobs_parser.add_subparsers(dest="jobs_command", required=True)
+    jobs_list = jobs_subparsers.add_parser("list", help="List server-side capture, review, and upload jobs.")
+    jobs_list.add_argument("--kind", choices=["all", "capture", "review", "upload"], default="all")
+    jobs_list.add_argument("--server", default="http://127.0.0.1:8080")
+    jobs_list.add_argument("--json", action="store_true")
+    jobs_show = jobs_subparsers.add_parser("show", help="Show one server-side job.")
+    jobs_show.add_argument("job_id")
+    jobs_show.add_argument("--server", default="http://127.0.0.1:8080")
+    jobs_show.add_argument("--json", action="store_true")
+
     return parser.parse_args(argv)
 
 
@@ -111,7 +228,12 @@ async def _run_extract(url: str) -> Path:
     return await run_extract_graph(url, get_paths().output_dir)
 
 
-async def _run_extract_batch(urls: list[str], *, force: bool = False) -> list[tuple[str, Path | None, str | None]]:
+async def _run_extract_batch(
+    urls: list[str],
+    *,
+    force: bool = False,
+    quiet: bool = False,
+) -> list[tuple[str, Path | None, str | None]]:
     """Extract multiple URLs with progress reporting and optional deduplication.
 
     Returns a list of (url, output_path_or_existing_dir, error_message).
@@ -128,33 +250,38 @@ async def _run_extract_batch(urls: list[str], *, force: bool = False) -> list[tu
         TimeElapsedColumn(),
     ]
 
-    with Progress(*progress_columns, console=console, transient=True) as progress:
+    with Progress(*progress_columns, console=console, transient=True, disable=quiet) as progress:
         task = progress.add_task("Extracting articles...", total=len(urls))
         for url in urls:
             try:
                 if not force:
                     existing = find_existing_article_dir(output_dir, url)
                     if existing is not None:
-                        progress.console.print(f"[yellow]Skip[/yellow] {url} (already extracted at {existing})")
+                        if not quiet:
+                            progress.console.print(f"[yellow]Skip[/yellow] {url} (already extracted at {existing})")
                         results.append((url, existing, "skipped"))
                         progress.advance(task)
                         continue
 
-                with console.status(f"[cyan]Extracting[/cyan] {url}..."):
+                if quiet:
                     path = await _run_extract(url)
-                progress.console.print(f"[green]Done[/green]   {url} -> {path}")
+                else:
+                    with console.status(f"[cyan]Extracting[/cyan] {url}..."):
+                        path = await _run_extract(url)
+                    progress.console.print(f"[green]Done[/green]   {url} -> {path}")
                 results.append((url, path, None))
             except Exception as exc:
-                progress.console.print(f"[red]Fail[/red]   {url}: {exc}")
+                if not quiet:
+                    progress.console.print(f"[red]Fail[/red]   {url}: {exc}")
                 results.append((url, None, str(exc)))
             progress.advance(task)
 
     return results
 
 
-async def _run_ai_review(path: Path):
+async def _run_ai_review(path: Path, *, perspective: str | None = None, language: str | None = None):
     from src.core.review.review_validation import ValidationResult
-    validation = await run_ai_review_graph(path)
+    validation = await run_ai_review_graph(path, perspective=perspective, output_language=language)
     if not isinstance(validation, ValidationResult):
         raise RuntimeError("AI review did not return a validation result")
     return validation
@@ -175,8 +302,14 @@ async def _run_upload(path: Path, target: str | None = None) -> tuple[str, str]:
     return upload_result.hpath, platform
 
 
-async def _run_pipeline(url: str) -> str:
-    upload_result = await run_pipeline_graph(url, get_paths().output_dir, auto_confirm=True)
+async def _run_pipeline(url: str, *, perspective: str | None = None, language: str | None = None) -> str:
+    upload_result = await run_pipeline_graph(
+        url,
+        get_paths().output_dir,
+        auto_confirm=True,
+        perspective=perspective,
+        output_language=language,
+    )
     return upload_result.hpath
 
 
@@ -251,7 +384,192 @@ def _is_uploaded(reviewed_path: Path) -> bool:
         return False
 
 
+def _emit_payload(payload: Any, *, as_json: bool = False) -> None:
+    """Print structured command output for humans or automation."""
+    if as_json:
+        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        return
+    console.print_json(data=payload)
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"Cannot read JSON file: {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON file: {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"JSON file must contain an object: {path}")
+    return payload
+
+
+def _server_json(server: str, path: str) -> dict[str, Any]:
+    import urllib.error
+    import urllib.request
+
+    url = server.rstrip("/") + path
+    try:
+        with urllib.request.urlopen(url, timeout=20) as response:  # noqa: S310 - user selects the local service URL.
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Cannot query Noosphere server at {url}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Unexpected response from Noosphere server: {url}")
+    return payload
+
+
 async def _main_async(args: argparse.Namespace) -> int:
+    if args.command == "articles":
+        from src.application.service import get_article, list_articles, save_reviewed_markdown
+
+        try:
+            if args.articles_command == "list":
+                payload = {
+                    "articles": list_articles(
+                        locale=args.locale,
+                        query=args.query,
+                        status=args.status,
+                        tag_id=args.tag_id,
+                    )
+                }
+            elif args.articles_command == "show":
+                payload = {"article": get_article(args.article_id, locale=args.locale, include_content=not args.no_content)}
+            else:
+                markdown = args.source_file.read_text(encoding="utf-8")
+                payload = save_reviewed_markdown(args.article_id, markdown)
+            _emit_payload(payload, as_json=args.json)
+            return 0
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            return 1
+
+    if args.command == "taxonomy":
+        from src.application.service import classify_article, list_taxonomy
+
+        try:
+            if args.taxonomy_command == "list":
+                payload = {"tags": list_taxonomy(locale=args.locale)}
+            else:
+                if not args.tag_id and not args.tag_name:
+                    raise ValueError("Provide --tag-id for an existing category or --tag-name for a new category")
+                payload = {
+                    "classification": classify_article(
+                        args.article_id,
+                        tag_id=args.tag_id,
+                        subtag_id=args.subtag_id,
+                        tag_name=args.tag_name,
+                        subtag_name=args.subtag_name,
+                        tag_description=args.tag_description,
+                        subtag_description=args.subtag_description,
+                        tag_localizations=json.loads(args.tag_localizations) if args.tag_localizations else None,
+                        subtag_localizations=json.loads(args.subtag_localizations) if args.subtag_localizations else None,
+                        locale=args.locale,
+                    )
+                }
+            _emit_payload(payload, as_json=args.json)
+            return 0
+        except (ValueError, json.JSONDecodeError) as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            return 1
+
+    if args.command == "images":
+        from src.application.service import get_article, set_article_image_state
+
+        try:
+            if args.images_command == "list":
+                article = get_article(args.article_id, include_content=False)
+                payload = {"article_id": args.article_id, "active": article["assets"], "removed": article["removedAssets"]}
+            else:
+                payload = set_article_image_state(args.article_id, args.asset_name, args.state)
+            _emit_payload(payload, as_json=args.json)
+            return 0
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            return 1
+
+    if args.command == "perspectives":
+        from src.application.service import (
+            delete_review_perspective,
+            get_pipeline_settings,
+            save_pipeline_settings,
+            upsert_review_perspective,
+        )
+
+        try:
+            settings = get_pipeline_settings(locale=args.locale)
+            if args.perspectives_command == "list":
+                payload = {
+                    "activePerspective": settings["activePerspective"],
+                    "perspectives": settings["perspectives"],
+                }
+            elif args.perspectives_command == "show":
+                perspective = next((item for item in settings["perspectives"] if item["id"] == args.perspective_id), None)
+                if perspective is None:
+                    raise ValueError(f"Review perspective not found: {args.perspective_id}")
+                payload = {"perspective": perspective, "active": settings["activePerspective"] == args.perspective_id}
+            elif args.perspectives_command == "save":
+                sections = json.loads(args.sections)
+                if not isinstance(sections, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in sections.items()):
+                    raise ValueError("--sections must be a JSON object of string field names and headings")
+                payload = upsert_review_perspective(
+                    args.perspective_id,
+                    label=args.label,
+                    description=args.description,
+                    prompt=args.prompt_file.read_text(encoding="utf-8"),
+                    template=args.template_file.read_text(encoding="utf-8"),
+                    output_sections=sections,
+                    body_section=args.body_section,
+                    locale=args.locale,
+                    activate=args.activate,
+                )
+            elif args.perspectives_command == "delete":
+                payload = delete_review_perspective(args.perspective_id, locale=args.locale)
+            else:
+                if not any(item["id"] == args.perspective_id for item in settings["perspectives"]):
+                    raise ValueError(f"Review perspective not found: {args.perspective_id}")
+                settings["activePerspective"] = args.perspective_id
+                payload = save_pipeline_settings(settings, locale=args.locale)
+            _emit_payload(payload, as_json=args.json)
+            return 0
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            return 1
+
+    if args.command == "config":
+        from src.application.service import get_secret, get_settings, save_settings, test_service
+
+        try:
+            if args.config_command == "show":
+                payload = {"settings": get_settings()}
+            elif args.config_command == "apply":
+                payload = {"settings": save_settings(_read_json_object(args.file))}
+            elif args.config_command == "activate":
+                payload = {"settings": save_settings(get_settings(), active_provider=args.provider_name)}
+            elif args.config_command == "test":
+                payload = await test_service(args.service, provider_name=args.provider)
+            else:
+                if not args.yes:
+                    raise ValueError("Secret reveal requires --yes because it prints sensitive data to the terminal")
+                payload = {"service": args.service, "provider": args.provider or None, "secret": get_secret(args.service, provider_name=args.provider)}
+            _emit_payload(payload, as_json=getattr(args, "json", False))
+            return 0
+        except ValueError as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            return 1
+
+    if args.command == "jobs":
+        try:
+            if args.jobs_command == "list":
+                payload = _server_json(args.server, f"/api/v1/jobs?kind={args.kind}")
+            else:
+                payload = _server_json(args.server, f"/api/v1/jobs/{args.job_id}")
+            _emit_payload(payload, as_json=args.json)
+            return 0
+        except ValueError as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            return 1
+
     if args.command == "extract":
         urls: list[str] = []
         if args.url:
@@ -272,15 +590,54 @@ async def _main_async(args: argparse.Namespace) -> int:
             return 1
 
         if len(urls) == 1 and not args.batch:
-            path = await _run_extract(urls[0])
-            console.print(f"Reviewed draft: {path}")
-            console.print(f"Next: edit manually and upload, or run: python -m src.cli ai-review {path}")
+            try:
+                path = await _run_extract(urls[0])
+            except Exception as exc:
+                if args.json:
+                    _emit_payload({"ok": False, "operation": "extract", "url": urls[0], "error": str(exc)}, as_json=True)
+                else:
+                    console.print(f"[red]Extraction failed: {exc}[/red]")
+                return 1
+            payload = {
+                "ok": True,
+                "operation": "extract",
+                "url": urls[0],
+                "article_id": path.parent.name,
+                "reviewed_path": str(path),
+                "status": "captured",
+            }
+            if args.json:
+                _emit_payload(payload, as_json=True)
+            else:
+                console.print(f"Reviewed draft: {path}")
+                console.print(f"Next: edit manually and upload, or run: python -m src.cli ai-review {path}")
             return 0
 
-        results = await _run_extract_batch(urls, force=args.force)
+        results = await _run_extract_batch(urls, force=args.force, quiet=args.json)
         done = sum(1 for _, _, err in results if err is None)
         skipped = sum(1 for _, _, err in results if err == "skipped")
         failed = len(results) - done - skipped
+
+        if args.json:
+            _emit_payload(
+                {
+                    "ok": failed == 0,
+                    "operation": "extract_batch",
+                    "summary": {"successful": done, "skipped": skipped, "failed": failed},
+                    "results": [
+                        {
+                            "url": url,
+                            "article_id": path.name if path and path.is_dir() else path.parent.name if path else None,
+                            "path": str(path) if path else None,
+                            "status": "skipped" if error == "skipped" else "failed" if error else "captured",
+                            "error": None if error in {None, "skipped"} else error,
+                        }
+                        for url, path, error in results
+                    ],
+                },
+                as_json=True,
+            )
+            return 0 if failed == 0 else 1
 
         table = Table(title="Extraction Summary")
         table.add_column("Status", style="cyan")
@@ -305,16 +662,35 @@ async def _main_async(args: argparse.Namespace) -> int:
                 hpath = manifest.get("uploaded", {}).get("hpath", "unknown")
             except (OSError, json.JSONDecodeError):
                 hpath = "unknown"
-            console.print(f"[yellow]Skip[/yellow] already uploaded: {hpath}")
+            if args.json:
+                _emit_payload({"ok": True, "operation": "upload", "status": "skipped", "hpath": hpath}, as_json=True)
+            else:
+                console.print(f"[yellow]Skip[/yellow] already uploaded: {hpath}")
             return 0
 
         try:
             hpath, platform = await _run_upload(reviewed_path, target=args.target)
         except Exception as exc:
-            console.print(f"[red]Upload failed: {exc}[/red]")
+            if args.json:
+                _emit_payload({"ok": False, "operation": "upload", "error": str(exc)}, as_json=True)
+            else:
+                console.print(f"[red]Upload failed: {exc}[/red]")
             return 1
         _record_upload(reviewed_path, platform, hpath)
-        console.print(f"[green]Uploaded:[/green] {hpath}")
+        if args.json:
+            _emit_payload(
+                {
+                    "ok": True,
+                    "operation": "upload",
+                    "article_id": reviewed_path.parent.name,
+                    "status": "uploaded",
+                    "target": platform,
+                    "hpath": hpath,
+                },
+                as_json=True,
+            )
+        else:
+            console.print(f"[green]Uploaded:[/green] {hpath}")
         return 0
 
     if args.command == "ai-review":
@@ -326,20 +702,66 @@ async def _main_async(args: argparse.Namespace) -> int:
             return 1
 
         if not args.force and _is_review_complete(reviewed_path):
-            console.print(f"[yellow]Skip[/yellow] AI review already completed for {reviewed_path}")
+            if args.json:
+                _emit_payload(
+                    {"ok": True, "operation": "review", "article_id": reviewed_path.parent.name, "status": "skipped"},
+                    as_json=True,
+                )
+            else:
+                console.print(f"[yellow]Skip[/yellow] AI review already completed for {reviewed_path}")
             return 0
 
-        result = await _run_ai_review(reviewed_path)
+        result = await _run_ai_review(reviewed_path, perspective=args.perspective, language=args.language)
         if result.ok:
-            console.print(f"[green]AI reviewed:[/green] {reviewed_path}")
+            if args.json:
+                _emit_payload(
+                    {
+                        "ok": True,
+                        "operation": "review",
+                        "article_id": reviewed_path.parent.name,
+                        "status": "reviewed",
+                        "perspective": args.perspective or load_config().pipeline.active_perspective,
+                        "language": args.language or load_config().pipeline.output_language,
+                    },
+                    as_json=True,
+                )
+            else:
+                console.print(f"[green]AI reviewed:[/green] {reviewed_path}")
             return 0
-        console.print(f"[red]AI review failed.[/red]")
-        console.print(format_validation_issues(result.issues))
+        if args.json:
+            _emit_payload(
+                {"ok": False, "operation": "review", "status": "failed", "diagnostics": [issue.message for issue in result.issues]},
+                as_json=True,
+            )
+        else:
+            console.print("[red]AI review failed.[/red]")
+            console.print(format_validation_issues(result.issues))
         return 1
 
     if args.command == "run":
-        hpath = await _run_pipeline(args.url)
-        print(f"Uploaded: {hpath}")
+        try:
+            hpath = await _run_pipeline(args.url, perspective=args.perspective, language=args.language)
+        except Exception as exc:
+            if args.json:
+                _emit_payload({"ok": False, "operation": "pipeline", "url": args.url, "error": str(exc)}, as_json=True)
+            else:
+                console.print(f"[red]Pipeline failed: {exc}[/red]")
+            return 1
+        if args.json:
+            _emit_payload(
+                {
+                    "ok": True,
+                    "operation": "pipeline",
+                    "url": args.url,
+                    "status": "uploaded",
+                    "perspective": args.perspective or load_config().pipeline.active_perspective,
+                    "language": args.language or load_config().pipeline.output_language,
+                    "hpath": hpath,
+                },
+                as_json=True,
+            )
+        else:
+            print(f"Uploaded: {hpath}")
         return 0
 
     if args.command == "email":

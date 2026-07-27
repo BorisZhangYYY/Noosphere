@@ -1,6 +1,6 @@
 ---
 name: noosphere
-description: Use when the user wants to extract web articles, run AI copy-editing and validation, and import them into SiYuan or a local archive.
+description: Use when the user wants to extract web articles, run deterministic AI-assisted review, organize the knowledge library, and import content into SiYuan or a local archive.
 ---
 
 # Noosphere
@@ -11,7 +11,7 @@ Extract web articles, clean them with AI-assisted copy-editing, and import them 
 
 - The user shares a URL from a supported platform (WeChat, Zhihu, Xiaoheihe, X) and wants it saved as clean Markdown.
 - The user asks to run `extract`, `ai-review`, `upload`, or `run` with Noosphere.
-- The user wants to batch-process URLs or review removed images.
+- The user wants to batch-process URLs, classify articles, manage review perspectives, or review removed images.
 
 ## Prerequisites
 
@@ -26,9 +26,10 @@ npx skills add https://github.com/BorisZhangYYY/Noosphere --skill noosphere-setu
 ## What This Skill Does
 
 1. Extracts one or more article URLs via `nsphr extract`.
-2. Runs the AI review workflow when requested, reporting validation results and retry attempts.
-3. Uploads or archives the reviewed Markdown via the configured adapter.
-4. Explains the output files and how to recover incorrectly removed images.
+2. Runs the AI review workflow when requested; AI fills typed content slots and Noosphere assembles the final Markdown structure.
+3. Organizes articles with canonical bilingual tag IDs and aliases.
+4. Uploads or archives the reviewed Markdown via the configured adapter.
+5. Explains the output files and how to recover incorrectly removed images.
 
 ## Agent Instructions
 
@@ -63,12 +64,27 @@ See `references/workflow_reference.md` for details on each phase and the output 
 | `nsphr extract URL` | Extract one article. |
 | `nsphr extract --batch FILE` | Extract multiple URLs from a file. |
 | `nsphr extract --force URL` | Re-extract a URL even if it was already extracted. |
-| `nsphr ai-review FILE / DIR / ID` | AI copy-editing and validation. |
+| `nsphr ai-review FILE / DIR / ID` | AI copy-editing and deterministic Markdown assembly. |
 | `nsphr ai-review ID --force` | Re-run AI review even if `review.json` is already completed. |
+| `nsphr ai-review ID --perspective novice` | Review from a configured perspective. |
 | `nsphr upload FILE / DIR / ID` | Upload reviewed article to the default target. |
 | `nsphr upload ARTICLE_ID --target local` | Save to local archive instead. |
 | `nsphr upload ARTICLE_ID --force` | Re-upload even if the article was already uploaded. |
 | `nsphr run URL` | One-command extract → ai-review → upload. |
+| `nsphr run URL --perspective original` | Run the full pipeline with a configured perspective. |
+
+### Knowledge Workspace
+
+| Command | Description |
+|---|---|
+| `nsphr articles list --json` | List article metadata and classifications. |
+| `nsphr articles show ID --json` | Read one workspace and its operation history. |
+| `nsphr taxonomy list --locale en-US --json` | List canonical tag and subtag IDs. |
+| `nsphr taxonomy move ID --tag-id TAG --subtag-id SUBTAG` | Move an article using stable IDs. |
+| `nsphr images list ID --json` | List active and removed article images. |
+| `nsphr images set ID IMAGE --state active` | Restore a removed image. |
+| `nsphr perspectives list --json` | Inspect built-in and custom review contracts. |
+| `nsphr config show --json` | Inspect masked runtime settings. |
 
 ### Utility Commands
 
@@ -125,7 +141,7 @@ Each article gets a workspace at `outputs/<article_id>/`:
 - **Config missing**: prompt the user to copy `config.json.example` to `config.json` and add credentials.
 - **Unsupported URL**: list supported platforms and their URL patterns (see `references/platforms_reference.md`).
 - **Crawl failed**: report which crawler was tried and the error; suggest switching `crawler.primary`.
-- **AI review failed**: print validation issues so the user can manually fix `reviewed.md` or run with `--force`.
+- **AI review failed**: report the provider or content-slot error. The final Markdown skeleton is assembled by Noosphere and does not depend on the model reproducing it.
 - **Upload failed**: check the target config (SiYuan token / local archive path) and retry.
 
 ## Notes

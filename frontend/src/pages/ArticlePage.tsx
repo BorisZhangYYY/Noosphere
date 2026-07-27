@@ -1,38 +1,48 @@
-import { ArrowLeft, ArrowSquareOut, CaretDown, CheckCircle, Eye, FileText, FloppyDisk, Image, MagicWand, PencilSimple, SpinnerGap, Tag, UploadSimple, Warning } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowSquareOut, CaretDown, Eye, FileText, FloppyDisk, Image, MagicWand, PencilSimple, SpinnerGap, Tag, UploadSimple } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
+import { ArticleOutline } from "../components/ArticleOutline";
 import { InlineSelect } from "../components/InlineSelect";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { localizedPlatformLabel } from "../localization";
+import type { OutputLanguage } from "../types";
 
 export function ArticlePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { articleId = "" } = useParams();
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ["article", articleId], queryFn: () => api.getArticle(articleId), enabled: Boolean(articleId) });
-  const taxonomyQuery = useQuery({ queryKey: ["taxonomy"], queryFn: api.getTaxonomy });
-  const pipelineSettingsQuery = useQuery({ queryKey: ["pipeline-settings"], queryFn: api.getPipelineSettings });
+  const query = useQuery({ queryKey: ["article", articleId, i18n.resolvedLanguage], queryFn: () => api.getArticle(articleId), enabled: Boolean(articleId) });
+  const taxonomyQuery = useQuery({ queryKey: ["taxonomy", i18n.resolvedLanguage], queryFn: api.getTaxonomy });
+  const pipelineSettingsQuery = useQuery({ queryKey: ["pipeline-settings", i18n.resolvedLanguage], queryFn: api.getPipelineSettings });
   const [draft, setDraft] = useState("");
   const [dirty, setDirty] = useState(false);
   const [readOnly, setReadOnly] = useState(true);
   const [uploadJobId, setUploadJobId] = useState<string | null>(null);
   const [reviewJobId, setReviewJobId] = useState<string | null>(null);
   const [reviewPerspective, setReviewPerspective] = useState("");
+  const [reviewLanguage, setReviewLanguage] = useState<OutputLanguage>("follow_ui");
   const [tagName, setTagName] = useState("");
   const [subtagName, setSubtagName] = useState("");
   const [sourceExpanded, setSourceExpanded] = useState(false);
   const [pendingImageAction, setPendingImageAction] = useState<{ name: string; state: "active" | "removed" } | null>(null);
 
   useEffect(() => {
+    document.body.classList.add("article-route-active");
+    window.scrollTo({ top: 0, left: 0 });
+    return () => document.body.classList.remove("article-route-active");
+  }, []);
+
+  useEffect(() => {
     if (!query.data) return;
     setDraft(query.data.displayMarkdown || query.data.reviewedMarkdown || query.data.rawMarkdown);
     setDirty(false);
     setUploadJobId(query.data.activeUpload?.id ?? null);
+    setReviewJobId(query.data.activeReview?.id ?? null);
     setTagName(query.data.classification?.tag_name ?? "");
     setSubtagName(query.data.classification?.subtag_name ?? "");
   }, [query.data]);
@@ -40,7 +50,9 @@ export function ArticlePage() {
     if (!tagName && taxonomyQuery.data?.tags[0]) setTagName(taxonomyQuery.data.tags[0].name);
   }, [tagName, taxonomyQuery.data]);
   useEffect(() => {
-    if (!reviewPerspective && pipelineSettingsQuery.data) setReviewPerspective(pipelineSettingsQuery.data.activePerspective);
+    if (!pipelineSettingsQuery.data) return;
+    if (!reviewPerspective) setReviewPerspective(pipelineSettingsQuery.data.activePerspective);
+    setReviewLanguage((current) => current === "follow_ui" ? pipelineSettingsQuery.data.outputLanguage : current);
   }, [pipelineSettingsQuery.data, reviewPerspective]);
 
   const uploadJobQuery = useQuery({
@@ -88,12 +100,12 @@ export function ArticlePage() {
   const reviewMutation = useMutation({
     mutationFn: async () => {
       if (dirty) await api.saveReviewedMarkdown(articleId, draft);
-      return api.reviewArticle(articleId, reviewPerspective);
+      return api.reviewArticle(articleId, reviewPerspective, reviewLanguage);
     },
     onSuccess: (job) => { setDirty(false); setReviewJobId(job.id); }
   });
   const classificationMutation = useMutation({
-    mutationFn: () => api.updateArticleClassification(articleId, tagName, subtagName || undefined),
+    mutationFn: () => api.updateArticleClassification(articleId, tagName, subtagName || undefined, selectedTag?.id, selectedTag?.children.find((item) => item.name === subtagName)?.id),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
       await queryClient.invalidateQueries({ queryKey: ["taxonomy"] });
@@ -118,7 +130,7 @@ export function ArticlePage() {
   const platformLabel = localizedPlatformLabel(article.platform, article.platformLabel, t);
   const uploadJob = uploadJobQuery.data ?? article.activeUpload;
   const uploading = Boolean(uploadMutation.isPending || (uploadJobId && (!uploadJob || ["queued", "running"].includes(uploadJob.status))));
-  const reviewJob = reviewJobQuery.data;
+  const reviewJob = reviewJobQuery.data ?? article.activeReview;
   const reviewing = reviewMutation.isPending || Boolean(reviewJobId && (!reviewJob || ["queued", "running"].includes(reviewJob.status)));
 
   return (
@@ -137,6 +149,7 @@ export function ArticlePage() {
         </div>
       </header>
       <div className="article-layout">
+        <ArticleOutline markdown={draft} />
         <article className="reader-surface editor-surface">
           <MarkdownEditor
             articleId={articleId}
@@ -172,9 +185,9 @@ export function ArticlePage() {
           <section className="inspection-section">
             <div className="inspection-title"><Tag size={19} /><h2>{t("article.classification")}</h2></div>
             {taxonomyQuery.data?.tags.length ? <div className="classification-controls">
-              <InlineSelect value={tagName || taxonomyQuery.data.tags[0].name} ariaLabel={t("article.tag")} onChange={(value) => { setTagName(value); setSubtagName(""); }} options={taxonomyQuery.data.tags.map((tag) => ({ value: tag.name, label: tag.name, description: tag.description }))} />
-              {selectedTag?.children.length ? <InlineSelect value={subtagName || "__none"} ariaLabel={t("article.subtag")} onChange={(value) => setSubtagName(value === "__none" ? "" : value)} options={[{ value: "__none", label: t("article.noSubtag") }, ...selectedTag.children.map((tag) => ({ value: tag.name, label: tag.name, description: tag.description }))]} /> : null}
-              <button className="button-secondary" type="button" onClick={() => classificationMutation.mutate()} disabled={!tagName || classificationMutation.isPending}>{t("article.moveCategory")}</button>
+              <InlineSelect value={tagName || taxonomyQuery.data.tags[0].name} ariaLabel={t("article.tag")} onChange={(value) => { setTagName(value); setSubtagName(""); }} disabled={readOnly} options={taxonomyQuery.data.tags.map((tag) => ({ value: tag.name, label: tag.name, description: tag.description }))} />
+              {selectedTag?.children.length ? <InlineSelect value={subtagName || "__none"} ariaLabel={t("article.subtag")} onChange={(value) => setSubtagName(value === "__none" ? "" : value)} disabled={readOnly} options={[{ value: "__none", label: t("article.noSubtag") }, ...selectedTag.children.map((tag) => ({ value: tag.name, label: tag.name, description: tag.description }))]} /> : null}
+              <button className="button-secondary" type="button" onClick={() => classificationMutation.mutate()} disabled={readOnly || !tagName || classificationMutation.isPending}>{t("article.moveCategory")}</button>
             </div> : <p className="rail-note">{t("article.noClassification")}</p>}
           </section>
 
@@ -182,10 +195,12 @@ export function ArticlePage() {
             <div className="inspection-title"><MagicWand size={19} /><h2>{t("article.aiSecondReview")}</h2></div>
             <p className="rail-note">{t("article.aiSecondReviewHelp")}</p>
             <div className="article-review-controls">
-              {pipelineSettingsQuery.data && <InlineSelect value={reviewPerspective || pipelineSettingsQuery.data.activePerspective} ariaLabel={t("pipeline.perspective")} onChange={setReviewPerspective} disabled={reviewing} options={pipelineSettingsQuery.data.perspectives.map((item) => ({ value: item.id, label: item.label, description: item.description }))} />}
+              {pipelineSettingsQuery.data && <InlineSelect value={reviewPerspective || pipelineSettingsQuery.data.activePerspective} ariaLabel={t("pipeline.perspective")} onChange={setReviewPerspective} disabled={readOnly || reviewing} options={pipelineSettingsQuery.data.perspectives.map((item) => ({ value: item.id, label: item.label, description: item.description }))} />}
+              <InlineSelect<OutputLanguage> value={reviewLanguage} ariaLabel={t("pipeline.outputLanguage")} onChange={setReviewLanguage} disabled={readOnly || reviewing} options={(["follow_ui", "source", "zh-CN", "en-US"] as const).map((value) => ({ value, label: t(`pipeline.languages.${value}`), description: t(`pipeline.languagesHelp.${value}`) }))} />
+              <p className="operation-counts">{t("article.reviewCount", { count: article.operationSummary.reviewCount })} · {t("article.rereviewCount", { count: article.operationSummary.rereviewCount })}</p>
               {(reviewing || reviewJob?.status === "succeeded") && <div className="upload-progress" aria-live="polite"><div><span>{t(`article.reviewStages.${reviewJob?.stage ?? "queued"}`)}</span><strong>{reviewJob?.progress ?? 0}%</strong></div><progress max="100" value={reviewJob?.progress ?? 0} /></div>}
               {(reviewMutation.isError || reviewJob?.status === "failed") && <p className="article-action-error" role="alert">{(reviewMutation.error as Error)?.message || reviewJob?.error}</p>}
-              <button className="button-primary" type="button" onClick={() => reviewMutation.mutate()} disabled={!reviewPerspective || reviewing}><MagicWand size={17} />{reviewing ? t("article.aiReviewing") : t("article.startAiSecondReview")}</button>
+              <button className="button-primary" type="button" onClick={() => reviewMutation.mutate()} disabled={readOnly || !reviewPerspective || reviewing}><MagicWand size={17} />{reviewing ? t("article.aiReviewing") : t("article.startAiSecondReview")}</button>
             </div>
           </section>
 
@@ -195,17 +210,13 @@ export function ArticlePage() {
             {article.removedAssets.length > 0 && <div className="removed-assets"><h3>{t("article.removedAssets")}</h3><div className="asset-grid">{article.removedAssets.map((asset) => <a href={asset.url} target="_blank" rel="noreferrer" title={asset.reason || t(`article.imageRemovalSource.${asset.source}`)} key={asset.name}><img src={asset.url} alt={asset.name} loading="lazy" /></a>)}</div></div>}
           </section>
 
-          <section className="inspection-section">
-            <div className="inspection-title">{article.validationIssues.length ? <Warning size={19} /> : <CheckCircle size={19} />}<h2>{t("article.validation")}</h2></div>
-            {article.validationIssues.length ? <ul className="issue-list">{article.validationIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : <p className="validation-ok">{t("article.noIssues")}</p>}
-          </section>
-
           <section className="inspection-section upload-section">
             <h2>{t("article.destination")}</h2>
             <p>{article.hasUploaded ? t("article.uploadedBefore") : t("article.notUploaded")}</p>
+            <p className="operation-counts">{t("article.uploadCount", { count: article.operationSummary.uploadCount })}</p>
             {(uploading || uploadJob?.status === "succeeded") && <div className="upload-progress" aria-live="polite"><div><span>{t(`article.uploadStages.${uploadJob?.stage ?? "queued"}`)}</span><strong>{uploadJob?.progress ?? 0}%</strong></div><progress max="100" value={uploadJob?.progress ?? 0} /></div>}
             {uploadJob?.status === "failed" && <p className="article-action-error" role="alert">{uploadJob.error}</p>}
-            <button className="button-primary" type="button" onClick={() => uploadMutation.mutate()} disabled={uploadMutation.isPending || uploading}>
+            <button className="button-primary" type="button" onClick={() => uploadMutation.mutate()} disabled={readOnly || uploadMutation.isPending || uploading}>
               {uploadMutation.isPending || uploading ? <SpinnerGap className="spin" size={17} /> : <UploadSimple size={17} />}
               {article.hasUploaded ? t("article.reupload") : t("article.upload")}
             </button>

@@ -4,7 +4,9 @@ from __future__ import annotations
 import logging
 import os
 import re
+import asyncio
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
@@ -99,7 +101,7 @@ def _validate_upload_target(target: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-async def extract_article(url: str) -> str:
+async def extract_article(url: str) -> dict[str, Any]:
     """Extract an article from *url* and download its images.
 
     Returns the local article_id that can be passed to review_article or
@@ -111,12 +113,19 @@ async def extract_article(url: str) -> str:
 
     reviewed_path = await run_extract_graph(url)
     article_id = reviewed_path.parent.name
-    return f"Extracted article '{article_id}' to {reviewed_path}"
+    return {
+        "ok": True,
+        "operation": "extract",
+        "article_id": article_id,
+        "status": "captured",
+        "reviewed_path": str(reviewed_path),
+        "next_actions": ["review_article", "get_article"],
+    }
 
 
 @mcp.tool()
-async def review_article(article_id: str) -> str:
-    """Run AI copy-editing and validation on an already-extracted article."""
+async def review_article(article_id: str, perspective: str = "", language: str = "source") -> dict[str, Any]:
+    """Run AI copy-editing and deterministic assembly on an extracted article."""
     article_dir = _resolve_article_dir(article_id)
     reviewed_path = article_dir / "reviewed.md"
     if not reviewed_path.exists():
@@ -124,14 +133,21 @@ async def review_article(article_id: str) -> str:
 
     from src.graph.graph import run_ai_review_graph
 
-    result: ValidationResult = await run_ai_review_graph(reviewed_path)
-    if result.ok:
-        return f"Article '{article_id}' reviewed successfully"
-    return f"Article '{article_id}' review failed after max attempts: {result.issues}"
+    result: ValidationResult = await run_ai_review_graph(reviewed_path, perspective=perspective or None, output_language=language)
+    return {
+        "ok": result.ok,
+        "operation": "review",
+        "article_id": article_id,
+        "status": "reviewed" if result.ok else "failed",
+        "perspective": perspective or load_config().pipeline.active_perspective,
+        "language": language,
+        "diagnostics": [getattr(issue, "message", str(issue)) for issue in result.issues],
+        "next_actions": ["get_article", "upload_article"] if result.ok else ["get_article"],
+    }
 
 
 @mcp.tool()
-async def upload_article(article_id: str, *, target: str = "auto") -> str:
+async def upload_article(article_id: str, *, target: str = "auto") -> dict[str, Any]:
     """Upload a reviewed article to the configured note platform."""
     article_dir = _resolve_article_dir(article_id)
     reviewed_path = article_dir / "reviewed.md"
@@ -141,18 +157,291 @@ async def upload_article(article_id: str, *, target: str = "auto") -> str:
     from src.graph.graph import run_upload_graph
 
     result: UploadResult = await run_upload_graph(reviewed_path, target=_validate_upload_target(target))
-    return f"Article '{article_id}' uploaded to {result.hpath} (created={result.created})"
+    return {
+        "ok": True,
+        "operation": "upload",
+        "article_id": article_id,
+        "status": "uploaded",
+        "target": target,
+        "hpath": result.hpath,
+        "created": result.created,
+    }
 
 
 @mcp.tool()
-async def run_pipeline(url: str, *, auto_confirm: bool = True) -> str:
+async def run_pipeline(url: str, *, auto_confirm: bool = True, perspective: str = "", language: str = "source") -> dict[str, Any]:
     """Run the full extract → ai-review → upload pipeline for *url*."""
     url = _validate_url(url)
 
     from src.graph.graph import run_pipeline_graph
 
-    result: UploadResult = await run_pipeline_graph(url, auto_confirm=auto_confirm)
-    return f"Pipeline completed for {url}: uploaded to {result.hpath} (created={result.created})"
+    result: UploadResult = await run_pipeline_graph(
+        url,
+        auto_confirm=auto_confirm,
+        perspective=perspective or None,
+        output_language=language,
+    )
+    return {
+        "ok": True,
+        "operation": "pipeline",
+        "url": url,
+        "status": "uploaded",
+        "perspective": perspective or load_config().pipeline.active_perspective,
+        "language": language,
+        "hpath": result.hpath,
+        "created": result.created,
+    }
+
+
+@mcp.tool()
+async def list_articles(
+    query: str = "",
+    status: str = "",
+    tag_id: str = "",
+    locale: str = "en-US",
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """List articles with localized taxonomy and optional search filters."""
+    from src.application.service import list_articles as application_list_articles
+
+    items = await _to_thread(
+        application_list_articles,
+        locale=locale,
+        query=query,
+        status=status,
+        tag_id=tag_id,
+    )
+    safe_offset = max(0, offset)
+    safe_limit = min(200, max(1, limit))
+    return {
+        "ok": True,
+        "total": len(items),
+        "offset": safe_offset,
+        "limit": safe_limit,
+        "articles": items[safe_offset:safe_offset + safe_limit],
+    }
+
+
+@mcp.tool()
+async def get_article(article_id: str, locale: str = "en-US", include_content: bool = True) -> dict[str, Any]:
+    """Get article metadata, activity, classification, assets, and reviewed content."""
+    from src.application.service import get_article as application_get_article
+
+    article = await _to_thread(application_get_article, article_id, locale=locale, include_content=include_content)
+    return {"ok": True, "article": article}
+
+
+@mcp.tool()
+async def update_article_content(article_id: str, reviewed_markdown: str) -> dict[str, Any]:
+    """Replace reviewed.md while keeping raw.md immutable."""
+    from src.application.service import save_reviewed_markdown
+
+    return await _to_thread(save_reviewed_markdown, article_id, reviewed_markdown)
+
+
+@mcp.tool()
+async def list_taxonomy(locale: str = "en-US") -> dict[str, Any]:
+    """Return the canonical two-level taxonomy with stable IDs and aliases."""
+    from src.application.service import list_taxonomy as application_list_taxonomy
+
+    return {"ok": True, "tags": await _to_thread(application_list_taxonomy, locale=locale)}
+
+
+@mcp.tool()
+async def classify_article(
+    article_id: str,
+    tag_id: str = "",
+    subtag_id: str = "",
+    tag_name: str = "",
+    subtag_name: str = "",
+    tag_description: str = "",
+    subtag_description: str = "",
+    tag_localizations: dict[str, dict[str, Any]] | None = None,
+    subtag_localizations: dict[str, dict[str, Any]] | None = None,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    """Move an article to a canonical tag path, preferring stable IDs."""
+    from src.application.service import classify_article as application_classify_article
+
+    assignment = await _to_thread(
+        application_classify_article,
+        article_id,
+        tag_id=tag_id or None,
+        subtag_id=subtag_id or None,
+        tag_name=tag_name,
+        subtag_name=subtag_name,
+        tag_description=tag_description,
+        subtag_description=subtag_description,
+        tag_localizations=tag_localizations,
+        subtag_localizations=subtag_localizations,
+        locale=locale,
+    )
+    return {"ok": True, "article_id": article_id, "classification": assignment}
+
+
+@mcp.tool()
+async def list_review_perspectives(locale: str = "en-US") -> dict[str, Any]:
+    """List built-in and custom review perspectives and their template contracts."""
+    from src.application.service import get_pipeline_settings
+
+    settings = await _to_thread(get_pipeline_settings, locale=locale)
+    return {
+        "ok": True,
+        "active_perspective": settings["activePerspective"],
+        "review_mode": settings["reviewMode"],
+        "output_language": settings["outputLanguage"],
+        "perspectives": settings["perspectives"],
+    }
+
+
+@mcp.tool()
+async def save_review_perspective(
+    perspective_id: str,
+    label: str,
+    description: str,
+    prompt: str,
+    template: str,
+    output_sections: dict[str, str],
+    body_section: str,
+    locale: str = "en-US",
+    activate: bool = False,
+) -> dict[str, Any]:
+    """Create or update a custom perspective after validating its template fields."""
+    from src.application.service import upsert_review_perspective
+
+    settings = await _to_thread(
+        upsert_review_perspective,
+        perspective_id,
+        label=label,
+        description=description,
+        prompt=prompt,
+        template=template,
+        output_sections=output_sections,
+        body_section=body_section,
+        locale=locale,
+        activate=activate,
+    )
+    return {"ok": True, "active_perspective": settings["activePerspective"], "perspectives": settings["perspectives"]}
+
+
+@mcp.tool()
+async def delete_review_perspective(perspective_id: str, locale: str = "en-US") -> dict[str, Any]:
+    """Delete a custom perspective; built-in perspectives remain immutable."""
+    from src.application.service import delete_review_perspective
+
+    settings = await _to_thread(delete_review_perspective, perspective_id, locale=locale)
+    return {"ok": True, "active_perspective": settings["activePerspective"], "perspectives": settings["perspectives"]}
+
+
+@mcp.tool()
+async def list_article_images(article_id: str, locale: str = "en-US") -> dict[str, Any]:
+    """List active and removed article images, including removal reasons."""
+    from src.application.service import get_article as application_get_article
+
+    article = await _to_thread(application_get_article, article_id, locale=locale, include_content=False)
+    return {"ok": True, "article_id": article_id, "active": article["assets"], "removed": article["removedAssets"]}
+
+
+@mcp.tool()
+async def set_article_image_state(article_id: str, asset_name: str, state: str) -> dict[str, Any]:
+    """Remove or restore an image and update the reviewed Markdown deterministically."""
+    from src.application.service import set_article_image_state as application_set_image_state
+
+    return await _to_thread(application_set_image_state, article_id, asset_name, state)
+
+
+@mcp.tool()
+async def get_runtime_settings() -> dict[str, Any]:
+    """Return masked providers, crawler order, and archive settings."""
+    from src.application.service import get_settings
+
+    return {"ok": True, "settings": await _to_thread(get_settings)}
+
+
+@mcp.tool()
+async def update_runtime_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    """Persist the same provider, crawler, and archive settings accepted by the web UI."""
+    from src.application.service import save_settings
+
+    return {"ok": True, "settings": await _to_thread(save_settings, settings)}
+
+
+@mcp.tool()
+async def activate_ai_provider(provider_name: str) -> dict[str, Any]:
+    """Select an existing provider for subsequent text reviews."""
+    from src.application.service import get_settings, save_settings
+
+    current = await _to_thread(get_settings)
+    settings = await _to_thread(save_settings, current, active_provider=provider_name)
+    return {"ok": True, "settings": settings}
+
+
+@mcp.tool()
+async def test_runtime_service(service: str, provider_name: str = "") -> dict[str, Any]:
+    """Test AI-provider or Firecrawl connectivity without changing saved settings."""
+    from src.application.service import test_service
+
+    return await test_service(service, provider_name=provider_name)
+
+
+@mcp.tool()
+async def start_capture(
+    url: str,
+    review_mode: str = "ai_then_manual",
+    perspective: str = "",
+    language: str = "source",
+) -> dict[str, Any]:
+    """Start a background capture-review workflow and return a pollable job."""
+    from src.api.web import start_capture_job
+
+    return await start_capture_job(
+        url,
+        review_mode=review_mode,
+        perspective=perspective or None,
+        output_language=language,
+    )
+
+
+@mcp.tool()
+async def start_review(article_id: str, perspective: str = "", language: str = "source") -> dict[str, Any]:
+    """Start an asynchronous article re-review and return a pollable job."""
+    from src.api.web import start_article_review_job
+
+    return await start_article_review_job(
+        article_id,
+        perspective=perspective or None,
+        output_language=language,
+    )
+
+
+@mcp.tool()
+async def start_upload(article_id: str, target: str = "siyuan") -> dict[str, Any]:
+    """Start an asynchronous upload and return a pollable job."""
+    from src.api.web import start_upload_job
+
+    return await start_upload_job(article_id, target=target)
+
+
+@mcp.tool()
+async def get_job(job_id: str) -> dict[str, Any]:
+    """Poll a background capture, review, or upload job."""
+    from src.api.web import get_background_job
+
+    return get_background_job(job_id)
+
+
+@mcp.tool()
+async def list_jobs(kind: str = "all") -> dict[str, Any]:
+    """List recent background jobs by kind."""
+    from src.api.web import list_background_jobs
+
+    jobs = list_background_jobs(kind=kind)
+    return {"ok": True, "kind": kind, "jobs": jobs}
+
+
+async def _to_thread(function, /, *args, **kwargs):
+    return await asyncio.to_thread(function, *args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -167,18 +456,27 @@ def create_app() -> Starlette:
     """Return a Starlette ASGI app serving the MCP SSE endpoint and health check."""
     from src.api.web import (
         activate_ai_provider,
+        batch_article_trash_action,
+        batch_trash_articles,
         create_capture,
         create_article_review,
         get_article,
         get_article_asset,
         get_article_review_job,
+        get_job as get_web_job,
         get_removed_article_asset,
         get_pipeline_settings,
         get_settings,
         get_taxonomy,
         get_upload_job,
+        list_article_trash,
         list_capture_jobs,
+        list_jobs as list_web_jobs,
         list_articles,
+        permanently_delete_article,
+        restore_article_trash,
+        retry_capture_job,
+        trash_article,
         update_article,
         update_article_image,
         update_article_classification,
@@ -194,8 +492,14 @@ def create_app() -> Starlette:
         Route("/", lambda request: RedirectResponse("/app/"), methods=["GET"]),
         Route("/health", _health_handler, methods=["GET"]),
         Route("/api/v1/articles", list_articles, methods=["GET"]),
+        Route("/api/v1/articles/batch-delete", batch_trash_articles, methods=["POST"]),
+        Route("/api/v1/trash/articles", list_article_trash, methods=["GET"]),
+        Route("/api/v1/trash/articles/batch", batch_article_trash_action, methods=["POST"]),
+        Route("/api/v1/trash/articles/{article_id}/restore", restore_article_trash, methods=["POST"]),
+        Route("/api/v1/trash/articles/{article_id}", permanently_delete_article, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}", get_article, methods=["GET"]),
         Route("/api/v1/articles/{article_id}", update_article, methods=["PATCH"]),
+        Route("/api/v1/articles/{article_id}", trash_article, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}/upload", upload_web_article, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/review", create_article_review, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/assets/{asset_name}", get_article_asset, methods=["GET"]),
@@ -204,8 +508,11 @@ def create_app() -> Starlette:
         Route("/api/v1/articles/{article_id}/classification", update_article_classification, methods=["PATCH"]),
         Route("/api/v1/uploads/{job_id}", get_upload_job, methods=["GET"]),
         Route("/api/v1/reviews/{job_id}", get_article_review_job, methods=["GET"]),
+        Route("/api/v1/jobs", list_web_jobs, methods=["GET"]),
+        Route("/api/v1/jobs/{job_id}", get_web_job, methods=["GET"]),
         Route("/api/v1/captures", create_capture, methods=["POST"]),
         Route("/api/v1/captures", list_capture_jobs, methods=["GET"]),
+        Route("/api/v1/captures/{job_id}/retry", retry_capture_job, methods=["POST"]),
         Route("/api/v1/settings", get_settings, methods=["GET"]),
         Route("/api/v1/settings", update_settings, methods=["PATCH"]),
         Route("/api/v1/settings/active-provider", activate_ai_provider, methods=["PATCH"]),

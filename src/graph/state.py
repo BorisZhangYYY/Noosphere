@@ -29,6 +29,8 @@ class ArticleState(TypedDict):
     platform_label: str
     content_type: str
     title: str
+    source_language: str
+    output_language: str
 
     # Crawl / extract metadata (preserved from the Article extractor)
     article_author: str

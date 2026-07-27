@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import mimetypes
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -26,6 +27,8 @@ class ImageFilterResult:
     """Set of local image filenames marked as relevant."""
     image_descriptions: dict[str, str] = field(default_factory=dict)
     """Map from image path to AI-generated description of image content."""
+    failed_images: dict[str, str] = field(default_factory=dict)
+    """Images preserved without a classification because vision analysis failed."""
 
     @property
     def has_promotions(self) -> bool:
@@ -48,6 +51,11 @@ class ImageFilterResult:
                 desc = self.image_descriptions.get(img, "No description")
                 lines.append(f"- `{img}`: {desc}")
             lines.append("")
+        if self.failed_images:
+            lines.append("### Images to KEEP (vision review unavailable):")
+            for img in sorted(self.failed_images):
+                lines.append(f"- `{img}`: classification unavailable")
+            lines.append("")
         lines.append("---")
         lines.append("")
         return "\n".join(lines)
@@ -59,6 +67,13 @@ class ImageFilterResult:
     def get_promotion_paths(self) -> set[str]:
         """Return normalized relative paths of promotion images."""
         return {p.lstrip("./") for p in self.promotion_images}
+
+    def get_preserved_paths(self) -> set[str]:
+        """Return images that must remain in the article, including unreviewed ones."""
+        return {
+            p.lstrip("./")
+            for p in {*self.relevant_images, *self.failed_images.keys()}
+        }
 
 
 async def analyze_images_before_review(
@@ -109,13 +124,12 @@ async def analyze_images_before_review(
     promotions: set[str] = set()
     relevant: set[str] = set()
     descriptions: dict[str, str] = {}
+    failures: dict[str, str] = {}
 
     for image_path, result in zip(image_files, results):
         rel_path = _relative_image_path(image_path, assets_dir)
         if isinstance(result, Exception):
-            # On error, conservatively mark as relevant (keep it)
-            relevant.add(rel_path)
-            descriptions[rel_path] = f"Image file (error during analysis: {type(result).__name__})"
+            failures[rel_path] = f"{type(result).__name__}: {result}"
             continue
 
         classification, description = result
@@ -129,6 +143,7 @@ async def analyze_images_before_review(
         promotion_images=promotions,
         relevant_images=relevant,
         image_descriptions=descriptions,
+        failed_images=failures,
     )
 
 
@@ -177,14 +192,14 @@ async def _analyze_single_image_with_description(
             {"type": "text", "text": "Classify this image as RELEVANT or PROMOTION."},
         ]
 
-        classification = "RELEVANT"
-        try:
-            response = await client.generate_vision(formatted_prompt, classify_content)
-            text = response.text.strip().upper()
-            if "PROMOTION" in text:
-                classification = "PROMOTION"
-        except Exception:
-            classification = "RELEVANT"  # Conservative fallback
+        response = await client.generate_vision(formatted_prompt, classify_content)
+        text = response.text.strip().upper()
+        if "PROMOTION" in text:
+            classification = "PROMOTION"
+        elif "RELEVANT" in text:
+            classification = "RELEVANT"
+        else:
+            raise ValueError(f"Vision model returned an unsupported classification: {response.text[:120]}")
 
         # Promotional images do not need a detailed description; skip the second call.
         if classification == "PROMOTION":
@@ -213,7 +228,7 @@ async def _analyze_single_image_with_description(
             )
             description = response.text.strip()
         except Exception:
-            pass  # Use default description
+            return classification, description
 
         cache[file_hash] = {"classification": classification, "description": description}
         return classification, description
@@ -387,18 +402,79 @@ def _restore_images_to_original_positions(
     result = reviewed_md
 
     for img in sorted(missing_images):
-        # Find where this image appeared in raw_md
-        raw_pos = _find_image_context_in_raw(raw_md, img)
-        if raw_pos is None:
-            continue
-
-        # Search for the context text in reviewed_md
-        insert_pos = _find_context_in_reviewed(result, raw_pos)
+        insert_pos = _find_image_insertion_point(result, raw_md, img)
         if insert_pos is not None:
             image_line = f"\n\n![{Path(img).stem.replace('_', ' ').replace('-', ' ')}]({img})\n"
             result = result[:insert_pos] + image_line + result[insert_pos:]
 
+    present = {
+        split_image_target(match.group(2))[0].lstrip("./")
+        for match in MARKDOWN_IMAGE_RE.finditer(result)
+    }
+    unresolved = missing_images - present
+    if unresolved:
+        result = _append_images_without_section(result, unresolved)
+
     return result
+
+
+def _find_image_insertion_point(reviewed_md: str, raw_md: str, image_path: str) -> int | None:
+    """Anchor an image after nearby surviving prose, or before following prose."""
+    lines = raw_md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    image_index = next(
+        (index for index, line in enumerate(lines) if image_path in line or Path(image_path).name in line),
+        None,
+    )
+    if image_index is None:
+        return None
+
+    preceding_rule = next(
+        (
+            index
+            for index in range(image_index - 1, -1, -1)
+            if re.fullmatch(r"\s*(?:---|\*\*\*|___)\s*", lines[index])
+        ),
+        None,
+    )
+    if preceding_rule is not None and not any(
+        _usable_image_anchor(line)
+        for line in lines[preceding_rule + 1 : image_index]
+    ):
+        reviewed_rule = re.search(r"(?m)^\s*(?:---|\*\*\*|___)\s*$", reviewed_md)
+        if reviewed_rule:
+            return reviewed_rule.end()
+
+    for distance in range(1, 41):
+        previous = image_index - distance
+        if previous >= 0:
+            context = _usable_image_anchor(lines[previous])
+            if context:
+                position = _find_context_in_reviewed(reviewed_md, context)
+                if position is not None:
+                    return position
+        following = image_index + distance
+        if following < len(lines):
+            context = _usable_image_anchor(lines[following])
+            if context:
+                position = _find_context_in_reviewed(reviewed_md, context, after=False)
+                if position is not None:
+                    return position
+    return None
+
+
+def _usable_image_anchor(line: str) -> str | None:
+    if MARKDOWN_IMAGE_RE.search(line):
+        return None
+    if re.match(
+        r"^\s*>\s*(?:\*\*)?(?:source|platform|author|published|captured|type)(?:\*\*)?\s*:",
+        line,
+        flags=re.IGNORECASE,
+    ):
+        return None
+    plain = re.sub(r"^[#>*\-\s]+", "", line)
+    plain = re.sub(r"[*_`\[\]]", "", plain)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    return plain if len(plain) >= 18 else None
 
 
 def _find_image_context_in_raw(raw_md: str, image_path: str) -> str | None:
@@ -414,20 +490,21 @@ def _find_image_context_in_raw(raw_md: str, image_path: str) -> str | None:
     return None
 
 
-def _find_context_in_reviewed(reviewed_md: str, context_text: str) -> int | None:
+def _find_context_in_reviewed(reviewed_md: str, context_text: str, *, after: bool = True) -> int | None:
     """Find the position of the context text in reviewed markdown."""
     if not context_text:
         return None
     # Try exact match first
-    pos = reviewed_md.find(context_text)
+    variants = [context_text, context_text.replace("\u00a0", " "), re.sub(r"\s+", " ", context_text)]
+    pos = next((reviewed_md.find(value) for value in variants if reviewed_md.find(value) != -1), -1)
     if pos != -1:
-        return pos + len(context_text)
+        return pos + len(context_text) if after else pos
     # Try a shorter substring (first 50 chars) for fuzzy matching
     short = context_text[:50]
     if len(short) > 10:
         pos = reviewed_md.find(short)
         if pos != -1:
-            return pos + len(short)
+            return pos + len(short) if after else pos
     return None
 
 
@@ -556,5 +633,6 @@ def update_manifest_with_image_filter(
         "filtered_count": len(filter_result.promotion_images),
         "removed_files": removed_files or [],
         "image_descriptions": filter_result.image_descriptions,
+        "failed_images": filter_result.failed_images,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")

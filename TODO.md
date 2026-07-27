@@ -1,81 +1,30 @@
 # Noosphere TODO
 
-## Bug Fixes
+This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
-1. **AI review job persistence on article page.** When a user starts an AI review and navigates away, returning to the page resets the UI and re-clicking the button conflicts with the still-running job. The review job state should survive navigation — show a progress indicator and keep the button disabled until the job actually completes.
+## Planned for v0.3.2
 
-2. **Article page layout: stray horizontal lines and scroll behaviour.** There is an unwanted horizontal line between the top toolbar and the article/source panels, and another at the bottom. Both should be removed. Scrolling should move the entire article panel as a single block, not a fixed outer frame with an inner scroll area.
+### Bilingual terminology glossary
 
-3. **Read-only mode: disable action controls.** In read-only mode the classification, AI review, and upload buttons should all be disabled. Only editing mode enables them.
+The v0.3.2 feature goal is consistent terminology across translated reviews without rewriting user-authored custom prompts.
 
-4. **Code blocks are missing line breaks.** All code inside fenced code blocks is collapsed onto a single line, overflowing the container and making it unreadable. Code blocks should preserve line breaks from the source Markdown.
+- [ ] Define the canonical glossary record: stable ID, source term, Simplified Chinese and English preferred forms, aliases, protected/no-translate flag, optional domain, and notes.
+- [ ] Define deterministic matching and conflict precedence for exact terms, aliases, product names, case variants, and overlapping phrases.
+- [ ] Persist glossary entries in shared application storage and provide migration-safe import/export in a human-readable format.
+- [ ] Apply the glossary during AI review and translation while preserving code, URLs, quoted source text, and user-authored custom prompt content.
+- [ ] Add glossary management to the web workspace with layouts that accommodate longer English descriptions without clipping.
+- [ ] Expose equivalent list, create/update, delete, import, and export operations through MCP and CLI.
+- [ ] Record glossary-assisted review activity in the existing per-article operation history without storing or exposing provider secrets.
+- [ ] Add bilingual matching, precedence, migration, Web/MCP/CLI parity, and end-to-end review tests.
 
-5. **`perspective` not wired through MCP or CLI.** The `perspective` parameter is supported at the graph layer via `run_ai_review_graph(perspective=...)` and exposed in the web API, but MCP tools and CLI commands pass nothing through.
+### Documentation and release quality
 
-   **Affected files:**
-   - `src/graph/graph.py` — add `perspective` kwarg to `run_pipeline_graph`
-   - `src/mcp/server.py` — add `perspective` param to `review_article` and `run_pipeline`
-   - `src/cli.py` — add `--perspective` flag to `ai-review` and `run`
+- [ ] Add troubleshooting cases from real extraction, provider-connectivity, image-review, and SiYuan-upload failures as they are reproduced.
+- [ ] Verify every documented CLI command and MCP tool example against the v0.3.2 build before tagging.
+- [ ] Run backend tests, frontend build, Docker health checks, PostgreSQL persistence checks, and public-image smoke tests before release.
 
-   <details>
-   <summary>Full feature coverage matrix</summary>
+## Deferred Beyond v0.3.2
 
-   #### Pipeline
+- [ ] **Semantic knowledge search and RAG Q&A.** Keep the current cross-language search lightweight until the embedding model, vector storage or Elasticsearch strategy, citation model, and re-indexing lifecycle receive a separate design pass.
 
-   | Capability | Web API | MCP Tools | CLI |
-   |---|---|---|---|
-   | Extract article | `POST /captures` with `reviewMode` + `perspective` | `extract_article(url)` — no `perspective` | `nsphr extract` — no `--perspective` |
-   | AI review | `POST /articles/:id/review` with `perspective` | `review_article(id)` — no `perspective` | `nsphr ai-review` — no `--perspective` |
-   | Full pipeline | — | `run_pipeline(url)` — no `perspective` | `nsphr run` — no `--perspective` |
-   | Upload | `POST /articles/:id/upload` | `upload_article(id, target)` | `nsphr upload` + `--target` |
-   | Image review | `PATCH /articles/:id/images/:name` | — | `nsphr review-images` |
-
-   #### Content
-
-   | Capability | Web API | MCP Tools | CLI |
-   |---|---|---|---|
-   | Article list / detail | `GET /articles`, `GET /articles/:id` | — (web-only) | — |
-   | Article editing | `PATCH /articles/:id` | — (web-only) | — |
-
-   #### Classification
-
-   | Capability | Web API | MCP Tools | CLI |
-   |---|---|---|---|
-   | Taxonomy | `GET /taxonomy` | — (web-only) | — |
-   | Assign classification | `PATCH /articles/:id/classification` | — (web-only) | — |
-
-   #### Settings
-
-   | Capability | Web API | MCP Tools | CLI |
-   |---|---|---|---|
-   | General settings | `GET\|PATCH /settings`, `/settings/active-provider`, `/settings/secrets/reveal`, `/settings/test` | — (web-only) | — |
-   | Pipeline settings | `GET\|PATCH /pipeline/settings` | — (web-only) | — |
-
-   #### Operations
-
-   | Capability | Web API | MCP Tools | CLI |
-   |---|---|---|---|
-   | Job polling | `GET /uploads/:id`, `GET /reviews/:id` | — (web-only) | — |
-   | Email | — | — | `nsphr email` |
-   | Terminal UI | — | — | `nsphr tui` |
-   | MCP server | — | — | `nsphr mcp` |
-
-   </details>
-
----
-
-## Polish
-
-- **Settings sidebar: hamburger menu positioning.** The hamburger menu (three-line icon) needs to sit closer to the left navigation column and farther from the right-side settings form fields. The spacing between menu lines is also too loose — tighten them.
-
----
-
-## New Features
-
-1. **Article heading outline.** Add a floating table-of-contents sidebar that extracts headings from the article, mirroring the sidebar pattern used in the Settings page. Clicking a heading scrolls directly to that section.
-
-2. **Hierarchical category display in Recent Articles.** When a parent category (e.g., "AIGC") has subcategories (e.g., "3D Modeling", "Prompt Engineering"), the recent articles list should reflect this hierarchy. Use a dropdown under the parent label showing each subcategory with its article count. By default, show the parent name and its total count.
-
----
-
-*Fix the above and then release v0.3.1.*
+- [ ] **Self-healing extraction quality loop.** This is a major autonomous extraction-maintenance feature and remains explicitly deferred. Full design: [.project/self-healing-extraction.md](.project/self-healing-extraction.md).

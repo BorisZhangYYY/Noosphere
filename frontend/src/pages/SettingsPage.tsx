@@ -3,9 +3,11 @@ import {
   CheckCircle,
   Eye,
   EyeSlash,
+  FileText,
   FireSimple,
   FloppyDisk,
   Hexagon,
+  ImageSquare,
   MoonStars,
   Plus,
   Plugs,
@@ -22,7 +24,6 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "re
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import { InlineSelect, type InlineSelectOption } from "../components/InlineSelect";
-import { PipelineSettingsPanel } from "../components/PipelineSettingsPanel";
 import { SettingsSectionNav } from "../components/SettingsSectionNav";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import type { AIApiFormat, AIProviderSettings, AIProviderType, SettingsUpdate } from "../types";
@@ -34,43 +35,50 @@ const providerTemplates: Record<AIProviderType, Omit<AIProviderSettings, "name" 
     providerType: "kimi",
     apiFormat: "openai_chat",
     model: "",
-    apiBase: "https://api.moonshot.cn/v1"
+    apiBase: "https://api.moonshot.cn/v1",
+    visionCapable: false
   },
   minimax: {
     providerType: "minimax",
     apiFormat: "openai_chat",
     model: "",
-    apiBase: "https://api.minimaxi.com/v1"
+    apiBase: "https://api.minimaxi.com/v1",
+    visionCapable: false
   },
   zhipu: {
     providerType: "zhipu",
     apiFormat: "openai_chat",
     model: "",
-    apiBase: "https://open.bigmodel.cn/api/paas/v4"
+    apiBase: "https://open.bigmodel.cn/api/paas/v4",
+    visionCapable: false
   },
   volcengine: {
     providerType: "volcengine",
     apiFormat: "openai_chat",
     model: "",
-    apiBase: "https://ark.cn-beijing.volces.com/api/v3"
+    apiBase: "https://ark.cn-beijing.volces.com/api/v3",
+    visionCapable: false
   },
   custom: {
     providerType: "custom",
     apiFormat: "openai_chat",
     model: "",
-    apiBase: ""
+    apiBase: "",
+    visionCapable: false
   }
 };
 
 const emptySettings: SettingsUpdate = {
   aiProvider: "default",
+  imageProvider: "",
   aiProviders: [{
     name: "default",
     providerType: "custom",
     apiFormat: "anthropic",
     model: "",
     apiBase: "",
-    apiKeyConfigured: false
+    apiKeyConfigured: false,
+    visionCapable: false
   }],
   crawlerPrimary: "crawl4ai",
   crawlerFallback: "firecrawl",
@@ -242,6 +250,10 @@ export function SettingsPage() {
     () => form.aiProviders.find((provider) => provider.name === selectedProviderName) ?? form.aiProviders[0],
     [form.aiProviders, selectedProviderName]
   );
+  const settingsChanged = useMemo(
+    () => Boolean(settingsQuery.data && JSON.stringify(form) !== JSON.stringify(settingsQuery.data)),
+    [form, settingsQuery.data]
+  );
 
   const providerTypeOptions = useMemo<InlineSelectOption<AIProviderType>[]>(() => (
     (Object.keys(providerTemplates) as AIProviderType[]).map((type) => ({
@@ -331,7 +343,12 @@ export function SettingsPage() {
     if (form.aiProviders.length <= 1) return;
     const remaining = form.aiProviders.filter((provider) => provider.name !== name);
     const nextActive = form.aiProvider === name ? remaining[0].name : form.aiProvider;
-    setForm((current) => ({ ...current, aiProviders: remaining, aiProvider: nextActive }));
+    setForm((current) => ({
+      ...current,
+      aiProviders: remaining,
+      aiProvider: nextActive,
+      imageProvider: current.imageProvider === name ? "" : current.imageProvider
+    }));
     if (selectedProviderName === name) setSelectedProviderName(nextActive);
     setProviderPendingDelete(null);
     setOpenSelect(null);
@@ -441,7 +458,11 @@ export function SettingsPage() {
                         <ProviderMark type={provider.providerType} />
                         <span className="provider-card-copy">
                           <strong>{provider.name}</strong>
-                          <small>{t(`settings.providerTypes.${provider.providerType}`)}</small>
+                          <span className="provider-card-meta">
+                            <small>{t(`settings.providerTypes.${provider.providerType}`)}</small>
+                            <span className="provider-capability-badge"><FileText size={11} />{t("settings.textCapabilityBadge")}</span>
+                            {provider.visionCapable && <span className="provider-capability-badge provider-capability-image"><ImageSquare size={11} />{t("settings.imageCapabilityBadge")}</span>}
+                          </span>
                         </span>
                         {isActive && <span className="provider-active-badge"><Check size={13} weight="bold" />{t("settings.active")}</span>}
                       </button>
@@ -465,6 +486,7 @@ export function SettingsPage() {
               </div>
             </aside>
 
+            <div className="provider-detail-stack">
             {selectedProvider && (
               <div className="provider-editor" key={selectedProvider.name}>
                 <div className="provider-editor-heading">
@@ -523,6 +545,25 @@ export function SettingsPage() {
                   onChange={(value) => updateProvider("apiKey", value)}
                   onReveal={async () => (await api.getSettingsSecret("ai", selectedProvider.name)).secret}
                 />
+                <label className="provider-capability-toggle">
+                  <input
+                    type="checkbox"
+                    checked={selectedProvider.visionCapable}
+                    onChange={(event) => {
+                      const visionCapable = event.target.checked;
+                      setForm((current) => ({
+                        ...current,
+                        imageProvider: visionCapable
+                          ? current.imageProvider || selectedProvider.name
+                          : current.imageProvider === selectedProvider.name ? "" : current.imageProvider,
+                        aiProviders: current.aiProviders.map((provider) => provider.name === selectedProvider.name
+                          ? { ...provider, visionCapable }
+                          : provider)
+                      }));
+                    }}
+                  />
+                  <span><strong>{t("settings.visionCapability")}</strong><small>{t("settings.visionCapabilityHelp")}</small></span>
+                </label>
                 <div className="provider-action-row">
                   <button className="button-secondary provider-test-button" type="button" onClick={() => void testService("ai")} disabled={testState.status === "checking"}><PlugsConnected size={18} />{testState.target === "ai" && testState.status === "checking" ? t("settings.checking") : t("settings.testProvider")}</button>
                   <div className="provider-action-feedback" aria-live="polite">
@@ -535,12 +576,12 @@ export function SettingsPage() {
                   <button
                     className="button-primary provider-activate-button"
                     type="button"
-                    disabled={saveMutation.isPending || activateProviderMutation.isPending || selectedProvider.name === form.aiProvider}
+                    disabled={saveMutation.isPending || activateProviderMutation.isPending || (selectedProvider.name === form.aiProvider && !settingsChanged)}
                     onClick={() => activateProviderMutation.mutate({ providerName: selectedProvider.name, settings: form })}
                   >
                     {activateProviderMutation.isPending ? <SpinnerGap className="spin" size={18} /> : <CheckCircle size={18} />}
                     {selectedProvider.name === form.aiProvider
-                      ? t("settings.activeProvider")
+                      ? settingsChanged ? t("settings.saveProviderChanges") : t("settings.activeProvider")
                       : activateProviderMutation.isPending
                         ? t("settings.activatingProvider")
                         : t("settings.setActive")}
@@ -548,10 +589,28 @@ export function SettingsPage() {
                 </div>
               </div>
             )}
+              <div className="image-provider-role">
+                <span className="image-provider-role-icon"><ImageSquare size={21} /></span>
+                <div className="image-provider-role-copy"><strong>{t("settings.imageProviderTitle")}</strong><p>{t("settings.imageProviderDescription")}</p></div>
+                <div className="image-provider-role-select">
+                  <InlineSelect
+                    value={form.imageProvider}
+                    onChange={(imageProvider) => update("imageProvider", imageProvider)}
+                    ariaLabel={t("settings.imageProviderTitle")}
+                    options={[
+                      { value: "", label: t("settings.imageProviderDisabled"), description: t("settings.imageProviderDisabledHelp") },
+                      ...form.aiProviders.filter((provider) => provider.visionCapable).map((provider) => ({
+                        value: provider.name,
+                        label: <span className="image-provider-option"><ProviderMark type={provider.providerType} /><span>{provider.name}</span></span>,
+                        description: provider.model || t("settings.modelPending")
+                      }))
+                    ]}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </section>
-
-        <PipelineSettingsPanel />
 
         <section className="settings-group" id="settings-crawlers">
           <div className="group-heading"><h2>{t("settings.crawlersTitle")}</h2><p>{t("settings.crawlersDescription")}</p></div>

@@ -19,10 +19,12 @@ class AIProviderConfig(BaseModel):
     temperature: float | None = Field(default=0.2, ge=0.0, le=2.0)
     timeout_seconds: int = 300
     anthropic_version: str = "2023-06-01"
+    vision_capable: bool = False
 
 
 class AIConfig(BaseModel):
     provider: str = "anthropic"
+    image_provider: str | None = None
     max_attempts: int = Field(default=2, ge=1, le=10)
     rewrite_prompt_path: str = "prompts/edit_article.md"
     image_review_prompt_path: str = "prompts/image_review.md"
@@ -62,33 +64,13 @@ class AIConfig(BaseModel):
         raise ValueError(f"ai.{key} or ai.{path_key} is required")
 
 
-class ReviewPerspectiveConfig(BaseModel):
+class ReviewPerspectiveLocaleConfig(BaseModel):
     label: str
     description: str = ""
     prompt_path: str
     template_path: str
     output_sections: dict[str, str]
     body_section: str
-
-    @model_validator(mode="before")
-    @classmethod
-    def _upgrade_legacy_prompt_profile(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-        upgraded = dict(data)
-        template_path = str(upgraded.get("template_path") or "")
-        if template_path == "prompts/edit_article.md":
-            template_path = "prompts/templates/original_article.md"
-            upgraded["template_path"] = template_path
-        novice = "novice" in template_path.casefold()
-        if "output_sections" not in upgraded:
-            upgraded["output_sections"] = (
-                {"summary": "快速理解", "prerequisites": "阅读前准备", "main_article": "正文与讲解"}
-                if novice
-                else {"summary": "AI Summary", "main_article": "Main Article"}
-            )
-        upgraded.setdefault("body_section", "main_article")
-        return upgraded
 
     def prompt_metadata(self) -> PromptMetadata:
         from src.core.review.prompt_metadata import PromptMetadata, RequiredHeading, ValidationRule
@@ -113,10 +95,95 @@ class ReviewPerspectiveConfig(BaseModel):
         )
 
 
+class ReviewPerspectiveConfig(ReviewPerspectiveLocaleConfig):
+    builtin: bool = False
+    localizations: dict[str, ReviewPerspectiveLocaleConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_legacy_prompt_profile(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        upgraded = dict(data)
+        template_path = str(upgraded.get("template_path") or "")
+        if template_path == "prompts/edit_article.md":
+            template_path = "prompts/templates/original_article.md"
+            upgraded["template_path"] = template_path
+        novice = "novice" in template_path.casefold()
+        if "output_sections" not in upgraded:
+            upgraded["output_sections"] = (
+                {"summary": "快速理解", "prerequisites": "阅读前准备", "main_article": "正文与讲解"}
+                if novice
+                else {"summary": "AI Summary", "main_article": "Main Article"}
+            )
+        upgraded.setdefault("body_section", "main_article")
+        return upgraded
+
+    def localized(self, language: str) -> ReviewPerspectiveLocaleConfig:
+        from src.core.localization import normalize_language
+
+        return self.localizations.get(normalize_language(language)) or ReviewPerspectiveLocaleConfig(
+            label=self.label,
+            description=self.description,
+            prompt_path=self.prompt_path,
+            template_path=self.template_path,
+            output_sections=self.output_sections,
+            body_section=self.body_section,
+        )
+
+    def prompt_metadata(self, language: str = "en-US") -> PromptMetadata:
+        return self.localized(language).prompt_metadata()
+
+
+def _builtin_perspective_localizations(key: str) -> dict[str, ReviewPerspectiveLocaleConfig]:
+    if key == "novice":
+        return {
+            "zh-CN": ReviewPerspectiveLocaleConfig(
+                label="小白视角",
+                description="补充必要背景与术语解释，降低首次阅读门槛。",
+                prompt_path="prompts/perspectives/novice.md",
+                template_path="prompts/templates/novice_article.md",
+                output_sections={"summary": "快速理解", "prerequisites": "阅读前准备", "main_article": "正文与讲解"},
+                body_section="main_article",
+            ),
+            "en-US": ReviewPerspectiveLocaleConfig(
+                label="Beginner-friendly",
+                description="Add essential context and terminology for a first-time reader.",
+                prompt_path="prompts/perspectives/novice.en.md",
+                template_path="prompts/templates/novice_article.en.md",
+                output_sections={"summary": "Quick Understanding", "prerequisites": "Before You Read", "main_article": "Article with Explanations"},
+                body_section="main_article",
+            ),
+        }
+    return {
+        "zh-CN": ReviewPerspectiveLocaleConfig(
+            label="基于原文",
+            description="保留作者的论证结构，只清理噪音并优化表达。",
+            prompt_path="prompts/perspectives/original.md",
+            template_path="prompts/templates/original_article.zh.md",
+            output_sections={"summary": "AI 摘要", "main_article": "正文"},
+            body_section="main_article",
+        ),
+        "en-US": ReviewPerspectiveLocaleConfig(
+            label="Source-faithful",
+            description="Preserve the author's argument while removing noise and improving clarity.",
+            prompt_path="prompts/perspectives/original.en.md",
+            template_path="prompts/templates/original_article.md",
+            output_sections={"summary": "AI Summary", "main_article": "Main Article"},
+            body_section="main_article",
+        ),
+    }
+
+
 class PipelineConfig(BaseModel):
-    review_mode: Literal["manual_only", "ai_then_manual"] = "ai_then_manual"
+    review_mode: Literal["auto_upload", "ai_then_manual"] = "ai_then_manual"
+    output_language: Literal["follow_ui", "zh-CN", "en-US", "source"] = "follow_ui"
     active_perspective: str = "original"
     common_prompt_path: str = "prompts/common_review.md"
+    common_prompt_paths: dict[str, str] = Field(default_factory=lambda: {
+        "zh-CN": "prompts/common_review.md",
+        "en-US": "prompts/common_review.en.md",
+    })
     classification_prompt_path: str = "prompts/classify_article.md"
     perspectives: dict[str, ReviewPerspectiveConfig] = Field(
         default_factory=lambda: {
@@ -124,9 +191,11 @@ class PipelineConfig(BaseModel):
                 label="基于原文",
                 description="保留作者的论证结构，只清理噪音并优化表达。",
                 prompt_path="prompts/perspectives/original.md",
-                template_path="prompts/templates/original_article.md",
-                output_sections={"summary": "AI Summary", "main_article": "Main Article"},
+                template_path="prompts/templates/original_article.zh.md",
+                output_sections={"summary": "AI 摘要", "main_article": "正文"},
                 body_section="main_article",
+                builtin=True,
+                localizations=_builtin_perspective_localizations("original"),
             ),
             "novice": ReviewPerspectiveConfig(
                 label="小白视角",
@@ -139,29 +208,58 @@ class PipelineConfig(BaseModel):
                     "main_article": "正文与讲解",
                 },
                 body_section="main_article",
+                builtin=True,
+                localizations=_builtin_perspective_localizations("novice"),
             ),
         }
     )
 
-    def resolve_review_prompt(self, perspective: str | None = None) -> tuple[str, PromptMetadata]:
-        """Compose common guidance, perspective guidance, and the output template."""
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_review_mode(cls, data: Any) -> Any:
+        if isinstance(data, dict) and data.get("review_mode") == "manual_only":
+            upgraded = dict(data)
+            upgraded["review_mode"] = "ai_then_manual"
+            return upgraded
+        return data
+
+    @model_validator(mode="after")
+    def _restore_builtin_localizations(self) -> PipelineConfig:
+        for key in ("original", "novice"):
+            profile = self.perspectives.get(key)
+            if profile and profile.prompt_path.endswith(f"/{key}.md"):
+                profile.builtin = True
+                defaults = _builtin_perspective_localizations(key)
+                profile.localizations = {**defaults, **profile.localizations}
+        return self
+
+    def resolve_review_prompt(self, perspective: str | None = None, language: str = "en-US") -> tuple[str, PromptMetadata]:
+        """Compose content guidance; document structure is rendered by Noosphere."""
         from src.core.review.prompt_metadata import parse_prompt_file
 
         key = perspective or self.active_perspective
         profile = self.perspectives.get(key)
         if profile is None:
             raise ValueError(f"Unknown review perspective: {key}")
-        common = parse_prompt_file(resolve_project_path(self.common_prompt_path))
-        viewpoint = parse_prompt_file(resolve_project_path(profile.prompt_path))
-        template = parse_prompt_file(resolve_project_path(profile.template_path))
-        prompt = "\n\n".join((
-            "# 通用约束\n\n" + common.body.strip(),
-            "# 审阅视角\n\n" + viewpoint.body.strip(),
-            "# 输出模板\n\n严格按以下模板输出；双花括号字段由你的内容替换。\n\n" + template.body.strip(),
-        ))
-        return prompt, profile.prompt_metadata()
+        from src.core.localization import normalize_language
 
-    def resolve_review_contract(self, perspective: str | None = None) -> tuple[ReviewPerspectiveConfig, str]:
+        locale = normalize_language(language)
+        localized = profile.localized(locale)
+        common_path = self.common_prompt_paths.get(locale, self.common_prompt_path)
+        common = parse_prompt_file(resolve_project_path(common_path))
+        viewpoint = parse_prompt_file(resolve_project_path(localized.prompt_path))
+        titles = (
+            ("Common constraints", "Review perspective")
+            if locale == "en-US"
+            else ("通用约束", "审阅视角")
+        )
+        prompt = "\n\n".join((
+            f"# {titles[0]}\n\n" + common.body.strip(),
+            f"# {titles[1]}\n\n" + viewpoint.body.strip(),
+        ))
+        return prompt, localized.prompt_metadata()
+
+    def resolve_review_contract(self, perspective: str | None = None, language: str = "en-US") -> tuple[ReviewPerspectiveLocaleConfig, str]:
         from src.core.review.output_contract import validate_output_template
         from src.core.review.prompt_metadata import parse_prompt_file
 
@@ -169,9 +267,10 @@ class PipelineConfig(BaseModel):
         profile = self.perspectives.get(key)
         if profile is None:
             raise ValueError(f"Unknown review perspective: {key}")
-        template = parse_prompt_file(resolve_project_path(profile.template_path)).body
-        validate_output_template(template, profile.output_sections)
-        return profile, template
+        localized = profile.localized(language)
+        template = parse_prompt_file(resolve_project_path(localized.template_path)).body
+        validate_output_template(template, localized.output_sections)
+        return localized, template
 
 
 class CheckpointConfig(BaseModel):
@@ -313,4 +412,5 @@ class Config(BaseModel):
             "temperature": provider.temperature,
             "anthropic_version": provider.anthropic_version,
             "timeout_seconds": provider.timeout_seconds,
+            "vision_capable": provider.vision_capable,
         }

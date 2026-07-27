@@ -1,170 +1,192 @@
 # Noosphere
 
-Noosphere is an article extraction, AI review, and note-import tool designed for long-form reading, content collection, knowledge organization, and sharing.
+Noosphere is an article extraction, AI review, and note-import tool for long-form reading, content collection, knowledge organization, and sharing.
 
-Do you often come across long articles worth saving on platforms such as WeChat, Zhihu, and others, only to find them difficult to understand quickly because they are too long, poorly structured, or cluttered with ads and noise? Do you often want to share an article with friends, but they lack the necessary context, making the sharing ineffective? Or are you a heavy content collector who wants to save valuable articles in a complete, clean, and structured form into your own knowledge base?
+It combines Crawl4AI and Firecrawl, downloads article assets, and asks a language model for typed content slots. Noosphere—not the model—renders trusted source metadata, headings, section order, and image references into the final Markdown. This keeps the output stable while still allowing different review perspectives, languages, and templates.
 
-Noosphere is designed for exactly this purpose. It uses a configurable crawler stack (`crawl4ai` and `firecrawl`) with selectable primary and fallback order, extracts the main content of articles, then uses large language models to perform copy-editing, structured cleanup, summary generation, and pre-upload validation. The final Markdown content can then be imported into your note-taking tool.
+In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into clean, structured, understandable, and portable knowledge.
 
-In one sentence: Noosphere turns scattered, lengthy, and hard-to-read articles on the internet into clean, structured, understandable, saveable, and shareable knowledge content.
+## Highlights
 
-Install the skills for Claude Code:
-
-```bash
-npx skills add https://github.com/BorisZhangYYY/Noosphere
-```
-
-This installs two skills:
-- **noosphere** — extract, review, and upload articles
-- **noosphere-setup** — install dependencies and configure `config.json`
+- Extract articles and local assets from supported platforms with configurable primary and fallback crawlers.
+- Review, translate, and restructure content through built-in or custom perspectives.
+- Keep source metadata and final Markdown structure deterministic instead of relying on the model to reproduce a fragile document skeleton.
+- Organize articles with a bilingual two-level taxonomy and canonical aliases.
+- Review images independently, then remove or restore them without changing `raw.md`.
+- Archive locally or upload reviewed content to SiYuan.
+- Use the same data, configuration, and business rules through the web app, MCP service, or CLI.
 
 ## Supported Sources
 
-### Article Platforms
+### Article platforms
 
 - WeChat public account articles: `mp.weixin.qq.com/s/...`
 - Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
 - Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
 
-### Social Post Platforms
+### Social post platforms
 
 - X (Twitter): `x.com/...` or `twitter.com/...` (text-only via oEmbed MVP)
 
-### Note-taking Platforms
+### Note-taking platforms
 
 - SiYuan
 
-## Commands
+## Three Ways to Install and Use Noosphere
 
-### Core Pipeline
+All three entry points share article workspaces, configuration, taxonomy, review perspectives, and operation history. Choose the interface that fits the operator; do not deploy a separate database for each interface.
 
-| Command | Description |
-|---|---|
-| `nsphr extract URL` | Extract one article. |
-| `nsphr extract --batch urls.txt` | Extract multiple URLs from a file. |
-| `nsphr ai-review ARTICLE_ID` | AI copy-editing + validation. |
-| `nsphr upload ARTICLE_ID` | Upload reviewed article. |
-| `nsphr upload ARTICLE_ID --target local` | Save to local archive instead of SiYuan. |
-| `nsphr run URL` | One-command extract → ai-review → upload. |
+### 1. CLI
 
-### Utility Commands
-
-| Command | Description |
-|---|---|
-| `nsphr review-images ARTICLE_DIR --list` | Review images removed by AI filtering. |
-| `nsphr email ARTICLE_ID --to recipient@example.com` | Send reviewed article as HTML email. |
-| `nsphr tui` | Launch interactive terminal UI. |
-
-## AI Review Flow
-
-1. **Copy-edit**: AI edits the raw markdown to remove platform noise, fix formatting, and improve readability while preserving the original structure, section order, and image positions.
-2. **Validate**: deterministic machine validation checks Markdown structure, links, images, and required sections.
-3. **Feedback loop**: if validation fails, issues are fed back to the AI for correction and retry (up to `ai.max_attempts`).
-
-Output: `outputs/ARTICLE_ID/` contains `raw.md`, `reviewed.md`, `manifest.json`, `assets/`, and a lightweight `review.json`.
-
-`extract` and `upload` are deliberately manual endpoints. You can run `extract`, edit `reviewed.md` yourself, and upload it directly. You can also run `ai-review outputs/ARTICLE_ID/reviewed.md` after extraction when you want the configured AI workflow to copy-edit and check the article before upload.
-
-## MCP Server (Docker)
-
-Noosphere can run as an MCP (Model Context Protocol) service inside Docker, with PostgreSQL as the checkpoint store. This is the recommended deployment for AI-driven workflows.
-
-Docker Compose keeps the entire installation under one host directory, `.noosphere/` by default. It creates `config.json` on first start, forces LangGraph checkpoints to PostgreSQL, and mounts article workspaces, assets, archives, crawler cache, logs, backups, configuration, and PostgreSQL data from that directory.
+Use the CLI for local scripts, shell automation, and direct maintenance.
 
 ```bash
-# 1. Start Noosphere + Postgres
-docker compose up --build
-
-# 2. Open the web workspace or verify health
-# http://localhost:8080/app/
-curl http://localhost:8080/health
-```
-
-Use a different host data directory without editing Compose:
-
-```bash
-NOOSPHERE_DATA_DIR=/path/to/noosphere-data docker compose up --build
-```
-
-To bring an existing local installation into the portable layout, stop Noosphere and copy without overwriting existing destination files:
-
-```bash
-mkdir -p .noosphere/articles
-rsync -a --ignore-existing outputs/ .noosphere/articles/
-test -e .noosphere/config.json || cp config.json .noosphere/config.json
-```
-
-Every article keeps its `manifest.json`, `raw.md`, `reviewed.md`, `review.json`, and `assets/` together under `.noosphere/articles/`. These content artifacts stay as portable files because they are easier to inspect, back up, and move than binary database rows. PostgreSQL stores workflow checkpoints and other operational state.
-
-The web workspace provides the Library, a read-only/editable instant-rendering Vditor surface for `reviewed.md`, observable background pipeline events, a source support matrix, persistent English/Chinese localization, day/night themes, and a configuration editor. Web captures use either capture-only manual review or the recommended AI-then-human second review mode. The Pipeline page exposes the common cleanup prompt, perspective prompt, and matching output template; completed AI reviews are assigned to a persistent two-level tag taxonomy automatically and can be moved manually. SiYuan uploads run as background jobs with stage progress and remain active after navigation. Settings are written atomically to `.noosphere/config.json`; saved secrets stay masked in normal settings responses and can be revealed only through an explicit local-session request. Named AI profiles can use Anthropic Messages, OpenAI Chat Completions, or OpenAI Responses compatible endpoints, and the settings page can run real provider and Firecrawl connection tests.
-
-The MCP server exposes these tools over HTTP/SSE at `http://localhost:8080/sse`:
-
-- `extract_article(url)` — extract an article and download images
-- `review_article(article_id)` — AI copy-edit and validate
-- `upload_article(article_id, target="auto")` — upload to SiYuan or local archive
-- `run_pipeline(url, auto_confirm=true)` — full extract → review → upload
-
-For local development you can also start the MCP server without Docker:
-
-```bash
-nsphr mcp --host 127.0.0.1 --port 8080
-```
-
-## Configuration
-
-### Quick Start
-
-```bash
-# 1. Clone and enter
-cd /path/to/Noosphere
-
-# 2. Install package in editable mode
+git clone https://github.com/BorisZhangYYY/Noosphere.git
+cd Noosphere
+python -m venv .venv
+source .venv/bin/activate
 pip install -e .
-
-# 3. Install Playwright browser for Crawl4AI
 playwright install chromium
-
-# 4. Copy and edit config
 cp config.json.example config.json
-# Edit config.json with your API keys and endpoints
-
-# 5. Verify
 nsphr --help
 ```
 
-### Config Fields
+Local development uses SQLite unless PostgreSQL is configured. Add `--json` to core and management commands when another program consumes the result. See [CLI reference](docs/cli-reference.md).
 
-- `article`: article source platforms (wechat_mp, zhihu_zhuanlan, xiaoheihe)
-- `social_post`: social post source platforms (x)
-- `proxy`: optional HTTP/HTTPS proxy configuration
-- `siyuan`: API base, parent ID, token
-- `local_archive`: enable a local filesystem archive and set its `output_dir`
-- `ai`: active named provider profile, max_attempts, prompt paths, platform-specific prompt overrides
-- `ai_providers`: named profiles with an optional `provider_type` (`kimi`, `minimax`, `zhipu`, `volcengine`, or `custom`), `api_format` (`anthropic`, `openai_chat`, or `openai_responses`), model, API base, API key, token limit, and temperature
-- `crawler`: distinct primary and fallback crawler selection (`crawl4ai`, `firecrawl`) with per-provider credentials
-- `checkpoint`: backend (`sqlite` for local development, forced to `postgres` by Docker Compose), with an optional Postgres connection string that falls back to `DATABASE_URL`
+### 2. MCP service
 
-### Local Archive
+Use Docker when an MCP client or agent should operate Noosphere. PostgreSQL, Crawl4AI, Firecrawl, Chromium, the Python runtime, and the built frontend are contained in the deployment.
 
-To write reviewed Markdown and assets to a local dated folder instead of uploading to SiYuan:
+```bash
+git clone https://github.com/BorisZhangYYY/Noosphere.git
+cd Noosphere
+docker compose up -d --build
+curl http://localhost:8080/health
+```
 
-1. Add a `local_archive` section to `config.json`:
+Connect the MCP client to `http://localhost:8080/sse`. See [MCP reference](docs/mcp-reference.md) for the tool groups and safe automation patterns.
 
-   ```json
-   {
-     "local_archive": {
-       "enabled": true,
-       "output_dir": "/path/to/archive"
-     }
-   }
-   ```
+### 3. Web frontend
 
-2. Use `nsphr upload ARTICLE_ID --target local` or make `local_archive` the only configured target to make it the default.
+The frontend ships with the same Docker service, so no separate backend or Node.js runtime is required after the image is built:
 
-AI provider names are user-defined. Compatibility is selected independently
-with each profile's `api_format` field.
+```bash
+docker compose up -d --build
+open http://localhost:8080/app/
+```
 
-## Future Extensions
+The web workspace provides the Library, background pipeline progress, instant Markdown reading and editing, taxonomy management, review perspectives and templates, provider and crawler settings, image removal and recovery, and SiYuan upload.
 
-See [CHANGELOG.md](https://github.com/BorisZhangYYY/Noosphere/blob/main/CHANGELOG.md) for development notes and progress tracking.
+To install the optional Codex/Claude-compatible Noosphere skill:
+
+```bash
+npx skills add https://github.com/BorisZhangYYY/Noosphere
+```
+
+For deployment layout, environment variables, and persistent storage, see [Installation and deployment](docs/installation.md).
+
+## Core Concepts
+
+### One shared application layer
+
+The web API, MCP tools, and CLI call the same application service. Interface-specific code translates inputs and outputs; it does not reimplement classification, image state, settings, or article rules.
+
+### Raw and reviewed boundaries
+
+Each article workspace keeps the original extraction in `raw.md` and all AI or user edits in `reviewed.md`. Noosphere never rewrites `raw.md`. The manifest, review record, and assets remain tied to the same article ID.
+
+### Deterministic review assembly
+
+AI fills typed content slots. Noosphere assembles the final metadata block, headings, sections, and retained image references. Validation can diagnose malformed content, but it is not an AI retry loop or a prerequisite for producing the document.
+
+### Canonical bilingual taxonomy
+
+Classification follows `tag → subtag → article`. A tag has a stable ID, localized names and descriptions, and aliases. Labels such as `AI Agent`, `Agents`, and `智能体` can therefore resolve to one canonical category.
+
+### Independent image review
+
+The text-review provider and image-review provider are configured independently. If no vision-capable image provider is selected, Noosphere preserves images and records that image review was skipped.
+
+## Capability Parity
+
+| Business capability | Web | MCP | CLI |
+|---|---|---|---|
+| Extract, review, upload, full pipeline | Background actions | Synchronous tools and `start_*` jobs | Foreground commands with JSON output |
+| Article list, detail, and reviewed Markdown update | Library and editor | `list_articles`, `get_article`, `update_article_content` | `articles list/show/update` |
+| Two-level bilingual taxonomy | Category controls | `list_taxonomy`, `classify_article` | `taxonomy list/assign/move` |
+| Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
+| Review perspectives and templates | Review Studio | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
+| Provider, crawler, and archive settings | Settings page | Masked get/update/activate/test tools | `config show/apply/activate/test` |
+| Capture, review, and upload jobs | Live progress | `start_*`, `get_job`, `list_jobs` | `jobs list/show` against a running service |
+
+Secrets are masked by default everywhere. Only the local CLI has an explicit `config reveal ... --yes` command. MCP intentionally has no secret-read tool.
+
+## Portable Data
+
+Docker Compose keeps configuration, article workspaces, assets, archives, crawler cache, logs, backups, taxonomy and activity state, and PostgreSQL data under one host directory. The default is `.noosphere/`; override it without editing Compose:
+
+```bash
+NOOSPHERE_DATA_DIR=/path/to/noosphere-data docker compose up -d --build
+```
+
+Every article keeps `raw.md`, editable `reviewed.md`, `manifest.json`, `review.json`, and `assets/` together. See [Configuration](docs/configuration.md) for the full data layout and migration guidance.
+
+## Project Structure
+
+```text
+Noosphere/
+├── src/
+│   ├── api/              # Web API and background jobs
+│   ├── application/      # Shared business operations
+│   ├── graph/            # LangGraph workflows and checkpoints
+│   ├── mcp/              # MCP transport and structured tools
+│   ├── platforms/        # Platform-specific extraction adapters
+│   └── core/             # Configuration, review, storage, and upload domain code
+├── frontend/             # React web workspace
+├── prompts/              # Shared rules, perspectives, and output templates
+├── skills/               # Installable agent skills
+├── docs/                 # User-facing operation and deployment guides
+├── .project/             # Repository-internal engineering rules
+├── tests/                # Backend and cross-interface tests
+└── docker-compose.yml    # Noosphere and PostgreSQL deployment
+```
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Installation and deployment](docs/installation.md)
+- [CLI reference](docs/cli-reference.md)
+- [MCP reference](docs/mcp-reference.md)
+- [Configuration and portable data](docs/configuration.md)
+- [Changelog](CHANGELOG.md)
+- [Planned work](TODO.md)
+
+## Frequently Asked Questions
+
+### Which interface should I use?
+
+Use the web app for interactive reading and review, MCP for agent-driven workflows, and the CLI for scripts and local maintenance. They share the same business state.
+
+### Does switching the interface language rewrite existing articles?
+
+No. The interface locale controls display labels and can be used as the default output language for a new review. Existing reviewed content is not rewritten automatically.
+
+### What happens when image review is unavailable?
+
+Noosphere safely keeps all downloaded images. Image removal only runs when a separately selected provider is declared vision-capable.
+
+### Where is my data stored?
+
+Local CLI runs use the configured output paths. Docker deployments keep portable state beneath `.noosphere/` by default, or beneath `NOOSPHERE_DATA_DIR` when supplied.
+
+## Contributing
+
+Issues and pull requests are welcome. Before changing workflow behavior, read [CLAUDE.md](CLAUDE.md), [TODO.md](TODO.md), [CHANGELOG.md](CHANGELOG.md), and the relevant internal guide under [.project/](.project/).
+
+## License and Links
+
+Noosphere is available under the [MIT License](LICENSE).
+
+- Repository: [BorisZhangYYY/Noosphere](https://github.com/BorisZhangYYY/Noosphere)
+- Issues: [GitHub Issues](https://github.com/BorisZhangYYY/Noosphere/issues)
+- Releases: [GitHub Releases](https://github.com/BorisZhangYYY/Noosphere/releases)
