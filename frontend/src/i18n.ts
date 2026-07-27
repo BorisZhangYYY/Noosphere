@@ -18,6 +18,7 @@ const resources = {
         disabled: "Disabled"
       },
       nav: {
+        overview: "Overview",
         library: "Library",
         pipeline: "Pipeline",
         sources: "Sources",
@@ -26,6 +27,27 @@ const resources = {
         primary: "Primary navigation",
         open: "Open navigation",
         close: "Close navigation"
+      },
+      overview: {
+        eyebrow: "Workspace overview",
+        title: "Overview",
+        description: "Track captured articles, review progress, recycle-bin actions, and recent processing activity."
+      },
+      knowledge: {
+        eyebrow: "Knowledge workspace",
+        title: "Library",
+        loading: "Loading the knowledge workspace",
+        search: "Search articles and categories",
+        unclassified: "Unclassified",
+        noSearchResults: "No articles match this search.",
+        noArticles: "Capture an article to start building this library.",
+        manageCategories: "Manage categories",
+        openOverview: "Open overview",
+        outline: "On this page",
+        noOutline: "This article has no headings.",
+        selectTitle: "Select an article",
+        selectDescription: "Choose an article from the directory to read it here.",
+        openWorkbench: "Open workbench"
       },
       controls: {
         lightMode: "Light mode",
@@ -446,6 +468,7 @@ const resources = {
         disabled: "已停用"
       },
       nav: {
+        overview: "首页",
         library: "知识库",
         pipeline: "处理流水线",
         sources: "数据源",
@@ -454,6 +477,27 @@ const resources = {
         primary: "主导航",
         open: "打开导航",
         close: "关闭导航"
+      },
+      overview: {
+        eyebrow: "工作区总览",
+        title: "首页",
+        description: "查看已抓取文章、审阅进度、回收站操作以及最近的处理动态。"
+      },
+      knowledge: {
+        eyebrow: "知识工作区",
+        title: "知识库",
+        loading: "正在加载知识工作区",
+        search: "搜索文章和分类",
+        unclassified: "未分类",
+        noSearchResults: "没有符合搜索条件的文章。",
+        noArticles: "抓取一篇文章后，知识库会从这里开始。",
+        manageCategories: "管理分类",
+        openOverview: "打开首页",
+        outline: "本文目录",
+        noOutline: "这篇文章没有可用的标题目录。",
+        selectTitle: "选择一篇文章",
+        selectDescription: "从左侧目录选择文章后，可以在这里阅读。",
+        openWorkbench: "打开文章工作台"
       },
       controls: {
         lightMode: "白天模式",

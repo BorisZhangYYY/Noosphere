@@ -1,6 +1,7 @@
 import {
   BookOpenText,
   Gear,
+  House,
   Moon,
   MagicWand,
   Path,
@@ -22,6 +23,7 @@ import { InlineSelect } from "./InlineSelect";
 import type { OutputLanguage, ReviewMode } from "../types";
 
 const navItems = [
+  { to: "/", labelKey: "nav.overview", icon: House },
   { to: "/library", labelKey: "nav.library", icon: BookOpenText },
   { to: "/pipeline", labelKey: "nav.pipeline", icon: Path },
   { to: "/sources", labelKey: "nav.sources", icon: UploadSimple },

@@ -77,7 +77,7 @@ docker compose up -d --build
 open http://localhost:8080/app/
 ```
 
-The web workspace provides the Library, background pipeline progress, instant Markdown reading and editing, taxonomy management, review perspectives and templates, provider and crawler settings, image removal and recovery, and SiYuan upload.
+The web workspace separates an operational Overview from a three-column Library. The Library combines a category-and-article tree, article outline, and read-only Markdown reader; the article workbench keeps full editing, image recovery, review, and upload controls.
 
 To install the optional Codex/Claude-compatible Noosphere skill:
 
