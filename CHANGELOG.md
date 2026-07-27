@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - (2026-07-27) Restart PostgreSQL automatically with Docker Desktop and the Docker daemon by applying the same `unless-stopped` policy used by the Noosphere service.
+- (2026-07-27) Keep provider capability indicators on one line by presenting compact, accessible text/image icons instead of repeated visible labels.
 
 ## [0.3.1.5] - 2026-07-26
 

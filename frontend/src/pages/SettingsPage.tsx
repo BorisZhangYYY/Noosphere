@@ -460,11 +460,34 @@ export function SettingsPage() {
                           <strong>{provider.name}</strong>
                           <span className="provider-card-meta">
                             <small>{t(`settings.providerTypes.${provider.providerType}`)}</small>
-                            <span className="provider-capability-badge"><FileText size={11} />{t("settings.textCapabilityBadge")}</span>
-                            {provider.visionCapable && <span className="provider-capability-badge provider-capability-image"><ImageSquare size={11} />{t("settings.imageCapabilityBadge")}</span>}
+                            <span
+                              className="provider-capability-badge"
+                              aria-label={t("settings.textCapabilityBadge")}
+                              title={t("settings.textCapabilityBadge")}
+                            >
+                              <FileText size={12} aria-hidden="true" />
+                            </span>
+                            {provider.visionCapable && (
+                              <span
+                                className="provider-capability-badge provider-capability-image"
+                                aria-label={t("settings.imageCapabilityBadge")}
+                                title={t("settings.imageCapabilityBadge")}
+                              >
+                                <ImageSquare size={12} aria-hidden="true" />
+                              </span>
+                            )}
                           </span>
                         </span>
-                        {isActive && <span className="provider-active-badge"><Check size={13} weight="bold" />{t("settings.active")}</span>}
+                        {isActive && (
+                          <span
+                            className="provider-active-badge"
+                            aria-label={t("settings.active")}
+                            title={t("settings.active")}
+                          >
+                            <Check size={13} weight="bold" aria-hidden="true" />
+                            <span className="provider-active-copy">{t("settings.active")}</span>
+                          </span>
+                        )}
                       </button>
                       <button
                         className={`provider-delete${providerPendingDelete === provider.name ? " provider-delete-confirm" : ""}`}
