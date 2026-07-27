@@ -4,6 +4,8 @@ Noosphere is an article extraction, AI review, and note-import tool for long-for
 
 It combines Crawl4AI and Firecrawl, downloads article assets, and asks a language model for typed content slots. Noosphere—not the model—renders trusted source metadata, headings, section order, and image references into the final Markdown. This keeps the output stable while still allowing different review perspectives, languages, and templates.
 
+Noosphere is an article-processing service and MCP capability, not a general-purpose personal note-taking application. Downstream knowledge systems remain independent and receive content only through explicitly configured, user-authorized adapters.
+
 In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into clean, structured, understandable, and portable knowledge.
 
 ## Highlights
@@ -11,7 +13,7 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 - Extract articles and local assets from supported platforms with configurable primary and fallback crawlers.
 - Review, translate, and restructure content through built-in or custom perspectives.
 - Keep source metadata and final Markdown structure deterministic instead of relying on the model to reproduce a fragile document skeleton.
-- Organize articles with a bilingual two-level taxonomy and canonical aliases.
+- Organize articles with a built-in developer processing profile, a bilingual two-level taxonomy, and canonical aliases.
 - Review images independently, then remove or restore them without changing `raw.md`.
 - Archive locally or upload reviewed content to SiYuan.
 - Use the same data, configuration, and business rules through the web app, MCP service, or CLI.

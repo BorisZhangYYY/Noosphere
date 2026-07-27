@@ -8,9 +8,8 @@ This file contains only unresolved, deliberately deferred, or release-blocking w
 
 The v0.3.2 goal is to make article organization predictable for a developer-oriented workflow without turning Noosphere into a general-purpose note-taking or personal-profile application.
 
-Two of the eight issue slots are already consumed by the provider-capability layout fix and reviewed-title recovery recorded under `[Unreleased]` in `CHANGELOG.md`. The approved Docker Compose restart correction remains pre-scope Issue 0.
+Three of the eight issue slots are already consumed by completed work recorded under `[Unreleased]` in `CHANGELOG.md`. The approved Docker Compose restart correction remains pre-scope Issue 0.
 
-- [ ] **Issue 3 — Built-in developer processing profile and starter taxonomy.** Provide one versioned, product-owned developer profile that seeds a stable two-level category tree. It must contain no imported personal data and no dependency on another project.
 - [ ] **Issue 4 — Closed-set category management.** Let users create, rename, and retire categories explicitly; automatic classification may select existing category IDs or `Inbox`, but may not create categories.
 - [ ] **Issue 5 — Multi-label article facets.** Add many-to-many labels for central topics/entities and content forms while preserving exactly one primary category path per article.
 - [ ] **Issue 6 — Profile-aware automatic organization.** Classify against the active profile, closed taxonomy, and existing labels; persist reason and confidence, and route uncertain results to `Inbox`.

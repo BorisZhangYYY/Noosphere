@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-07-27) Added a versioned, built-in developer processing profile that idempotently seeds a localized two-level starter taxonomy across Web, MCP, and CLI without importing personal data or depending on another project.
+
 ### Fixed
 
 - (2026-07-27) Restart PostgreSQL automatically with Docker Desktop and the Docker daemon by applying the same `unless-stopped` policy used by the Noosphere service.

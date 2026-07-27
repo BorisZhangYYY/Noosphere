@@ -242,10 +242,15 @@ async def update_article_content(article_id: str, reviewed_markdown: str) -> dic
 
 @mcp.tool()
 async def list_taxonomy(locale: str = "en-US") -> dict[str, Any]:
-    """Return the canonical two-level taxonomy with stable IDs and aliases."""
-    from src.application.service import list_taxonomy as application_list_taxonomy
+    """Return the active processing profile and canonical two-level taxonomy."""
+    from src.application.service import (
+        get_processing_profile,
+        list_taxonomy as application_list_taxonomy,
+    )
 
-    return {"ok": True, "tags": await _to_thread(application_list_taxonomy, locale=locale)}
+    profile = await _to_thread(get_processing_profile, locale=locale)
+    tags = await _to_thread(application_list_taxonomy, locale=locale)
+    return {"ok": True, "profile": profile, "tags": tags}
 
 
 @mcp.tool()

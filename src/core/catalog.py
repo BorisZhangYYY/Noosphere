@@ -8,6 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from src.core.catalog_profiles import (
+    DEVELOPER_PROFILE_ID,
+    DEVELOPER_PROFILE_VERSION,
+    DEVELOPER_TAXONOMY,
+    developer_profile,
+)
 from src.core.config.config import load_config
 from src.core.paths import runtime_home
 
@@ -80,9 +86,20 @@ class CatalogStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS noosphere_catalog_profile (
+                    slot TEXT PRIMARY KEY,
+                    profile_id TEXT NOT NULL,
+                    profile_version INTEGER NOT NULL,
+                    applied_at TEXT NOT NULL
+                )
+                """
+            )
 
     def list_tree(self, locale: str = "en-US") -> list[dict[str, Any]]:
         self.ensure_schema()
+        self._ensure_processing_profile()
         from src.core.localization import normalize_language
         locale = normalize_language(locale)
         marker = self._placeholder
@@ -108,6 +125,111 @@ class CatalogStore:
             if parent_id and parent_id in roots:
                 roots[parent_id]["children"].append(self._public_tag(row))
         return list(roots.values())
+
+    def get_processing_profile(self, locale: str = "en-US") -> dict[str, Any]:
+        """Return the built-in organization policy after applying its starter taxonomy."""
+        self.ensure_schema()
+        applied_at = self._ensure_processing_profile()
+        return {
+            **developer_profile(locale),
+            "appliedAt": applied_at,
+        }
+
+    def _ensure_processing_profile(self) -> str:
+        marker = self._placeholder
+        with self._connect() as connection:
+            candidate_applied_at = _now()
+            connection.execute(
+                f"""
+                INSERT INTO noosphere_catalog_profile (slot, profile_id, profile_version, applied_at)
+                VALUES ({marker}, {marker}, {marker}, {marker})
+                ON CONFLICT(slot) DO NOTHING
+                """,
+                ("active", DEVELOPER_PROFILE_ID, 0, candidate_applied_at),
+            )
+            claim = connection.execute(
+                f"""
+                UPDATE noosphere_catalog_profile
+                SET profile_id = {marker}, profile_version = {marker}, applied_at = {marker}
+                WHERE slot = {marker}
+                  AND (profile_id <> {marker} OR profile_version < {marker})
+                """,
+                (
+                    DEVELOPER_PROFILE_ID,
+                    DEVELOPER_PROFILE_VERSION,
+                    candidate_applied_at,
+                    "active",
+                    DEVELOPER_PROFILE_ID,
+                    DEVELOPER_PROFILE_VERSION,
+                ),
+            )
+            if claim.rowcount == 0:
+                current = connection.execute(
+                    f"SELECT applied_at FROM noosphere_catalog_profile WHERE slot = {marker}",
+                    ("active",),
+                ).fetchone()
+                if current is None:
+                    raise RuntimeError("Active processing profile was not persisted")
+                return str(dict(current)["applied_at"])
+
+            for root in DEVELOPER_TAXONOMY:
+                localizations = root["localizations"]
+                root_id = self._upsert_profile_tag(
+                    connection,
+                    tag_id=root["id"],
+                    parent_id=None,
+                    localizations=localizations,
+                )
+                for child in root["children"]:
+                    child_localizations = child["localizations"]
+                    self._upsert_profile_tag(
+                        connection,
+                        tag_id=child["id"],
+                        parent_id=root_id,
+                        localizations=child_localizations,
+                    )
+
+            return candidate_applied_at
+
+    def _upsert_profile_tag(
+        self,
+        connection,
+        *,
+        tag_id: str,
+        parent_id: str | None,
+        localizations: dict[str, dict[str, Any]],
+    ) -> str:
+        """Apply a product-owned stable category without changing public assignment semantics."""
+        marker = self._placeholder
+        english = localizations["en-US"]
+        existing = connection.execute(
+            f"SELECT id, description FROM noosphere_tags WHERE id = {marker}",
+            (tag_id,),
+        ).fetchone()
+        if existing:
+            current = dict(existing)
+            if english["description"] and not current.get("description"):
+                connection.execute(
+                    f"UPDATE noosphere_tags SET description = {marker} WHERE id = {marker}",
+                    (english["description"], tag_id),
+                )
+            self._upsert_localizations(connection, tag_id, localizations)
+            return tag_id
+        connection.execute(
+            f"""
+            INSERT INTO noosphere_tags (id, name, description, parent_id, created_at)
+            VALUES ({marker}, {marker}, {marker}, {marker}, {marker})
+            """,
+            (
+                tag_id,
+                english["name"],
+                english["description"],
+                parent_id,
+                _now(),
+            ),
+        )
+        self._upsert_localizations(connection, tag_id, localizations)
+        return tag_id
 
     @staticmethod
     def _public_tag(row: dict[str, Any]) -> dict[str, Any]:

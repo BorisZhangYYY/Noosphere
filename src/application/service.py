@@ -358,6 +358,13 @@ def list_taxonomy(*, locale: str = "en-US") -> list[dict[str, Any]]:
     return CatalogStore().list_tree(locale)
 
 
+def get_processing_profile(*, locale: str = "en-US") -> dict[str, Any]:
+    """Return the active Noosphere-owned article-organization policy."""
+    from src.core.catalog import CatalogStore
+
+    return CatalogStore().get_processing_profile(locale)
+
+
 def classify_article(
     article_id: str,
     *,

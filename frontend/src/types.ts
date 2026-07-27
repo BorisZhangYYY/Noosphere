@@ -126,6 +126,20 @@ export interface TaxonomyTag {
   children: TaxonomyTag[];
 }
 
+export interface ProcessingProfile {
+  id: "developer";
+  version: number;
+  builtin: true;
+  editable: false;
+  name: string;
+  description: string;
+  guidance: string;
+  focusAreas: string[];
+  inboxCategoryId: string;
+  maxCategoryDepth: number;
+  appliedAt: string;
+}
+
 export interface PipelinePerspective {
   id: string;
   label: string;

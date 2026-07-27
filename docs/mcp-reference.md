@@ -70,16 +70,18 @@ An MCP client should reason over canonical IDs rather than labels:
 
 ```text
 list_taxonomy(locale="en-US")
-  -> tag_id="tag_ai", subtag_id="tag_agents"
+  -> profile.id="developer"
+  -> tag_id="builtin-developer-ai-software"
+  -> subtag_id="builtin-developer-agent-coding"
 
 classify_article(
   article_id="ARTICLE_ID",
-  tag_id="tag_ai",
-  subtag_id="tag_agents"
+  tag_id="builtin-developer-ai-software",
+  subtag_id="builtin-developer-agent-coding"
 )
 ```
 
-If the interface later switches to Chinese, the article remains assigned to the same IDs while the returned labels use their Chinese localization.
+The built-in profile is a Noosphere-owned processing policy, contains no imported personal data, and seeds the starter taxonomy idempotently. If the interface later switches to Chinese, the article remains assigned to the same IDs while the returned labels use their Chinese localization.
 
 ## Long Operations
 

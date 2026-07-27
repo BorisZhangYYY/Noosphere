@@ -1,5 +1,5 @@
 import i18n from "./i18n";
-import type { ArticleDetail, ArticleSummary, CaptureJob, OutputLanguage, PipelineSettings, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TaxonomyTag, TrashedArticle, UploadJob } from "./types";
+import type { ArticleDetail, ArticleSummary, CaptureJob, OutputLanguage, PipelineSettings, ProcessingProfile, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TaxonomyTag, TrashedArticle, UploadJob } from "./types";
 
 function locale() { return i18n.resolvedLanguage?.startsWith("zh") ? "zh-CN" : "en-US"; }
 function localized(path: string) { return `${path}${path.includes("?") ? "&" : "?"}locale=${encodeURIComponent(locale())}`; }
@@ -64,7 +64,7 @@ export const api = {
     method: "PATCH",
     body: JSON.stringify(settings)
   }),
-  getTaxonomy: () => request<{ tags: TaxonomyTag[] }>(localized("/api/v1/taxonomy")),
+  getTaxonomy: () => request<{ profile: ProcessingProfile; tags: TaxonomyTag[] }>(localized("/api/v1/taxonomy")),
   updateArticleClassification: (articleId: string, tagName: string, subtagName?: string, tagId?: string, subtagId?: string) =>
     request(localized(`/api/v1/articles/${encodeURIComponent(articleId)}/classification`), {
       method: "PATCH",

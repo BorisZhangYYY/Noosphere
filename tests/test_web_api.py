@@ -370,8 +370,9 @@ def test_article_can_be_assigned_to_two_level_taxonomy(web_client) -> None:
     assert assigned.json()["tag_name"] == "AI"
     assert assigned.json()["subtag_name"] == "Agent"
     taxonomy = client.get("/api/v1/taxonomy").json()["tags"]
-    assert taxonomy[0]["name"] == "AI"
-    assert taxonomy[0]["children"][0]["name"] == "Agent"
+    ai = next(item for item in taxonomy if item["id"] == assigned.json()["tag_id"])
+    assert ai["name"] == "AI"
+    assert ai["children"][0]["name"] == "Agent"
     detail = client.get(f"/api/v1/articles/{article_id}").json()
     assert detail["classification"]["subtag_name"] == "Agent"
 
@@ -452,12 +453,38 @@ def test_taxonomy_localizes_and_merges_aliases(web_client) -> None:
     )
 
     assert first["tag_id"] == second["tag_id"]
-    english = client.get("/api/v1/taxonomy?locale=en-US").json()["tags"][0]
-    chinese = client.get("/api/v1/taxonomy?locale=zh-CN").json()["tags"][0]
+    english = next(
+        item
+        for item in client.get("/api/v1/taxonomy?locale=en-US").json()["tags"]
+        if item["id"] == first["tag_id"]
+    )
+    chinese = next(
+        item
+        for item in client.get("/api/v1/taxonomy?locale=zh-CN").json()["tags"]
+        if item["id"] == first["tag_id"]
+    )
     assert english["name"] == "AI Agents"
     assert "Agents" in english["aliases"]
     assert chinese["name"] == "智能体"
     assert chinese["description"] == "自主智能系统及其工作流。"
+
+
+def test_taxonomy_exposes_builtin_developer_processing_profile(web_client) -> None:
+    client, _, _ = web_client
+
+    english = client.get("/api/v1/taxonomy?locale=en-US").json()
+    chinese = client.get("/api/v1/taxonomy?locale=zh-CN").json()
+
+    assert english["profile"]["id"] == "developer"
+    assert english["profile"]["builtin"] is True
+    assert english["profile"]["editable"] is False
+    assert english["profile"]["name"] == "Developer"
+    assert chinese["profile"]["name"] == "开发者"
+    assert english["profile"]["inboxCategoryId"] == "builtin-developer-inbox"
+    assert any(
+        tag["id"] == "builtin-developer-tools-productivity"
+        for tag in english["tags"]
+    )
 
 
 def test_pipeline_defaults_are_localized_and_read_only(web_client) -> None:

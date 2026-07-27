@@ -10,6 +10,7 @@ from src.mcp.server import (
     classify_article,
     get_job,
     list_articles,
+    list_taxonomy,
     list_review_perspectives,
     _validate_article_id,
     _validate_upload_target,
@@ -123,6 +124,23 @@ async def test_classify_article_prefers_canonical_ids(monkeypatch) -> None:
     assert received["tag_id"] == "tag-1"
     assert received["subtag_id"] == "subtag-1"
     assert received["locale"] == "zh-CN"
+
+
+@pytest.mark.asyncio
+async def test_list_taxonomy_includes_processing_profile(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.application.service.get_processing_profile",
+        lambda **kwargs: {"id": "developer", "locale": kwargs["locale"]},
+    )
+    monkeypatch.setattr(
+        "src.application.service.list_taxonomy",
+        lambda **kwargs: [{"id": "category-1", "locale": kwargs["locale"]}],
+    )
+
+    result = await list_taxonomy("zh-CN")
+
+    assert result["profile"] == {"id": "developer", "locale": "zh-CN"}
+    assert result["tags"] == [{"id": "category-1", "locale": "zh-CN"}]
 
 
 @pytest.mark.asyncio
