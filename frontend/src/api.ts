@@ -65,10 +65,21 @@ export const api = {
     body: JSON.stringify(settings)
   }),
   getTaxonomy: () => request<{ tags: TaxonomyTag[] }>(localized("/api/v1/taxonomy")),
-  updateArticleClassification: (articleId: string, tagName: string, subtagName?: string, tagId?: string, subtagId?: string) =>
+  getManagedTaxonomy: () => request<{ tags: TaxonomyTag[] }>(localized("/api/v1/taxonomy?includeRetired=true")),
+  createTaxonomyCategory: (payload: { name: string; description: string; parentId?: string }) =>
+    request<{ category: TaxonomyTag }>(localized("/api/v1/taxonomy/categories"), {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  updateTaxonomyCategory: (tagId: string, payload: { name?: string; description?: string; retired?: boolean }) =>
+    request<{ category: TaxonomyTag }>(localized(`/api/v1/taxonomy/categories/${encodeURIComponent(tagId)}`), {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
+  updateArticleClassification: (articleId: string, tagId: string, subtagId?: string) =>
     request(localized(`/api/v1/articles/${encodeURIComponent(articleId)}/classification`), {
       method: "PATCH",
-      body: JSON.stringify({ tagName, subtagName: subtagName ?? "", tagId, subtagId })
+      body: JSON.stringify({ tagId, subtagId })
     }),
   getSettings: () => request<SettingsData>("/api/v1/settings"),
   updateSettings: (settings: SettingsUpdate) =>

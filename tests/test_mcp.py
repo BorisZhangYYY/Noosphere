@@ -8,6 +8,7 @@ import pytest
 
 from src.mcp.server import (
     classify_article,
+    create_taxonomy_category,
     get_job,
     list_articles,
     list_taxonomy,
@@ -16,6 +17,7 @@ from src.mcp.server import (
     _validate_upload_target,
     review_article,
     run_pipeline,
+    update_taxonomy_category,
 )
 
 
@@ -137,6 +139,36 @@ async def test_list_taxonomy_returns_user_owned_categories(monkeypatch) -> None:
 
     assert "profile" not in result
     assert result["tags"] == [{"id": "category-1", "locale": "zh-CN"}]
+
+
+@pytest.mark.asyncio
+async def test_taxonomy_management_tools_delegate_to_application(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.application.service.create_taxonomy_category",
+        lambda **kwargs: {"id": "new", **kwargs},
+    )
+    monkeypatch.setattr(
+        "src.application.service.update_taxonomy_category",
+        lambda tag_id, **kwargs: {"id": tag_id, **kwargs},
+    )
+
+    created = await create_taxonomy_category(
+        "Engineering",
+        "Software practices",
+        locale="en-US",
+    )
+    updated = await update_taxonomy_category(
+        "new",
+        name="软件工程",
+        retired=True,
+        locale="zh-CN",
+    )
+
+    assert created["category"]["id"] == "new"
+    assert created["category"]["name"] == "Engineering"
+    assert updated["category"]["id"] == "new"
+    assert updated["category"]["name"] == "软件工程"
+    assert updated["category"]["retired"] is True
 
 
 @pytest.mark.asyncio

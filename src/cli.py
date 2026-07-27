@@ -137,7 +137,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     taxonomy_subparsers = taxonomy_parser.add_subparsers(dest="taxonomy_command", required=True)
     taxonomy_list = taxonomy_subparsers.add_parser("list", help="List the canonical two-level taxonomy.")
     taxonomy_list.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_list.add_argument("--include-retired", action="store_true")
     taxonomy_list.add_argument("--json", action="store_true")
+    taxonomy_create = taxonomy_subparsers.add_parser("create", help="Create a top-level category or one child category.")
+    taxonomy_create.add_argument("--name", required=True)
+    taxonomy_create.add_argument("--description", default="")
+    taxonomy_create.add_argument("--parent-id", default="")
+    taxonomy_create.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_create.add_argument("--json", action="store_true")
+    taxonomy_update = taxonomy_subparsers.add_parser("update", help="Rename, describe, retire, or restore a category.")
+    taxonomy_update.add_argument("tag_id")
+    taxonomy_update.add_argument("--name")
+    taxonomy_update.add_argument("--description")
+    retirement = taxonomy_update.add_mutually_exclusive_group()
+    retirement.add_argument("--retire", action="store_true")
+    retirement.add_argument("--restore", action="store_true")
+    taxonomy_update.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_update.add_argument("--json", action="store_true")
     taxonomy_assign = taxonomy_subparsers.add_parser("assign", aliases=["move"], help="Assign an article to a tag path.")
     taxonomy_assign.add_argument("article_id")
     taxonomy_assign.add_argument("--tag-id")
@@ -445,14 +461,45 @@ async def _main_async(args: argparse.Namespace) -> int:
             return 1
 
     if args.command == "taxonomy":
-        from src.application.service import classify_article, list_taxonomy
+        from src.application.service import (
+            classify_article,
+            create_taxonomy_category,
+            list_taxonomy,
+            update_taxonomy_category,
+        )
 
         try:
             if args.taxonomy_command == "list":
-                payload = {"tags": list_taxonomy(locale=args.locale)}
+                payload = {
+                    "tags": list_taxonomy(
+                        locale=args.locale,
+                        include_retired=args.include_retired,
+                    )
+                }
+            elif args.taxonomy_command == "create":
+                payload = {
+                    "category": create_taxonomy_category(
+                        name=args.name,
+                        description=args.description,
+                        parent_id=args.parent_id or None,
+                        locale=args.locale,
+                    )
+                }
+            elif args.taxonomy_command == "update":
+                if args.name is None and args.description is None and not args.retire and not args.restore:
+                    raise ValueError("Provide a name, description, --retire, or --restore")
+                payload = {
+                    "category": update_taxonomy_category(
+                        args.tag_id,
+                        name=args.name,
+                        description=args.description,
+                        retired=True if args.retire else False if args.restore else None,
+                        locale=args.locale,
+                    )
+                }
             else:
-                if not args.tag_id and not args.tag_name:
-                    raise ValueError("Provide --tag-id for an existing category or --tag-name for a new category")
+                if not args.tag_id:
+                    raise ValueError("Provide --tag-id for a configured category")
                 payload = {
                     "classification": classify_article(
                         args.article_id,

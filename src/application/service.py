@@ -352,10 +352,46 @@ def set_article_image_state(
     return {"ok": True, "article_id": article_id, "name": asset_name, "state": state}
 
 
-def list_taxonomy(*, locale: str = "en-US") -> list[dict[str, Any]]:
+def list_taxonomy(*, locale: str = "en-US", include_retired: bool = False) -> list[dict[str, Any]]:
     from src.core.catalog import CatalogStore
 
-    return CatalogStore().list_tree(locale)
+    return CatalogStore().list_tree(locale, include_retired=include_retired)
+
+
+def create_taxonomy_category(
+    *,
+    name: str,
+    description: str = "",
+    parent_id: str | None = None,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    from src.core.catalog import CatalogStore
+
+    return CatalogStore().create_category(
+        name=name,
+        description=description,
+        parent_id=parent_id,
+        locale=locale,
+    )
+
+
+def update_taxonomy_category(
+    tag_id: str,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    retired: bool | None = None,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    from src.core.catalog import CatalogStore
+
+    return CatalogStore().update_category(
+        tag_id,
+        name=name,
+        description=description,
+        retired=retired,
+        locale=locale,
+    )
 
 
 def classify_article(
@@ -371,35 +407,18 @@ def classify_article(
     subtag_localizations: dict[str, dict[str, Any]] | None = None,
     locale: str = "en-US",
 ) -> dict[str, Any]:
-    """Assign an article by stable taxonomy IDs or create a localized path."""
+    """Assign an article by stable, user-configured taxonomy IDs."""
     _web_helpers()._safe_article_dir(article_id)
     from src.core.catalog import CatalogStore
 
-    store = CatalogStore()
-    if tag_id:
-        tree = store.list_tree(locale)
-        root = next((item for item in tree if item["id"] == tag_id), None)
-        if root is None:
-            raise ValueError(f"Top-level tag not found: {tag_id}")
-        child = next((item for item in root.get("children") or [] if item["id"] == subtag_id), None) if subtag_id else None
-        if subtag_id and child is None:
-            raise ValueError(f"Subtag {subtag_id} does not belong to {tag_id}")
-        tag_name = root["name"]
-        tag_description = root.get("description") or ""
-        subtag_name = child["name"] if child else ""
-        subtag_description = (child or {}).get("description") or ""
-    return store.assign(
+    if not tag_id:
+        raise ValueError("A configured top-level category ID is required")
+    return CatalogStore().assign_existing(
         article_id,
-        tag_name=tag_name,
-        tag_description=tag_description,
-        subtag_name=subtag_name or None,
-        subtag_description=subtag_description,
-        reason="Manual assignment",
-        locale=locale,
-        tag_localizations=tag_localizations,
-        subtag_localizations=subtag_localizations,
         tag_id=tag_id,
         subtag_id=subtag_id,
+        reason="Manual assignment",
+        locale=locale,
     )
 
 

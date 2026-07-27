@@ -1069,8 +1069,61 @@ async def get_taxonomy(request: Request) -> JSONResponse:
     from src.application.service import list_taxonomy
 
     locale = _request_language(request)
-    tree = await asyncio.to_thread(list_taxonomy, locale=locale)
+    include_retired = request.query_params.get("includeRetired", "").casefold() == "true"
+    tree = await asyncio.to_thread(
+        list_taxonomy,
+        locale=locale,
+        include_retired=include_retired,
+    )
     return JSONResponse({"tags": tree})
+
+
+async def create_taxonomy_category(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Category payload must be an object"}, status_code=400)
+    try:
+        from src.application.service import create_taxonomy_category as create_category
+
+        category = await asyncio.to_thread(
+            create_category,
+            name=str(payload.get("name") or ""),
+            description=str(payload.get("description") or ""),
+            parent_id=str(payload.get("parentId") or "") or None,
+            locale=_request_language(request),
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"category": category}, status_code=201)
+
+
+async def update_taxonomy_category(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Category payload must be an object"}, status_code=400)
+    retired = payload.get("retired")
+    if retired is not None and not isinstance(retired, bool):
+        return JSONResponse({"error": "retired must be a boolean"}, status_code=400)
+    try:
+        from src.application.service import update_taxonomy_category as update_category
+
+        category = await asyncio.to_thread(
+            update_category,
+            request.path_params["tag_id"],
+            name=str(payload["name"]) if "name" in payload else None,
+            description=str(payload["description"]) if "description" in payload else None,
+            retired=retired,
+            locale=_request_language(request),
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"category": category})
 
 
 async def update_article_classification(request: Request) -> JSONResponse:
@@ -1090,15 +1143,9 @@ async def update_article_classification(request: Request) -> JSONResponse:
         assignment = await asyncio.to_thread(
             classify_article,
             request.path_params["article_id"],
-            tag_name=str(payload.get("tagName") or ""),
-            tag_description=str(payload.get("tagDescription") or ""),
-            subtag_name=str(payload.get("subtagName") or "") or None,
-            subtag_description=str(payload.get("subtagDescription") or ""),
             locale=_request_language(request),
             tag_id=str(payload.get("tagId") or "") or None,
             subtag_id=str(payload.get("subtagId") or "") or None,
-            tag_localizations=payload.get("tagLocalizations") if isinstance(payload.get("tagLocalizations"), dict) else None,
-            subtag_localizations=payload.get("subtagLocalizations") if isinstance(payload.get("subtagLocalizations"), dict) else None,
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)

@@ -123,6 +123,7 @@ export interface TaxonomyTag {
   description: string;
   aliases: string[];
   parent_id: string | null;
+  retired: boolean;
   children: TaxonomyTag[];
 }
 

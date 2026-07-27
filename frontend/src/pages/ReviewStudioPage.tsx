@@ -1,6 +1,7 @@
 import { MagicWand, BracketsCurly, FileText } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { PipelineSettingsPanel } from "../components/PipelineSettingsPanel";
+import { TaxonomyManager } from "../components/TaxonomyManager";
 
 export function ReviewStudioPage() {
   const { t } = useTranslation();
@@ -21,6 +22,7 @@ export function ReviewStudioPage() {
         </div>
       </header>
       <PipelineSettingsPanel />
+      <TaxonomyManager />
     </div>
   );
 }

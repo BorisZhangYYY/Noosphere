@@ -105,7 +105,14 @@ export function ArticlePage() {
     onSuccess: (job) => { setDirty(false); setReviewJobId(job.id); }
   });
   const classificationMutation = useMutation({
-    mutationFn: () => api.updateArticleClassification(articleId, tagName, subtagName || undefined, selectedTag?.id, selectedTag?.children.find((item) => item.name === subtagName)?.id),
+    mutationFn: () => {
+      if (!selectedTag) throw new Error(t("article.noClassification"));
+      return api.updateArticleClassification(
+        articleId,
+        selectedTag.id,
+        selectedTag.children.find((item) => item.name === subtagName)?.id
+      );
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
       await queryClient.invalidateQueries({ queryKey: ["taxonomy"] });

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - (2026-07-27) Added an empty, user-owned taxonomy foundation: new workspaces no longer receive product-owned categories or profiles, while existing user-created bilingual category paths remain intact across Web, MCP, and CLI.
+- (2026-07-27) Added two-level category management to Review Studio, Web API, MCP, and CLI: users can create, rename, describe, retire, and restore their own categories, while deeper nesting and assignment to retired categories are rejected.
 
 ### Fixed
 

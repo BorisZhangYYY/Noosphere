@@ -29,16 +29,18 @@ Content updates affect the editable reviewed copy. Image state operations use th
 ### Knowledge organization
 
 - `list_taxonomy`
+- `create_taxonomy_category`
+- `update_taxonomy_category`
 - `classify_article`
 
 Safe classification flow:
 
 1. Call `list_taxonomy` using the preferred locale.
-2. Select an existing `tag_id` and optional `subtag_id`.
-3. Call `classify_article` with the stable IDs.
-4. Supply bilingual localization objects only when intentionally creating a new category path.
+2. If the intended category is missing, create it explicitly with `create_taxonomy_category`; pass a top-level `parent_id` only for the optional second level.
+3. Select an active `tag_id` and optional `subtag_id`.
+4. Call `classify_article` with the stable IDs.
 
-Localized names are presentation data, not category identities. This prevents `AI Agent`, `Agents`, and `智能体` from becoming unrelated categories.
+Use `update_taxonomy_category` to localize, rename, describe, retire, or restore a category. Localized names are presentation data, not category identities.
 
 ### Review design
 

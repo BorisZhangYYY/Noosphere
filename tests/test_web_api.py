@@ -110,6 +110,27 @@ def web_client(monkeypatch, tmp_path: Path):
     clear_config_cache()
 
 
+def _create_category_path(client: TestClient, root_name: str, child_name: str | None = None) -> tuple[str, str | None]:
+    root_response = client.post(
+        "/api/v1/taxonomy/categories",
+        json={"name": root_name, "description": f"{root_name} description"},
+    )
+    assert root_response.status_code == 201
+    root_id = root_response.json()["category"]["id"]
+    if child_name is None:
+        return root_id, None
+    child_response = client.post(
+        "/api/v1/taxonomy/categories",
+        json={
+            "name": child_name,
+            "description": f"{child_name} description",
+            "parentId": root_id,
+        },
+    )
+    assert child_response.status_code == 201
+    return root_id, child_response.json()["category"]["id"]
+
+
 def test_list_and_read_article(web_client) -> None:
     client, _, article_id = web_client
     listing = client.get("/api/v1/articles")
@@ -155,9 +176,10 @@ def test_articles_support_batch_trash_restore_and_permanent_delete(web_client) -
     second_manifest["article_id"] = second_id
     second_manifest["article"]["title"] = "Second article"
     second_manifest_path.write_text(json.dumps(second_manifest), encoding="utf-8")
+    tag_id, subtag_id = _create_category_path(client, "Release QA", "Deletion")
     assert client.patch(
         f"/api/v1/articles/{article_id}/classification",
-        json={"tagName": "Release QA", "subtagName": "Deletion"},
+        json={"tagId": tag_id, "subtagId": subtag_id},
     ).status_code == 200
     assert client.get(f"/api/v1/articles/{article_id}").json()["operationSummary"]["captureCount"] == 1
 
@@ -355,15 +377,11 @@ def test_frontend_client_routes_serve_spa_entry(web_client) -> None:
 
 def test_article_can_be_assigned_to_two_level_taxonomy(web_client) -> None:
     client, _, article_id = web_client
+    tag_id, subtag_id = _create_category_path(client, "AI", "Agent")
 
     assigned = client.patch(
         f"/api/v1/articles/{article_id}/classification",
-        json={
-            "tagName": "AI",
-            "tagDescription": "Artificial intelligence",
-            "subtagName": "Agent",
-            "subtagDescription": "Autonomous AI systems",
-        },
+        json={"tagId": tag_id, "subtagId": subtag_id},
     )
 
     assert assigned.status_code == 200
@@ -377,27 +395,67 @@ def test_article_can_be_assigned_to_two_level_taxonomy(web_client) -> None:
     assert detail["classification"]["subtag_name"] == "Agent"
 
 
+def test_taxonomy_categories_can_be_managed_and_retired(web_client) -> None:
+    client, _, article_id = web_client
+    root_id, child_id = _create_category_path(client, "Engineering", "Testing")
+    assert child_id is not None
+
+    too_deep = client.post(
+        "/api/v1/taxonomy/categories",
+        json={"name": "Unit tests", "parentId": child_id},
+    )
+    assert too_deep.status_code == 400
+    assert "two levels" in too_deep.json()["error"]
+
+    renamed = client.patch(
+        f"/api/v1/taxonomy/categories/{child_id}",
+        json={"name": "Software Testing", "description": "Verification practices"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["category"]["name"] == "Software Testing"
+
+    retired = client.patch(
+        f"/api/v1/taxonomy/categories/{root_id}",
+        json={"retired": True},
+    )
+    assert retired.status_code == 200
+    assert retired.json()["category"]["retired"] is True
+    assert client.get("/api/v1/taxonomy").json()["tags"] == []
+    managed = client.get("/api/v1/taxonomy?includeRetired=true").json()["tags"]
+    assert managed[0]["retired"] is True
+    assert managed[0]["children"][0]["retired"] is True
+    rejected = client.patch(
+        f"/api/v1/articles/{article_id}/classification",
+        json={"tagId": root_id, "subtagId": child_id},
+    )
+    assert rejected.status_code == 400
+    assert "retired" in rejected.json()["error"]
+
+
 def test_web_mcp_and_cli_share_canonical_taxonomy_ids(web_client, capsys) -> None:
     client, _, article_id = web_client
     from src.cli import _main_async, parse_args
     from src.mcp.server import classify_article as mcp_classify_article
 
+    root = client.post(
+        "/api/v1/taxonomy/categories?locale=en-US",
+        json={"name": "AI", "description": "Artificial intelligence"},
+    ).json()["category"]
+    child = client.post(
+        "/api/v1/taxonomy/categories?locale=en-US",
+        json={"name": "Agents", "description": "Autonomous AI systems", "parentId": root["id"]},
+    ).json()["category"]
+    assert client.patch(
+        f"/api/v1/taxonomy/categories/{root['id']}?locale=zh-CN",
+        json={"name": "人工智能", "description": "人工智能相关内容"},
+    ).status_code == 200
+    assert client.patch(
+        f"/api/v1/taxonomy/categories/{child['id']}?locale=zh-CN",
+        json={"name": "智能体", "description": "自主智能系统"},
+    ).status_code == 200
     web_assignment = client.patch(
         f"/api/v1/articles/{article_id}/classification",
-        json={
-            "tagName": "AI",
-            "tagDescription": "Artificial intelligence",
-            "subtagName": "Agents",
-            "subtagDescription": "Autonomous AI systems",
-            "tagLocalizations": {
-                "en-US": {"name": "AI", "description": "Artificial intelligence", "aliases": ["Artificial Intelligence"]},
-                "zh-CN": {"name": "人工智能", "description": "人工智能相关内容", "aliases": ["AI"]},
-            },
-            "subtagLocalizations": {
-                "en-US": {"name": "Agents", "description": "Autonomous AI systems", "aliases": ["AI Agent"]},
-                "zh-CN": {"name": "智能体", "description": "自主智能系统", "aliases": ["Agent"]},
-            },
-        },
+        json={"tagId": root["id"], "subtagId": child["id"]},
     ).json()
 
     mcp_result = asyncio.run(

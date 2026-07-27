@@ -40,6 +40,31 @@ def test_taxonomy_move_accepts_stable_ids_and_localizations() -> None:
     assert args.json is True
 
 
+def test_taxonomy_create_and_update_accept_management_fields() -> None:
+    created = parse_args([
+        "taxonomy", "create",
+        "--name", "Engineering",
+        "--description", "Software practices",
+        "--parent-id", "root-1",
+        "--locale", "en-US",
+        "--json",
+    ])
+    updated = parse_args([
+        "taxonomy", "update", "root-1",
+        "--name", "软件工程",
+        "--description", "软件实践",
+        "--retire",
+        "--locale", "zh-CN",
+        "--json",
+    ])
+
+    assert created.taxonomy_command == "create"
+    assert created.parent_id == "root-1"
+    assert updated.taxonomy_command == "update"
+    assert updated.retire is True
+    assert updated.locale == "zh-CN"
+
+
 def test_perspective_save_accepts_template_contract(tmp_path) -> None:
     prompt = tmp_path / "prompt.md"
     template = tmp_path / "template.md"

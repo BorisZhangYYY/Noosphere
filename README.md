@@ -103,7 +103,7 @@ AI fills typed content slots. Noosphere assembles the final metadata block, head
 
 ### Canonical bilingual taxonomy
 
-Classification follows `tag → subtag → article`. A tag has a stable ID, localized names and descriptions, and aliases. Labels such as `AI Agent`, `Agents`, and `智能体` can therefore resolve to one canonical category.
+Classification follows `category → optional subcategory → article`, with at most two directory levels. New workspaces start empty. Users create and describe category boundaries in Review Studio; Noosphere assigns articles only to active, stable category IDs and never invents a category during manual assignment.
 
 ### Independent image review
 
@@ -115,7 +115,7 @@ The text-review provider and image-review provider are configured independently.
 |---|---|---|---|
 | Extract, review, upload, full pipeline | Background actions | Synchronous tools and `start_*` jobs | Foreground commands with JSON output |
 | Article list, detail, and reviewed Markdown update | Library and editor | `list_articles`, `get_article`, `update_article_content` | `articles list/show/update` |
-| Two-level bilingual taxonomy | Category controls | `list_taxonomy`, `classify_article` | `taxonomy list/assign/move` |
+| Two-level bilingual taxonomy | Review Studio category controls | `list_taxonomy`, `create_taxonomy_category`, `update_taxonomy_category`, `classify_article` | `taxonomy list/create/update/assign/move` |
 | Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
 | Review perspectives and templates | Review Studio | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
 | Provider, crawler, and archive settings | Settings page | Masked get/update/activate/test tools | `config show/apply/activate/test` |
