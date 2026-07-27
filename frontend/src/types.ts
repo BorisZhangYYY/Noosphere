@@ -107,6 +107,8 @@ export interface ArticleClassification {
   tag_name: string;
   subtag_id: string | null;
   subtag_name: string | null;
+  confidence: number;
+  source: "ai" | "manual" | string;
 }
 
 export interface ArticleOperationSummary {

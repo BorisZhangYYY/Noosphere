@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -102,3 +103,97 @@ def test_category_management_enforces_two_levels_and_retirement(catalog_store) -
     )
     assert assignment["tag_id"] == root["id"]
     assert assignment["subtag_id"] == child["id"]
+
+
+@pytest.mark.asyncio
+async def test_auto_classification_skips_ai_when_taxonomy_is_empty(
+    catalog_store,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from src.core.catalog import classify_reviewed_article
+
+    reviewed_path = tmp_path / "reviewed.md"
+    reviewed_path.write_text("# Article\n", encoding="utf-8")
+
+    async def unexpected_generate(*args, **kwargs):
+        raise AssertionError("AI must not run without user-configured categories")
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", unexpected_generate)
+    result = await classify_reviewed_article("article", reviewed_path)
+
+    assert result["classified"] is False
+    assert result["confidence"] == 0
+    assert catalog_store.get_assignment("article") is None
+
+
+@pytest.mark.asyncio
+async def test_auto_classification_only_assigns_existing_category_ids(
+    catalog_store,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from src.core.catalog import classify_reviewed_article
+
+    root = catalog_store.create_category(name="Software Engineering", description="Software delivery.")
+    child = catalog_store.create_category(
+        name="AI-Assisted Development",
+        description="AI tools used in software delivery.",
+        parent_id=root["id"],
+    )
+    reviewed_path = tmp_path / "reviewed.md"
+    reviewed_path.write_text("# Coding agents\n\nAI-assisted engineering practices.", encoding="utf-8")
+
+    async def fake_generate(self, system_prompt: str, user_prompt: str):
+        assert "Never create" in system_prompt
+        assert root["id"] in user_prompt
+        return SimpleNamespace(text=json.dumps({
+            "tag_id": root["id"],
+            "subtag_id": child["id"],
+            "confidence": 0.91,
+            "reason": "The article covers AI-supported delivery.",
+        }))
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", fake_generate)
+    monkeypatch.setattr("src.integrations.ai_client.resolve_ai_settings", lambda config: SimpleNamespace())
+    result = await classify_reviewed_article("article", reviewed_path)
+
+    assert result["classified"] is True
+    assert result["tag_id"] == root["id"]
+    assert result["subtag_id"] == child["id"]
+    assert result["confidence"] == pytest.approx(0.91)
+    assert result["source"] == "ai"
+    assert len(catalog_store.list_tree()) == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_classification_rejects_unknown_or_low_confidence_results(
+    catalog_store,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from src.core.catalog import classify_reviewed_article
+
+    root = catalog_store.create_category(name="Software Engineering")
+    catalog_store.assign_existing("article", tag_id=root["id"])
+    reviewed_path = tmp_path / "reviewed.md"
+    reviewed_path.write_text("# Unrelated article\n", encoding="utf-8")
+    responses = iter([
+        {"tag_id": "invented-category", "subtag_id": None, "confidence": 0.95, "reason": "Invented"},
+        {"tag_id": root["id"], "subtag_id": None, "confidence": 0.42, "reason": "Weak match"},
+    ])
+
+    async def fake_generate(self, system_prompt: str, user_prompt: str):
+        return SimpleNamespace(text=json.dumps(next(responses)))
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", fake_generate)
+    monkeypatch.setattr("src.integrations.ai_client.resolve_ai_settings", lambda config: SimpleNamespace())
+    unknown = await classify_reviewed_article("article", reviewed_path)
+    low_confidence = await classify_reviewed_article("article", reviewed_path)
+
+    assert unknown["classified"] is False
+    assert "unknown category" in unknown["reason"]
+    assert low_confidence["classified"] is False
+    assert low_confidence["confidence"] == pytest.approx(0.42)
+    assert catalog_store.get_assignment("article") is None
+    assert [item["name"] for item in catalog_store.list_tree()] == ["Software Engineering"]

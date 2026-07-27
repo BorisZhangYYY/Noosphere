@@ -88,6 +88,15 @@ class CatalogStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS noosphere_article_classification_details (
+                    article_id TEXT PRIMARY KEY,
+                    confidence REAL NOT NULL DEFAULT 1,
+                    source TEXT NOT NULL DEFAULT 'manual'
+                )
+                """
+            )
 
     def list_tree(self, locale: str = "en-US", *, include_retired: bool = False) -> list[dict[str, Any]]:
         self.ensure_schema()
@@ -343,9 +352,14 @@ class CatalogStore:
         subtag_id: str | None = None,
         reason: str = "",
         locale: str = "en-US",
+        confidence: float = 1.0,
+        source: str = "manual",
     ) -> dict[str, Any]:
         """Assign an article to active, preconfigured category IDs only."""
         self.ensure_schema()
+        if not 0 <= confidence <= 1:
+            raise ValueError("Classification confidence must be between 0 and 1")
+        source = source.strip() or "manual"
         marker = self._placeholder
         with self._connect() as connection:
             root = connection.execute(
@@ -398,6 +412,17 @@ class CatalogStore:
                     """,
                     values,
                 )
+            connection.execute(
+                f"""
+                INSERT INTO noosphere_article_classification_details
+                    (article_id, confidence, source)
+                VALUES ({marker}, {marker}, {marker})
+                ON CONFLICT(article_id) DO UPDATE SET
+                    confidence = excluded.confidence,
+                    source = excluded.source
+                """,
+                (article_id, confidence, source),
+            )
         assignment = self.get_assignment(article_id, locale)
         if assignment is None:
             raise RuntimeError("Category assignment was not persisted")
@@ -413,10 +438,13 @@ class CatalogStore:
                 f"""
                 SELECT a.article_id, a.reason,
                        t.id AS tag_id, COALESCE(tl.name, t.name) AS tag_name,
-                       s.id AS subtag_id, COALESCE(sl.name, s.name) AS subtag_name
+                       s.id AS subtag_id, COALESCE(sl.name, s.name) AS subtag_name,
+                       COALESCE(d.confidence, 1) AS confidence,
+                       COALESCE(d.source, 'manual') AS source
                 FROM noosphere_article_tags a
                 JOIN noosphere_tags t ON t.id = a.tag_id
                 LEFT JOIN noosphere_tags s ON s.id = a.subtag_id
+                LEFT JOIN noosphere_article_classification_details d ON d.article_id = a.article_id
                 LEFT JOIN noosphere_tag_localizations tl ON tl.tag_id = t.id AND tl.locale = {marker}
                 LEFT JOIN noosphere_tag_localizations sl ON sl.tag_id = s.id AND sl.locale = {marker}
                 WHERE a.article_id = {marker}
@@ -456,6 +484,10 @@ class CatalogStore:
         self.ensure_schema()
         marker = self._placeholder
         with self._connect() as connection:
+            connection.execute(
+                f"DELETE FROM noosphere_article_classification_details WHERE article_id = {marker}",
+                (article_id,),
+            )
             connection.execute(
                 f"DELETE FROM noosphere_article_tags WHERE article_id = {marker}",
                 (article_id,),
@@ -625,6 +657,16 @@ async def classify_reviewed_article(article_id: str, reviewed_path: Path, locale
     config = load_config()
     store = CatalogStore()
     taxonomy = store.list_tree(locale)
+    if not taxonomy:
+        store.delete_assignment(article_id)
+        return {
+            "article_id": article_id,
+            "classified": False,
+            "confidence": 0.0,
+            "reason": "No active categories are configured",
+            "tag_name": None,
+            "subtag_name": None,
+        }
     system_prompt = parse_prompt_file(
         resolve_project_path(config.pipeline.classification_prompt_path)
     ).body
@@ -643,34 +685,42 @@ async def classify_reviewed_article(article_id: str, reviewed_path: Path, locale
     finally:
         reset_event_sink(token)
     payload = _extract_json_object(response.text)
-    tag = payload.get("tag")
-    subtag = payload.get("subtag")
-    if not isinstance(tag, dict):
-        raise ValueError("Classification response is missing tag")
-    if subtag is not None and not isinstance(subtag, dict):
-        raise ValueError("Classification subtag must be an object or null")
-    def translations(value: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-        if not value:
-            return {}
-        raw = value.get("translations") or value.get("localizations") or {}
-        return raw if isinstance(raw, dict) else {}
-
-    tag_translations = translations(tag)
-    subtag_translations = translations(subtag) if subtag else {}
-    tag_name = str(tag.get("name") or (tag_translations.get(locale) or {}).get("name") or (next(iter(tag_translations.values()), {})).get("name") or "").strip()
-    subtag_name = str(subtag.get("name") or (subtag_translations.get(locale) or {}).get("name") or (next(iter(subtag_translations.values()), {})).get("name") or "").strip() if subtag else None
-    if not tag_name:
-        raise ValueError("Classification response is missing a tag name")
-    return store.assign(
-        article_id,
-        tag_name=tag_name,
-        tag_description=str(tag.get("description") or ""),
-        subtag_name=subtag_name,
-        subtag_description=str(subtag.get("description") or "") if subtag else "",
-        reason=str(payload.get("reason") or ""),
-        locale=locale,
-        tag_localizations=tag_translations,
-        subtag_localizations=subtag_translations,
-        tag_id=str(tag.get("id") or "") or None,
-        subtag_id=str(subtag.get("id") or "") or None if subtag else None,
-    )
+    tag_id = str(payload.get("tag_id") or "").strip()
+    subtag_id = str(payload.get("subtag_id") or "").strip() or None
+    reason = str(payload.get("reason") or "").strip()
+    try:
+        confidence = float(payload.get("confidence") or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(confidence, 1.0))
+    if not tag_id or confidence < 0.6:
+        store.delete_assignment(article_id)
+        return {
+            "article_id": article_id,
+            "classified": False,
+            "confidence": confidence,
+            "reason": reason or "No configured category matched with sufficient confidence",
+            "tag_name": None,
+            "subtag_name": None,
+        }
+    try:
+        assignment = store.assign_existing(
+            article_id,
+            tag_id=tag_id,
+            subtag_id=subtag_id,
+            reason=reason,
+            locale=locale,
+            confidence=confidence,
+            source="ai",
+        )
+    except ValueError as exc:
+        store.delete_assignment(article_id)
+        return {
+            "article_id": article_id,
+            "classified": False,
+            "confidence": confidence,
+            "reason": f"AI returned an unknown category: {exc}",
+            "tag_name": None,
+            "subtag_name": None,
+        }
+    return {**assignment, "classified": True}

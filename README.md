@@ -103,7 +103,7 @@ AI fills typed content slots. Noosphere assembles the final metadata block, head
 
 ### Canonical bilingual taxonomy
 
-Classification follows `category → optional subcategory → article`, with at most two directory levels. New workspaces start empty. Users create and describe category boundaries in Review Studio; Noosphere assigns articles only to active, stable category IDs and never invents a category during manual assignment.
+Classification follows `category → optional subcategory → article`, with at most two directory levels. New workspaces start empty. Users create and describe category boundaries in Review Studio; both manual moves and AI organization use only active, stable category IDs. AI results below the confidence threshold remain explicitly unclassified instead of inventing a directory.
 
 ### Independent image review
 

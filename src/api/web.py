@@ -160,8 +160,11 @@ async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective:
                 from src.core.localization import resolve_output_language
                 classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
                 assignment = await classify_reviewed_article(reviewed_path.parent.name, reviewed_path, classification_language)
-                label = assignment.get("subtag_name") or assignment.get("tag_name") or ""
-                _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
+                if assignment.get("classified") is False:
+                    _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(assignment.get("reason") or ""))
+                else:
+                    label = assignment.get("subtag_name") or assignment.get("tag_name") or ""
+                    _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
             except Exception as exc:
                 _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
             if review_mode == "auto_upload":
@@ -311,7 +314,12 @@ async def _run_article_review_job(job_id: str, article_id: str, perspective: str
             from src.core.catalog import classify_reviewed_article
             from src.core.localization import resolve_output_language
             classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
-            await classify_reviewed_article(article_id, reviewed_path, classification_language)
+            assignment = await classify_reviewed_article(article_id, reviewed_path, classification_language)
+            if assignment.get("classified") is False:
+                _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(assignment.get("reason") or ""))
+            else:
+                label = assignment.get("subtag_name") or assignment.get("tag_name") or ""
+                _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
         except Exception as exc:
             _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
         _add_job_event(job, "system", "pipeline.events.articleReviewCompleted", level="success")

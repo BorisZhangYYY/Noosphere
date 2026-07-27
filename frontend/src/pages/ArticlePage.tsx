@@ -194,6 +194,7 @@ export function ArticlePage() {
             {taxonomyQuery.data?.tags.length ? <div className="classification-controls">
               <InlineSelect value={tagName || taxonomyQuery.data.tags[0].name} ariaLabel={t("article.tag")} onChange={(value) => { setTagName(value); setSubtagName(""); }} disabled={readOnly} options={taxonomyQuery.data.tags.map((tag) => ({ value: tag.name, label: tag.name, description: tag.description }))} />
               {selectedTag?.children.length ? <InlineSelect value={subtagName || "__none"} ariaLabel={t("article.subtag")} onChange={(value) => setSubtagName(value === "__none" ? "" : value)} disabled={readOnly} options={[{ value: "__none", label: t("article.noSubtag") }, ...selectedTag.children.map((tag) => ({ value: tag.name, label: tag.name, description: tag.description }))]} /> : null}
+              {article.classification?.source === "ai" && <p className="rail-note">{t("article.aiClassificationConfidence", { confidence: Math.round(article.classification.confidence * 100) })}</p>}
               <button className="button-secondary" type="button" onClick={() => classificationMutation.mutate()} disabled={readOnly || !tagName || classificationMutation.isPending}>{t("article.moveCategory")}</button>
             </div> : <p className="rail-note">{t("article.noClassification")}</p>}
           </section>
