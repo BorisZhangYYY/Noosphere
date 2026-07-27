@@ -18,6 +18,7 @@ from starlette.responses import FileResponse, JSONResponse
 
 from src.core.config.config import clear_config_cache, config_path, load_config
 from src.core.config.schema import Config
+from src.core.markdown.cleaner import extract_title_from_markdown
 from src.integrations.assets import MARKDOWN_IMAGE_RE, split_image_target
 
 
@@ -407,9 +408,16 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         return None
     article = manifest.get("article") or {}
     downloaded = (manifest.get("assets") or {}).get("downloaded") or []
-    metadata = _markdown_metadata(manifest_path.parent / "reviewed.md")
+    reviewed_path = manifest_path.parent / "reviewed.md"
+    raw_path = manifest_path.parent / "raw.md"
+    display_title = (
+        _markdown_title(reviewed_path)
+        or _markdown_title(raw_path)
+        or str(article.get("title") or manifest_path.parent.name)
+    )
+    metadata = _markdown_metadata(reviewed_path)
     if not metadata:
-        metadata = _markdown_metadata(manifest_path.parent / "raw.md")
+        metadata = _markdown_metadata(raw_path)
     article_id = str(manifest.get("article_id") or manifest_path.parent.name)
     classification = None
     catalog_search_terms: list[str] = []
@@ -438,7 +446,7 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         logger.warning("Article activity unavailable for %s: %s", article_id, _exception_message(exc))
     return {
         "id": article_id,
-        "title": str(article.get("title") or manifest_path.parent.name),
+        "title": display_title,
         "url": str(article.get("url") or ""),
         "platform": str(article.get("platform") or "unknown"),
         "platformLabel": str(article.get("platform_label") or article.get("platform") or "Unknown"),
@@ -448,8 +456,18 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         "assetsCount": len(downloaded),
         "classification": classification,
         "operationSummary": operations,
-        "searchTerms": [value for value in [article.get("title"), article.get("author"), article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog_search_terms] if value],
+        "searchTerms": [value for value in [display_title, article.get("title"), article.get("author"), article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog_search_terms] if value],
     }
+
+
+def _markdown_title(path: Path) -> str | None:
+    """Read the first Markdown H1 so edited and reviewed titles stay current."""
+    if not path.is_file():
+        return None
+    try:
+        return extract_title_from_markdown(path.read_text(encoding="utf-8")[:12000])
+    except OSError:
+        return None
 
 
 def _markdown_metadata(path: Path) -> dict[str, str]:

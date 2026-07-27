@@ -115,9 +115,11 @@ def test_list_and_read_article(web_client) -> None:
     listing = client.get("/api/v1/articles")
     assert listing.status_code == 200
     assert listing.json()["articles"][0]["id"] == article_id
+    assert listing.json()["articles"][0]["title"] == "Reviewed"
 
     detail = client.get(f"/api/v1/articles/{article_id}")
     assert detail.status_code == 200
+    assert detail.json()["title"] == "Reviewed"
     assert detail.json()["reviewedMarkdown"].startswith("# Reviewed\n")
     assert "assets/image.png" in detail.json()["displayMarkdown"]
     assert detail.json()["assets"][0]["name"] == "image.png"
