@@ -96,3 +96,5 @@ docker compose up -d --build
 ```
 
 Do not delete `.noosphere/` or a custom `NOOSPHERE_DATA_DIR` unless the stored configuration, articles, and database are no longer needed.
+
+For extraction, provider, image-review, SiYuan, PostgreSQL, and build failures, see [Troubleshooting](troubleshooting.md).

@@ -157,6 +157,7 @@ Noosphere/
 
 - [Documentation index](docs/README.md)
 - [Installation and deployment](docs/installation.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [CLI reference](docs/cli-reference.md)
 - [MCP reference](docs/mcp-reference.md)
 - [Configuration and portable data](docs/configuration.md)

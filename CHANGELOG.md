@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.2] - 2026-07-27
 
 ### Added
 
@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - (2026-07-27) Restart PostgreSQL automatically with Docker Desktop and the Docker daemon by applying the same `unless-stopped` policy used by the Noosphere service.
 - (2026-07-27) Keep provider capability indicators on one line by presenting compact, accessible text/image icons instead of repeated visible labels.
 - (2026-07-27) Prefer the current reviewed Markdown heading in article lists and details, preventing a crawler fallback such as `微信公众号文章` from hiding the title recovered during AI review.
+
+### Changed
+
+- (2026-07-27) Added release-verified troubleshooting guidance for extraction, provider connectivity, image review, SiYuan upload, PostgreSQL restart behavior, and transient Docker build failures.
 
 ## [0.3.1.5] - 2026-07-26
 

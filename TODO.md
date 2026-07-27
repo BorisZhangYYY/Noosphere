@@ -2,20 +2,6 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
-## Planned for v0.3.2
-
-### User-owned knowledge organization
-
-The v0.3.2 goal is to make article organization predictable while keeping Noosphere focused on article processing and MCP support for a separate knowledge workspace. Noosphere must not import, scan, or depend on an external personal-profile project.
-
-Two of the eight issue slots are already consumed by completed work recorded under `[Unreleased]` in `CHANGELOG.md`. The approved Docker Compose restart correction remains pre-scope Issue 0.
-
-### Documentation and release quality
-
-- [ ] Add troubleshooting cases from real extraction, provider-connectivity, image-review, and SiYuan-upload failures as they are reproduced.
-- [ ] Verify every documented CLI command and MCP tool example against the v0.3.2 build before tagging.
-- [ ] Run backend tests, frontend build, Docker health checks, PostgreSQL persistence checks, and public-image smoke tests before release.
-
 ## Deferred Beyond v0.3.2
 
 - [ ] **Multi-label article facets.** Add many-to-many labels for central topics/entities and content forms only after the primary two-level category workflow has proved stable.
