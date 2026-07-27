@@ -4,18 +4,18 @@ This file contains only unresolved, deliberately deferred, or release-blocking w
 
 ## Planned for v0.3.2
 
-### Bilingual terminology glossary
+### Developer-oriented knowledge organization
 
-The v0.3.2 feature goal is consistent terminology across translated reviews without rewriting user-authored custom prompts.
+The v0.3.2 goal is to make article organization predictable for a developer-oriented workflow without turning Noosphere into a general-purpose note-taking or personal-profile application.
 
-- [ ] Define the canonical glossary record: stable ID, source term, Simplified Chinese and English preferred forms, aliases, protected/no-translate flag, optional domain, and notes.
-- [ ] Define deterministic matching and conflict precedence for exact terms, aliases, product names, case variants, and overlapping phrases.
-- [ ] Persist glossary entries in shared application storage and provide migration-safe import/export in a human-readable format.
-- [ ] Apply the glossary during AI review and translation while preserving code, URLs, quoted source text, and user-authored custom prompt content.
-- [ ] Add glossary management to the web workspace with layouts that accommodate longer English descriptions without clipping.
-- [ ] Expose equivalent list, create/update, delete, import, and export operations through MCP and CLI.
-- [ ] Record glossary-assisted review activity in the existing per-article operation history without storing or exposing provider secrets.
-- [ ] Add bilingual matching, precedence, migration, Web/MCP/CLI parity, and end-to-end review tests.
+Two of the eight issue slots are already consumed by the provider-capability layout fix and reviewed-title recovery recorded under `[Unreleased]` in `CHANGELOG.md`. The approved Docker Compose restart correction remains pre-scope Issue 0.
+
+- [ ] **Issue 3 — Built-in developer processing profile and starter taxonomy.** Provide one versioned, product-owned developer profile that seeds a stable two-level category tree. It must contain no imported personal data and no dependency on another project.
+- [ ] **Issue 4 — Closed-set category management.** Let users create, rename, and retire categories explicitly; automatic classification may select existing category IDs or `Inbox`, but may not create categories.
+- [ ] **Issue 5 — Multi-label article facets.** Add many-to-many labels for central topics/entities and content forms while preserving exactly one primary category path per article.
+- [ ] **Issue 6 — Profile-aware automatic organization.** Classify against the active profile, closed taxonomy, and existing labels; persist reason and confidence, and route uncertain results to `Inbox`.
+- [ ] **Issue 7 — Protected metadata editing boundary.** Separate structured source metadata from editable article content, permanently lock system fields, and expose controlled inputs only for genuinely missing enrichable fields.
+- [ ] **Issue 8 — Evidence-backed AI metadata enrichment.** Allow review to fill only missing enrichable fields, require source evidence and provenance, reject overwrites, and record every accepted or reverted enrichment.
 
 ### Documentation and release quality
 
@@ -24,6 +24,8 @@ The v0.3.2 feature goal is consistent terminology across translated reviews with
 - [ ] Run backend tests, frontend build, Docker health checks, PostgreSQL persistence checks, and public-image smoke tests before release.
 
 ## Deferred Beyond v0.3.2
+
+- [ ] **Bilingual terminology glossary.** Define canonical multilingual terms, deterministic matching, protected/no-translate behavior, import/export, Web/MCP/CLI parity, and review-history integration in a later version.
 
 - [ ] **Semantic knowledge search and RAG Q&A.** Keep the current cross-language search lightweight until the embedding model, vector storage or Elasticsearch strategy, citation model, and re-indexing lifecycle receive a separate design pass.
 
