@@ -142,6 +142,9 @@ def test_list_and_read_article(web_client) -> None:
     assert detail.status_code == 200
     assert detail.json()["title"] == "Reviewed"
     assert detail.json()["reviewedMarkdown"].startswith("# Reviewed\n")
+    assert detail.json()["editableMarkdown"].startswith("# Reviewed\n")
+    assert "> Source:" not in detail.json()["editableMarkdown"]
+    assert detail.json()["metadata"]["author"]["editable"] is False
     assert "assets/image.png" in detail.json()["displayMarkdown"]
     assert detail.json()["assets"][0]["name"] == "image.png"
 
@@ -327,7 +330,7 @@ def test_markdown_metadata_accepts_bold_field_names(web_client) -> None:
     manifest["article"].pop("published_at", None)
     (article_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     markdown = "# Article\n\n> **Author**: Ada Lovelace\n> **Published**: 2026-07-22\n"
-    (article_dir / "reviewed.md").write_text(markdown, encoding="utf-8")
+    (article_dir / "raw.md").write_text(markdown, encoding="utf-8")
 
     detail = client.get(f"/api/v1/articles/{article_id}").json()
     assert detail["author"] == "Ada Lovelace"
@@ -994,7 +997,11 @@ def test_article_reviewed_markdown_can_be_saved_and_uploaded(web_client, monkeyp
         json={"reviewedMarkdown": "# Edited\n\n`inline`\n"},
     )
     assert saved.status_code == 200
-    assert client.get(f"/api/v1/articles/{article_id}").json()["reviewedMarkdown"] == "# Edited\n\n`inline`\n"
+    reviewed = client.get(f"/api/v1/articles/{article_id}").json()
+    assert reviewed["editableMarkdown"].startswith("# Edited\n\n`inline`\n")
+    assert "> Source:" not in reviewed["editableMarkdown"]
+    assert "> Author: Lin" in reviewed["reviewedMarkdown"]
+    assert reviewed["reviewedMarkdown"].index("> Type: article") < reviewed["reviewedMarkdown"].index("---")
 
     async def fake_upload(path: Path, target: str):
         assert path.name == "reviewed.md"
@@ -1012,6 +1019,79 @@ def test_article_reviewed_markdown_can_be_saved_and_uploaded(web_client, monkeyp
     assert job["status"] == "succeeded"
     assert job["progress"] == 100
     assert job["result"] == {"created": False}
+
+
+def test_article_save_cannot_overwrite_protected_source_metadata(web_client) -> None:
+    client, _, article_id = web_client
+    malicious = """# Edited
+
+> Source: [https://attacker.invalid](https://attacker.invalid)
+> Platform: Changed
+> Author: Changed
+> Published: 2099-01-01
+> Captured: tomorrow
+> Type: social_post
+
+---
+
+Protected body.
+"""
+    response = client.patch(
+        f"/api/v1/articles/{article_id}",
+        json={"reviewedMarkdown": malicious},
+    )
+
+    assert response.status_code == 200
+    detail = client.get(f"/api/v1/articles/{article_id}").json()
+    assert "https://attacker.invalid" not in detail["reviewedMarkdown"]
+    assert "> Source: [https://mp.weixin.qq.com/s/example](https://mp.weixin.qq.com/s/example)" in detail["reviewedMarkdown"]
+    assert "> Author: Lin" in detail["reviewedMarkdown"]
+    assert "> Type: article" in detail["reviewedMarkdown"]
+    assert detail["editableMarkdown"].startswith("# Edited\n\nProtected body.\n")
+    assert "> Source:" not in detail["editableMarkdown"]
+
+
+def test_only_missing_author_and_publication_can_be_filled(web_client) -> None:
+    client, config_path, article_id = web_client
+    article_dir = config_path.parent / "articles" / article_id
+    manifest_path = article_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["article"]["author"] = None
+    manifest["article"]["published_at"] = None
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    initial = client.get(f"/api/v1/articles/{article_id}").json()
+    assert initial["metadata"]["author"]["editable"] is True
+    assert initial["metadata"]["publishedAt"]["editable"] is True
+    locked = client.patch(
+        f"/api/v1/articles/{article_id}/metadata",
+        json={"capturedAt": "changed"},
+    )
+    assert locked.status_code == 400
+    accepted = client.patch(
+        f"/api/v1/articles/{article_id}/metadata",
+        json={"author": "Verified author", "publishedAt": "2026-07-02"},
+    )
+    assert accepted.status_code == 200
+
+    detail = client.get(f"/api/v1/articles/{article_id}").json()
+    assert detail["author"] == "Verified author"
+    assert detail["publishedAt"] == "2026-07-02"
+    assert detail["metadata"]["author"]["origin"] == "manual"
+    assert detail["metadata"]["author"]["editable"] is False
+    assert "> Author: Verified author" in detail["reviewedMarkdown"]
+    assert "> Published: 2026-07-02" in detail["reviewedMarkdown"]
+
+
+def test_source_author_cannot_be_overwritten_through_metadata_endpoint(web_client) -> None:
+    client, _, article_id = web_client
+    response = client.patch(
+        f"/api/v1/articles/{article_id}/metadata",
+        json={"author": "Replacement"},
+    )
+
+    assert response.status_code == 400
+    assert "protected" in response.json()["error"].lower()
 
 
 def test_article_image_can_be_removed_and_restored_without_mutating_raw(web_client) -> None:

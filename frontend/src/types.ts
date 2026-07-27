@@ -68,6 +68,14 @@ export interface ArticleDetail extends ArticleSummary {
   rawMarkdown: string;
   reviewedMarkdown: string;
   displayMarkdown: string;
+  editableMarkdown: string;
+  metadata: Record<"source" | "platform" | "author" | "publishedAt" | "capturedAt" | "contentType", {
+    value: string;
+    editable: boolean;
+    origin: "source" | "missing" | "manual" | "ai" | string;
+    evidence: string;
+    updatedAt: string | null;
+  }>;
   validationIssues: string[];
   hasUploaded: boolean;
   activeUpload: UploadJob | null;

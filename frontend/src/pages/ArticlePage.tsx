@@ -29,6 +29,8 @@ export function ArticlePage() {
   const [tagName, setTagName] = useState("");
   const [subtagName, setSubtagName] = useState("");
   const [sourceExpanded, setSourceExpanded] = useState(false);
+  const [metadataAuthor, setMetadataAuthor] = useState("");
+  const [metadataPublishedAt, setMetadataPublishedAt] = useState("");
   const [pendingImageAction, setPendingImageAction] = useState<{ name: string; state: "active" | "removed" } | null>(null);
 
   useEffect(() => {
@@ -39,12 +41,14 @@ export function ArticlePage() {
 
   useEffect(() => {
     if (!query.data) return;
-    setDraft(query.data.displayMarkdown || query.data.reviewedMarkdown || query.data.rawMarkdown);
+    setDraft(query.data.editableMarkdown);
     setDirty(false);
     setUploadJobId(query.data.activeUpload?.id ?? null);
     setReviewJobId(query.data.activeReview?.id ?? null);
     setTagName(query.data.classification?.tag_name ?? "");
     setSubtagName(query.data.classification?.subtag_name ?? "");
+    setMetadataAuthor(query.data.metadata.author.origin === "missing" ? "" : query.data.metadata.author.value);
+    setMetadataPublishedAt(query.data.metadata.publishedAt.origin === "missing" ? "" : query.data.metadata.publishedAt.value);
   }, [query.data]);
   useEffect(() => {
     if (!tagName && taxonomyQuery.data?.tags[0]) setTagName(taxonomyQuery.data.tags[0].name);
@@ -127,6 +131,16 @@ export function ArticlePage() {
       await queryClient.invalidateQueries({ queryKey: ["articles"] });
     }
   });
+  const metadataMutation = useMutation({
+    mutationFn: () => api.updateArticleMetadata(articleId, {
+      ...(query.data?.metadata.author.editable ? { author: metadataAuthor } : {}),
+      ...(query.data?.metadata.publishedAt.editable ? { publishedAt: metadataPublishedAt } : {})
+    }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
+      await queryClient.invalidateQueries({ queryKey: ["articles"] });
+    }
+  });
 
   const selectedTag = useMemo(() => taxonomyQuery.data?.tags.find((tag) => tag.name === tagName), [tagName, taxonomyQuery.data]);
 
@@ -148,7 +162,7 @@ export function ArticlePage() {
           <StatusBadge status={article.status} />
           <div className="editor-mode-toggle" aria-label={t("article.modeLabel")}>
             <button type="button" className={readOnly ? "active" : ""} onClick={() => setReadOnly(true)}><Eye size={17} />{t("article.readOnly")}</button>
-            <button type="button" className={!readOnly ? "active" : ""} onClick={() => setReadOnly(false)}><PencilSimple size={17} />{t("article.edit")}</button>
+            <button type="button" className={!readOnly ? "active" : ""} onClick={() => { setReadOnly(false); setSourceExpanded(true); }}><PencilSimple size={17} />{t("article.edit")}</button>
           </div>
           {!readOnly && <button className="button-secondary" type="button" onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}>
             {saveMutation.isPending ? <SpinnerGap className="spin" size={17} /> : <FloppyDisk size={17} />}{t("article.saveDraft")}
@@ -165,7 +179,7 @@ export function ArticlePage() {
             removedAssetNames={article.removedAssets.map((asset) => asset.name)}
             onDeleteImage={(name) => setPendingImageAction({ name, state: "removed" })}
             onRestoreImage={(name) => setPendingImageAction({ name, state: "active" })}
-            onChange={(markdown) => { setDraft(markdown); setDirty(markdown !== (article.displayMarkdown || article.reviewedMarkdown || article.rawMarkdown)); }}
+            onChange={(markdown) => { setDraft(markdown); setDirty(markdown !== article.editableMarkdown); }}
           />
           {(saveMutation.isError || uploadMutation.isError || imageMutation.isError) && <p className="article-action-error" role="alert">{((saveMutation.error || uploadMutation.error || imageMutation.error) as Error).message}</p>}
         </article>
@@ -180,10 +194,18 @@ export function ArticlePage() {
               <div>
                 <dl>
                   <div><dt>{t("article.platform")}</dt><dd>{platformLabel}</dd></div>
-                  <div><dt>{t("article.author")}</dt><dd>{article.author || t("common.unknown")}</dd></div>
-                  <div><dt>{t("article.published")}</dt><dd>{article.publishedAt || t("common.unknown")}</dd></div>
+                  <div><dt>{t("article.author")}</dt><dd>{!readOnly && article.metadata.author.editable
+                    ? <input className="metadata-field-input" value={metadataAuthor} onChange={(event) => setMetadataAuthor(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
+                    : article.metadata.author.value}</dd></div>
+                  <div><dt>{t("article.published")}</dt><dd>{!readOnly && article.metadata.publishedAt.editable
+                    ? <input className="metadata-field-input" value={metadataPublishedAt} onChange={(event) => setMetadataPublishedAt(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
+                    : article.metadata.publishedAt.value}</dd></div>
+                  <div><dt>{t("article.captured")}</dt><dd>{article.metadata.capturedAt.value}</dd></div>
                   <div><dt>{t("article.type")}</dt><dd>{t(`article.types.${article.contentType}`, { defaultValue: article.contentType })}</dd></div>
                 </dl>
+                {!readOnly && (article.metadata.author.editable || article.metadata.publishedAt.editable) && <button className="button-secondary metadata-save-button" type="button" onClick={() => metadataMutation.mutate()} disabled={metadataMutation.isPending}>{t("article.saveMissingMetadata")}</button>}
+                {!readOnly && !article.metadata.author.editable && !article.metadata.publishedAt.editable && <p className="rail-note">{t("article.metadataProtected")}</p>}
+                {metadataMutation.isError && <p className="article-action-error" role="alert">{(metadataMutation.error as Error).message}</p>}
                 <a href={article.url} target="_blank" rel="noreferrer" className="source-link">{t("article.openSource")} <ArrowSquareOut size={16} /></a>
               </div>
             </div>

@@ -25,6 +25,19 @@ def test_core_pipeline_commands_support_json_output() -> None:
     assert parse_args(["run", "https://example.com", "--json"]).json is True
 
 
+def test_article_metadata_command_accepts_only_enrichable_fields() -> None:
+    args = parse_args([
+        "articles", "metadata", "article-id",
+        "--author", "Verified author",
+        "--published-at", "2026-07-02",
+        "--json",
+    ])
+
+    assert args.articles_command == "metadata"
+    assert args.author == "Verified author"
+    assert args.published_at == "2026-07-02"
+
+
 def test_taxonomy_move_accepts_stable_ids_and_localizations() -> None:
     args = parse_args([
         "taxonomy", "move", "article-id",

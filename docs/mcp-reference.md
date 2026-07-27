@@ -21,10 +21,11 @@ The first four tools are synchronous. The `start_*` tools create background jobs
 - `list_articles`
 - `get_article`
 - `update_article_content`
+- `update_missing_article_metadata`
 - `list_article_images`
 - `set_article_image_state`
 
-Content updates affect the editable reviewed copy. Image state operations use the asset identity reported by `list_article_images`.
+Content updates affect editable prose; Noosphere restores protected source metadata before storing or exporting `reviewed.md`. `update_missing_article_metadata` accepts only Author and Published values that were absent from the captured source. Image state operations use the asset identity reported by `list_article_images`.
 
 ### Knowledge organization
 

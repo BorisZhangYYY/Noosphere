@@ -21,8 +21,9 @@ The `nsphr` CLI exposes the complete local workflow and automation-friendly work
 | `nsphr articles list --query TEXT --tag-id ID --json` | Search article summaries. |
 | `nsphr articles show ARTICLE_ID --json` | Read content, metadata, classification, images, and activity. |
 | `nsphr articles update ARTICLE_ID --from reviewed.md` | Replace the editable reviewed copy. |
+| `nsphr articles metadata ARTICLE_ID --author NAME --published-at DATE` | Fill Author or Published only when absent from the captured source. |
 
-Article updates never overwrite `raw.md`.
+Article updates never overwrite `raw.md`. Source, Platform, Captured, and Type are protected; reviewed Markdown is reassembled with canonical metadata before storage and export.
 
 ## Taxonomy
 

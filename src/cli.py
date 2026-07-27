@@ -132,6 +132,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     articles_update.add_argument("article_id")
     articles_update.add_argument("--from", dest="source_file", type=Path, required=True)
     articles_update.add_argument("--json", action="store_true")
+    articles_metadata = articles_subparsers.add_parser("metadata", help="Fill source metadata fields that were missing at capture time.")
+    articles_metadata.add_argument("article_id")
+    articles_metadata.add_argument("--author")
+    articles_metadata.add_argument("--published-at")
+    articles_metadata.add_argument("--json", action="store_true")
 
     taxonomy_parser = subparsers.add_parser("taxonomy", help="Inspect taxonomy and move articles by stable IDs.")
     taxonomy_subparsers = taxonomy_parser.add_subparsers(dest="taxonomy_command", required=True)
@@ -437,7 +442,7 @@ def _server_json(server: str, path: str) -> dict[str, Any]:
 
 async def _main_async(args: argparse.Namespace) -> int:
     if args.command == "articles":
-        from src.application.service import get_article, list_articles, save_reviewed_markdown
+        from src.application.service import get_article, list_articles, save_reviewed_markdown, update_article_metadata
 
         try:
             if args.articles_command == "list":
@@ -451,9 +456,16 @@ async def _main_async(args: argparse.Namespace) -> int:
                 }
             elif args.articles_command == "show":
                 payload = {"article": get_article(args.article_id, locale=args.locale, include_content=not args.no_content)}
-            else:
+            elif args.articles_command == "update":
                 markdown = args.source_file.read_text(encoding="utf-8")
                 payload = save_reviewed_markdown(args.article_id, markdown)
+            else:
+                updates = {
+                    key: value
+                    for key, value in {"author": args.author, "publishedAt": args.published_at}.items()
+                    if value is not None
+                }
+                payload = update_article_metadata(args.article_id, updates)
             _emit_payload(payload, as_json=args.json)
             return 0
         except (OSError, ValueError) as exc:

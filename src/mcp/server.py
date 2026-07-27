@@ -241,6 +241,23 @@ async def update_article_content(article_id: str, reviewed_markdown: str) -> dic
 
 
 @mcp.tool()
+async def update_missing_article_metadata(
+    article_id: str,
+    author: str | None = None,
+    published_at: str | None = None,
+) -> dict[str, Any]:
+    """Fill author or publication time only when the captured source left it missing."""
+    from src.application.service import update_article_metadata
+
+    updates = {
+        key: value
+        for key, value in {"author": author, "publishedAt": published_at}.items()
+        if value is not None
+    }
+    return await _to_thread(update_article_metadata, article_id, updates)
+
+
+@mcp.tool()
 async def list_taxonomy(locale: str = "en-US", include_retired: bool = False) -> dict[str, Any]:
     """Return the user-owned two-level taxonomy without creating categories."""
     from src.application.service import list_taxonomy as application_list_taxonomy
@@ -526,6 +543,7 @@ def create_app() -> Starlette:
         retry_capture_job,
         trash_article,
         update_article,
+        update_article_metadata,
         update_article_image,
         update_article_classification,
         update_pipeline_settings,
@@ -548,6 +566,7 @@ def create_app() -> Starlette:
         Route("/api/v1/trash/articles/{article_id}", permanently_delete_article, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}", get_article, methods=["GET"]),
         Route("/api/v1/articles/{article_id}", update_article, methods=["PATCH"]),
+        Route("/api/v1/articles/{article_id}/metadata", update_article_metadata, methods=["PATCH"]),
         Route("/api/v1/articles/{article_id}", trash_article, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}/upload", upload_web_article, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/review", create_article_review, methods=["POST"]),

@@ -46,6 +46,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ reviewedMarkdown })
     }),
+  updateArticleMetadata: (articleId: string, updates: { author?: string; publishedAt?: string }) =>
+    request<{ ok: boolean; metadata: ArticleDetail["metadata"] }>(`/api/v1/articles/${encodeURIComponent(articleId)}/metadata`, {
+      method: "PATCH",
+      body: JSON.stringify(updates)
+    }),
   updateArticleImage: (articleId: string, assetName: string, state: "active" | "removed", reviewedMarkdown: string) =>
     request<{ ok: boolean; name: string; state: "active" | "removed" }>(`/api/v1/articles/${encodeURIComponent(articleId)}/images/${encodeURIComponent(assetName)}`, {
       method: "PATCH",

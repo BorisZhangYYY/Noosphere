@@ -426,6 +426,10 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
     metadata = _markdown_metadata(reviewed_path)
     if not metadata:
         metadata = _markdown_metadata(raw_path)
+    raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
+    from src.core.article_metadata import article_metadata_state
+
+    protected_metadata = article_metadata_state(manifest, raw_markdown)
     article_id = str(manifest.get("article_id") or manifest_path.parent.name)
     classification = None
     catalog_search_terms: list[str] = []
@@ -458,13 +462,13 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         "url": str(article.get("url") or ""),
         "platform": str(article.get("platform") or "unknown"),
         "platformLabel": str(article.get("platform_label") or article.get("platform") or "Unknown"),
-        "author": article.get("author") or metadata.get("author"),
+        "author": protected_metadata["author"]["value"],
         "capturedAt": article.get("captured_at"),
         "status": _article_status(manifest_path.parent, manifest),
         "assetsCount": len(downloaded),
         "classification": classification,
         "operationSummary": operations,
-        "searchTerms": [value for value in [display_title, article.get("title"), article.get("author"), article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog_search_terms] if value],
+        "searchTerms": [value for value in [display_title, article.get("title"), protected_metadata["author"]["value"], article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog_search_terms] if value],
     }
 
 
@@ -726,6 +730,9 @@ async def get_article(request: Request) -> JSONResponse:
         active_names={asset["name"] for asset in assets},
         removed_names={asset["name"] for asset in removed_assets},
     )
+    from src.core.article_metadata import article_metadata_state, editable_article_markdown
+
+    protected_metadata = article_metadata_state(manifest, raw_markdown)
 
     from src.core.catalog import CatalogStore
     classification = summary.get("classification") or await asyncio.to_thread(CatalogStore().get_assignment, request.path_params["article_id"], locale)
@@ -734,11 +741,13 @@ async def get_article(request: Request) -> JSONResponse:
 
     return JSONResponse({
         **summary,
-        "publishedAt": article.get("published_at") or metadata.get("published"),
+        "publishedAt": protected_metadata["publishedAt"]["value"],
         "contentType": str(article.get("content_type") or "article"),
         "rawMarkdown": raw_markdown,
         "reviewedMarkdown": reviewed_markdown,
         "displayMarkdown": display_markdown,
+        "editableMarkdown": editable_article_markdown(display_markdown),
+        "metadata": protected_metadata,
         "validationIssues": validation_issues,
         "hasUploaded": bool(manifest.get("uploaded")),
         "activeUpload": active_upload,
@@ -799,6 +808,29 @@ async def update_article(request: Request) -> JSONResponse:
     except ValueError as exc:
         status_code = 413 if "10 MB" in str(exc) else 400
         return JSONResponse({"error": str(exc)}, status_code=status_code)
+    return JSONResponse(result)
+
+
+async def update_article_metadata(request: Request) -> JSONResponse:
+    try:
+        _safe_article_dir(request.path_params["article_id"])
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Metadata updates must be an object"}, status_code=400)
+    try:
+        from src.application.service import update_article_metadata as application_update_article_metadata
+
+        result = await asyncio.to_thread(
+            application_update_article_metadata,
+            request.path_params["article_id"],
+            payload,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
     return JSONResponse(result)
 
 

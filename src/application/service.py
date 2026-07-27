@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +76,9 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
     assets_dir = article_dir / str(paths.get("assets") or "assets")
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
-    metadata = web._markdown_metadata(reviewed_path) or web._markdown_metadata(raw_path)
+    from src.core.article_metadata import article_metadata_state, editable_article_markdown
+
+    protected_metadata = article_metadata_state(manifest, raw_markdown)
     referenced = {
         web._markdown_image_name(match.group(2))
         for markdown in (raw_markdown, reviewed_markdown)
@@ -103,14 +106,19 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
     ] if removed_dir.is_dir() else []
     payload: dict[str, Any] = {
         **summary,
-        "publishedAt": article.get("published_at") or metadata.get("published"),
+        "publishedAt": protected_metadata["publishedAt"]["value"],
         "contentType": str(article.get("content_type") or "article"),
         "hasUploaded": bool(manifest.get("uploaded")),
         "assets": assets,
         "removedAssets": removed_assets,
+        "metadata": protected_metadata,
     }
     if include_content:
-        payload.update(rawMarkdown=raw_markdown, reviewedMarkdown=reviewed_markdown)
+        payload.update(
+            rawMarkdown=raw_markdown,
+            reviewedMarkdown=reviewed_markdown,
+            editableMarkdown=editable_article_markdown(reviewed_markdown or raw_markdown),
+        )
     return payload
 
 
@@ -265,13 +273,81 @@ def save_reviewed_markdown(article_id: str, reviewed_markdown: str) -> dict[str,
         raise ValueError("Reviewed Markdown exceeds the 10 MB limit")
     web = _web_helpers()
     article_dir = web._safe_article_dir(article_id)
+    manifest = web._read_json(article_dir / "manifest.json")
+    raw_path = article_dir / "raw.md"
+    raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     removed_dir = article_dir / "removed"
     removed_names = {path.name for path in removed_dir.iterdir() if path.is_file()} if removed_dir.is_dir() else set()
+    from src.core.article_metadata import render_protected_review
+
+    protected_markdown = render_protected_review(reviewed_markdown, manifest, raw_markdown)
     web._atomic_write_text(
         article_dir / "reviewed.md",
-        web._persistable_reviewed_markdown(reviewed_markdown, removed_names),
+        web._persistable_reviewed_markdown(protected_markdown, removed_names),
     )
     return {"ok": True, "article_id": article_id}
+
+
+def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    """Update only missing author/publication fields through a controlled boundary."""
+    if not isinstance(updates, dict):
+        raise ValueError("Metadata updates must be an object")
+    allowed = {"author", "publishedAt"}
+    unexpected = set(updates) - allowed
+    if unexpected:
+        raise ValueError(f"Protected metadata cannot be edited: {', '.join(sorted(unexpected))}")
+    if not updates:
+        raise ValueError("At least one metadata field is required")
+
+    web = _web_helpers()
+    article_dir = web._safe_article_dir(article_id)
+    manifest_path = article_dir / "manifest.json"
+    reviewed_path = article_dir / "reviewed.md"
+    raw_path = article_dir / "raw.md"
+    manifest = web._read_json(manifest_path)
+    raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
+    reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else raw_markdown
+    from src.core.article_metadata import article_metadata_state, render_protected_review
+
+    state = article_metadata_state(manifest, raw_markdown)
+    enrichment = manifest.setdefault("metadata_enrichment", {})
+    fields = enrichment.setdefault("fields", {})
+    history = enrichment.setdefault("history", [])
+    now = datetime.now(UTC).isoformat()
+    for key, raw_value in updates.items():
+        if not state[key]["editable"]:
+            raise ValueError(f"Source metadata is protected and already contains {key}")
+        value = str(raw_value or "").strip()
+        previous = fields.get(key) if isinstance(fields.get(key), dict) else None
+        if value:
+            fields[key] = {
+                "value": value,
+                "source": "manual",
+                "evidence": "",
+                "updated_at": now,
+            }
+            action = "accepted"
+        else:
+            fields.pop(key, None)
+            action = "reverted"
+        history.append({
+            "field": key,
+            "action": action,
+            "source": "manual",
+            "value": value,
+            "previous_value": str((previous or {}).get("value") or ""),
+            "evidence": "",
+            "at": now,
+        })
+
+    protected_markdown = render_protected_review(reviewed_markdown, manifest, raw_markdown)
+    web._atomic_write_text(reviewed_path, protected_markdown)
+    web._atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    return {
+        "ok": True,
+        "article_id": article_id,
+        "metadata": article_metadata_state(manifest, raw_markdown),
+    }
 
 
 def set_article_image_state(
@@ -341,6 +417,9 @@ def set_article_image_state(
         image_filter["promotion_images"] = sorted(promotion_images)
     image_filter["manual_removed_images"] = sorted(manual_removed)
     image_filter["removed_files"] = sorted(removed_files)
+    from src.core.article_metadata import render_protected_review
+
+    persisted_markdown = render_protected_review(persisted_markdown, manifest, raw_markdown)
     try:
         source.rename(destination)
         web._atomic_write_text(reviewed_path, persisted_markdown.rstrip() + "\n")

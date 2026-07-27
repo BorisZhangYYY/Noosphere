@@ -95,7 +95,7 @@ The web API, MCP tools, and CLI call the same application service. Interface-spe
 
 ### Raw and reviewed boundaries
 
-Each article workspace keeps the original extraction in `raw.md` and all AI or user edits in `reviewed.md`. Noosphere never rewrites `raw.md`. The manifest, review record, and assets remain tied to the same article ID.
+Each article workspace keeps the original extraction in `raw.md` and the canonical export document in `reviewed.md`. Noosphere never rewrites `raw.md`. The editor receives prose without the source metadata block; on every save, Noosphere restores protected Source, Platform, Captured, and Type values and permits controlled entry only when Author or Published was genuinely absent.
 
 ### Deterministic review assembly
 
@@ -114,7 +114,7 @@ The text-review provider and image-review provider are configured independently.
 | Business capability | Web | MCP | CLI |
 |---|---|---|---|
 | Extract, review, upload, full pipeline | Background actions | Synchronous tools and `start_*` jobs | Foreground commands with JSON output |
-| Article list, detail, and reviewed Markdown update | Library and editor | `list_articles`, `get_article`, `update_article_content` | `articles list/show/update` |
+| Article list, protected metadata, and prose update | Library and editor | `list_articles`, `get_article`, `update_article_content`, `update_missing_article_metadata` | `articles list/show/update/metadata` |
 | Two-level bilingual taxonomy | Review Studio category controls | `list_taxonomy`, `create_taxonomy_category`, `update_taxonomy_category`, `classify_article` | `taxonomy list/create/update/assign/move` |
 | Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
 | Review perspectives and templates | Review Studio | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |

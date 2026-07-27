@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - (2026-07-27) Added two-level category management to Review Studio, Web API, MCP, and CLI: users can create, rename, describe, retire, and restore their own categories, while deeper nesting and assignment to retired categories are rejected.
 - (2026-07-27) Added a dedicated three-column knowledge workspace with a category-and-article tree, article outline, read-only Markdown reader, responsive small-screen layout, and direct navigation to category management, the overview, and the full article workbench.
 - (2026-07-27) Added closed-set automatic organization: AI review can select only active user-configured category IDs, persists its reason and confidence, and leaves an article unclassified when no category is a sufficiently strong match.
+- (2026-07-27) Added protected article metadata boundaries across Web, MCP, and CLI: article prose is edited separately, trusted source fields are rebuilt canonically for storage and export, and only genuinely missing author or publication values can be filled through controlled inputs.
 
 ### Fixed
 
