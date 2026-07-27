@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- (2026-07-27) Restart PostgreSQL automatically with Docker Desktop and the Docker daemon by applying the same `unless-stopped` policy used by the Noosphere service.
+
 ## [0.3.1.5] - 2026-07-26
 
 ### Added
