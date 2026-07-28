@@ -139,9 +139,9 @@ export function DashboardPage() {
     <div className="page dashboard-page">
       <header className="page-header dashboard-header">
         <div>
-          <p className="context-label">{t("library.eyebrow")}</p>
-          <h1>{t("library.title")}</h1>
-          <p>{t("library.description")}</p>
+          <p className="context-label">{t("overview.eyebrow")}</p>
+          <h1>{t("overview.title")}</h1>
+          <p>{t("overview.description")}</p>
         </div>
         <label className="search-field">
           <MagnifyingGlass size={19} />

@@ -53,6 +53,10 @@ See [.project/git-conventions.md](.project/git-conventions.md) for commit format
 
 See [.project/release-planning.md](.project/release-planning.md) for version scope limits and issue-counting rules.
 
+## Product Boundaries
+
+See [.project/product-boundaries.md](.project/product-boundaries.md) before adding profiles, knowledge organization, note-platform, or downstream integration behavior.
+
 ## Comments
 
 Write all comments in English. Add comments only when the WHY is non-obvious. Do not comment WHAT — names should explain that. Prefer module and class docstrings over inline comments.

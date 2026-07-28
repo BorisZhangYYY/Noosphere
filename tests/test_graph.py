@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
@@ -52,6 +53,7 @@ def test_default_initial_state_has_required_keys(initial_state):
         "review_model",
         "review_provider",
         "review_perspective",
+        "metadata_enrichment_outcomes",
         "upload_target",
         "removed_files",
         "upload_result",
@@ -203,7 +205,7 @@ async def test_ai_review_graph_matches_legacy_pipeline(monkeypatch, tmp_path):
         "> Platform: Test Platform\n"
         "> Author: Test Author\n"
         "> Published: 2026-07-12\n"
-        "> Captured: 2026-07-12T00:00:00+00:00\n"
+        f"> Captured: {article.captured_at}\n"
         "> Type: article\n\n"
         "---\n\n"
         "## AI Summary\n\n"
@@ -215,6 +217,19 @@ async def test_ai_review_graph_matches_legacy_pipeline(monkeypatch, tmp_path):
     )
 
     async def mock_generate_text(self, system_prompt: str, user_prompt: str) -> AITextResponse:
+        if "# Response protocol" in system_prompt:
+            return AITextResponse(
+                text=json.dumps({
+                    "title": "Parity Test Article",
+                    "slots": {
+                        "summary": "A brief summary.",
+                        "main_article": "This is the article body.\n\n![diagram](assets/image_01.png)",
+                    },
+                    "metadata_candidates": {"author": None, "published_at": None},
+                }),
+                model="mock",
+                provider="mock",
+            )
         return AITextResponse(text=reviewed_markdown, model="mock", provider="mock")
 
     async def mock_generate_vision(self, system_prompt: str, content: list[dict]) -> AITextResponse:
@@ -245,3 +260,68 @@ async def test_ai_review_graph_matches_legacy_pipeline(monkeypatch, tmp_path):
     assert legacy_result.ok, f"Legacy pipeline failed: {legacy_result.validation.issues}"
     assert graph_result.ok, f"Graph pipeline failed: {graph_result.issues}"
     assert legacy_reviewed == graph_reviewed
+
+
+@pytest.mark.asyncio
+async def test_review_graph_persists_evidence_backed_metadata_candidate(monkeypatch, tmp_path):
+    from src.graph.graph import _default_initial_state, _edit_node
+
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    raw = """# Article
+
+> Source: [https://example.com](https://example.com)
+> Platform: Web
+> Captured: 2026-07-27
+> Type: article
+
+---
+
+Written by Ada Lovelace.
+"""
+    (article_dir / "raw.md").write_text(raw, encoding="utf-8")
+    (article_dir / "manifest.json").write_text(json.dumps({
+        "article_id": "article",
+        "article": {
+            "url": "https://example.com",
+            "platform": "web",
+            "platform_label": "Web",
+            "title": "Article",
+            "author": None,
+            "published_at": None,
+            "captured_at": "2026-07-27",
+            "content_type": "article",
+        },
+        "paths": {"raw": "raw.md", "reviewed": "reviewed.md", "assets": "assets"},
+    }), encoding="utf-8")
+
+    async def fake_edit(payload):
+        return {
+            "markdown": "# Reviewed\n\nBody.\n",
+            "model": "review-model",
+            "provider": "provider",
+            "metadata_candidates": {
+                "author": {"value": "Ada Lovelace", "evidence": "Written by Ada Lovelace"}
+            },
+        }
+
+    monkeypatch.setattr("src.graph.graph.edit_article", SimpleNamespace(ainvoke=fake_edit))
+    monkeypatch.setattr("src.graph.graph._write_success_report", lambda state: None)
+    state = _default_initial_state()
+    state.update({
+        "article_id": "article",
+        "platform": "web",
+        "content_type": "article",
+        "raw_markdown": raw,
+        "reviewed_path": str(article_dir / "reviewed.md"),
+        "assets_dir": "",
+        "review_perspective": "original",
+    })
+
+    result = await _edit_node(state)
+
+    assert result["metadata_enrichment_outcomes"][0]["action"] == "accepted"
+    reviewed = (article_dir / "reviewed.md").read_text(encoding="utf-8")
+    assert "> Author: Ada Lovelace" in reviewed
+    manifest = json.loads((article_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["metadata_enrichment"]["fields"]["author"]["evidence"] == "Written by Ada Lovelace"

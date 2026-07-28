@@ -241,11 +241,121 @@ async def update_article_content(article_id: str, reviewed_markdown: str) -> dic
 
 
 @mcp.tool()
-async def list_taxonomy(locale: str = "en-US") -> dict[str, Any]:
-    """Return the canonical two-level taxonomy with stable IDs and aliases."""
+async def update_missing_article_metadata(
+    article_id: str,
+    author: str | None = None,
+    published_at: str | None = None,
+) -> dict[str, Any]:
+    """Fill author or publication time only when the captured source left it missing."""
+    from src.application.service import update_article_metadata
+
+    updates = {
+        key: value
+        for key, value in {"author": author, "publishedAt": published_at}.items()
+        if value is not None
+    }
+    return await _to_thread(update_article_metadata, article_id, updates)
+
+
+@mcp.tool()
+async def list_taxonomy(locale: str = "en-US", include_retired: bool = False) -> dict[str, Any]:
+    """Return the user-owned two-level taxonomy without creating categories."""
     from src.application.service import list_taxonomy as application_list_taxonomy
 
-    return {"ok": True, "tags": await _to_thread(application_list_taxonomy, locale=locale)}
+    tags = await _to_thread(
+        application_list_taxonomy,
+        locale=locale,
+        include_retired=include_retired,
+    )
+    return {"ok": True, "tags": tags}
+
+
+@mcp.tool()
+async def create_taxonomy_category(
+    name: str,
+    description: str = "",
+    parent_id: str = "",
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    """Create a user-owned top-level category or one child category."""
+    from src.application.service import create_taxonomy_category as create_category
+
+    category = await _to_thread(
+        create_category,
+        name=name,
+        description=description,
+        parent_id=parent_id or None,
+        locale=locale,
+    )
+    return {"ok": True, "category": category}
+
+
+@mcp.tool()
+async def update_taxonomy_category(
+    tag_id: str,
+    name: str | None = None,
+    description: str | None = None,
+    retired: bool | None = None,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    """Rename, describe, retire, or restore one user-owned category."""
+    from src.application.service import update_taxonomy_category as update_category
+
+    category = await _to_thread(
+        update_category,
+        tag_id,
+        name=name,
+        description=description,
+        retired=retired,
+        locale=locale,
+    )
+    return {"ok": True, "category": category}
+
+
+@mcp.tool()
+async def delete_taxonomy_category(
+    tag_id: str,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    """Recoverably delete one category; deleting a parent also hides its children."""
+    from src.application.service import update_taxonomy_category as update_category
+
+    category = await _to_thread(
+        update_category,
+        tag_id,
+        retired=True,
+        locale=locale,
+    )
+    return {
+        "ok": True,
+        "deleted": True,
+        "recoverable": True,
+        "category": category,
+        "next_actions": ["restore_taxonomy_category", "list_taxonomy"],
+    }
+
+
+@mcp.tool()
+async def restore_taxonomy_category(
+    tag_id: str,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    """Restore a recoverably deleted category and its children."""
+    from src.application.service import update_taxonomy_category as update_category
+
+    category = await _to_thread(
+        update_category,
+        tag_id,
+        retired=False,
+        locale=locale,
+    )
+    return {
+        "ok": True,
+        "deleted": False,
+        "recoverable": True,
+        "category": category,
+        "next_actions": ["list_taxonomy", "classify_article"],
+    }
 
 
 @mcp.tool()
@@ -460,6 +570,7 @@ def create_app() -> Starlette:
         batch_trash_articles,
         create_capture,
         create_article_review,
+        create_taxonomy_category as create_taxonomy_category_route,
         get_article,
         get_article_asset,
         get_article_review_job,
@@ -478,9 +589,11 @@ def create_app() -> Starlette:
         retry_capture_job,
         trash_article,
         update_article,
+        update_article_metadata,
         update_article_image,
         update_article_classification,
         update_pipeline_settings,
+        update_taxonomy_category as update_taxonomy_category_route,
         upload_web_article,
         reveal_settings_secret,
         test_settings_service,
@@ -499,6 +612,7 @@ def create_app() -> Starlette:
         Route("/api/v1/trash/articles/{article_id}", permanently_delete_article, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}", get_article, methods=["GET"]),
         Route("/api/v1/articles/{article_id}", update_article, methods=["PATCH"]),
+        Route("/api/v1/articles/{article_id}/metadata", update_article_metadata, methods=["PATCH"]),
         Route("/api/v1/articles/{article_id}", trash_article, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}/upload", upload_web_article, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/review", create_article_review, methods=["POST"]),
@@ -521,6 +635,8 @@ def create_app() -> Starlette:
         Route("/api/v1/pipeline/settings", get_pipeline_settings, methods=["GET"]),
         Route("/api/v1/pipeline/settings", update_pipeline_settings, methods=["PATCH"]),
         Route("/api/v1/taxonomy", get_taxonomy, methods=["GET"]),
+        Route("/api/v1/taxonomy/categories", create_taxonomy_category_route, methods=["POST"]),
+        Route("/api/v1/taxonomy/categories/{tag_id}", update_taxonomy_category_route, methods=["PATCH"]),
     ]
     frontend_dist = project_root() / "frontend" / "dist"
     if frontend_dist.is_dir():

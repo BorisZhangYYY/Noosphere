@@ -4,6 +4,8 @@ Noosphere is an article extraction, AI review, and note-import tool for long-for
 
 It combines Crawl4AI and Firecrawl, downloads article assets, and asks a language model for typed content slots. Noosphere—not the model—renders trusted source metadata, headings, section order, and image references into the final Markdown. This keeps the output stable while still allowing different review perspectives, languages, and templates.
 
+Noosphere is an article-processing service and MCP capability, not a general-purpose personal note-taking application. Downstream knowledge systems remain independent and receive content only through explicitly configured, user-authorized adapters.
+
 In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into clean, structured, understandable, and portable knowledge.
 
 ## Highlights
@@ -11,7 +13,7 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 - Extract articles and local assets from supported platforms with configurable primary and fallback crawlers.
 - Review, translate, and restructure content through built-in or custom perspectives.
 - Keep source metadata and final Markdown structure deterministic instead of relying on the model to reproduce a fragile document skeleton.
-- Organize articles with a bilingual two-level taxonomy and canonical aliases.
+- Organize articles with a user-defined bilingual taxonomy of at most two levels; new workspaces start without product-owned categories.
 - Review images independently, then remove or restore them without changing `raw.md`.
 - Archive locally or upload reviewed content to SiYuan.
 - Use the same data, configuration, and business rules through the web app, MCP service, or CLI.
@@ -75,7 +77,7 @@ docker compose up -d --build
 open http://localhost:8080/app/
 ```
 
-The web workspace provides the Library, background pipeline progress, instant Markdown reading and editing, taxonomy management, review perspectives and templates, provider and crawler settings, image removal and recovery, and SiYuan upload.
+The web workspace separates the operational Overview from an immersive Library mode. Entering the Library transforms the primary sidebar into a category-and-article tree and opens the selected article directly in its workbench. The workbench combines an article outline, editor, and collapsible inspection rail for classification, image recovery, review, and upload.
 
 To install the optional Codex/Claude-compatible Noosphere skill:
 
@@ -93,15 +95,15 @@ The web API, MCP tools, and CLI call the same application service. Interface-spe
 
 ### Raw and reviewed boundaries
 
-Each article workspace keeps the original extraction in `raw.md` and all AI or user edits in `reviewed.md`. Noosphere never rewrites `raw.md`. The manifest, review record, and assets remain tied to the same article ID.
+Each article workspace keeps the original extraction in `raw.md` and the canonical export document in `reviewed.md`. Noosphere never rewrites `raw.md`. The editor receives prose without the source metadata block; on every save, Noosphere restores protected Source, Platform, Captured, and Type values and permits controlled entry only when Author or Published was genuinely absent.
 
 ### Deterministic review assembly
 
-AI fills typed content slots. Noosphere assembles the final metadata block, headings, sections, and retained image references. Validation can diagnose malformed content, but it is not an AI retry loop or a prerequisite for producing the document.
+AI fills typed content slots. Noosphere assembles the final metadata block, headings, sections, and retained image references. When Author or Published is absent, review may submit a candidate only with a short exact excerpt from the captured article; Noosphere verifies both evidence and value before accepting it and records accepted or reverted attempts with provider provenance. Validation can diagnose malformed content, but it is not an AI retry loop or a prerequisite for producing the document.
 
 ### Canonical bilingual taxonomy
 
-Classification follows `tag → subtag → article`. A tag has a stable ID, localized names and descriptions, and aliases. Labels such as `AI Agent`, `Agents`, and `智能体` can therefore resolve to one canonical category.
+Classification follows `category → optional subcategory → article`, with at most two directory levels. New workspaces start empty. Users create and describe category boundaries in Review Configuration; both manual moves and AI organization use only active, stable category IDs. AI results below the confidence threshold remain explicitly unclassified instead of inventing a directory.
 
 ### Independent image review
 
@@ -112,10 +114,10 @@ The text-review provider and image-review provider are configured independently.
 | Business capability | Web | MCP | CLI |
 |---|---|---|---|
 | Extract, review, upload, full pipeline | Background actions | Synchronous tools and `start_*` jobs | Foreground commands with JSON output |
-| Article list, detail, and reviewed Markdown update | Library and editor | `list_articles`, `get_article`, `update_article_content` | `articles list/show/update` |
-| Two-level bilingual taxonomy | Category controls | `list_taxonomy`, `classify_article` | `taxonomy list/assign/move` |
+| Article list, protected metadata, and prose update | Library and editor | `list_articles`, `get_article`, `update_article_content`, `update_missing_article_metadata` | `articles list/show/update/metadata` |
+| Two-level bilingual taxonomy | Review Configuration category controls | `list_taxonomy`, `create_taxonomy_category`, `update_taxonomy_category`, `delete_taxonomy_category`, `restore_taxonomy_category`, `classify_article` | `taxonomy list/create/update/delete/restore/assign/move` |
 | Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
-| Review perspectives and templates | Review Studio | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
+| Review perspectives and templates | Review Configuration | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
 | Provider, crawler, and archive settings | Settings page | Masked get/update/activate/test tools | `config show/apply/activate/test` |
 | Capture, review, and upload jobs | Live progress | `start_*`, `get_job`, `list_jobs` | `jobs list/show` against a running service |
 
@@ -155,6 +157,7 @@ Noosphere/
 
 - [Documentation index](docs/README.md)
 - [Installation and deployment](docs/installation.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [CLI reference](docs/cli-reference.md)
 - [MCP reference](docs/mcp-reference.md)
 - [Configuration and portable data](docs/configuration.md)

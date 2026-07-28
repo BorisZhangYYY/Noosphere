@@ -4,7 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.2] - 2026-07-28
+
+### Added
+
+- (2026-07-27) Added an empty, user-owned taxonomy foundation: new workspaces no longer receive product-owned categories or profiles, while existing user-created bilingual category paths remain intact across Web, MCP, and CLI.
+- (2026-07-27) Added two-level category management to Review Configuration, Web API, MCP, and CLI: users can create, rename, describe, recoverably delete, and restore their own categories, while deeper nesting and assignment to deleted categories are rejected.
+- (2026-07-27) Added an immersive knowledge workspace: entering the Library transforms the main sidebar into a category-and-article tree and opens the selected article directly in its full workbench.
+- (2026-07-27) Added closed-set automatic organization: AI review can select only active user-configured category IDs, persists its reason and confidence, and leaves an article unclassified when no category is a sufficiently strong match.
+- (2026-07-27) Added protected article metadata boundaries across Web, MCP, and CLI: article prose is edited separately, trusted source fields are rebuilt canonically for storage and export, and only genuinely missing author or publication values can be filled through controlled inputs.
+- (2026-07-27) Added evidence-backed AI metadata enrichment during review: missing Author and Published values are accepted only when an exact source excerpt and the candidate value agree, while protected values, replacements, and unverifiable candidates are reverted with model, provider, evidence, reason, and timestamp history.
+
+### Fixed
+
+- (2026-07-28) Prevented editor-only image action controls from entering reviewed Markdown and appearing as empty rendered blocks beside removed images.
+- (2026-07-28) Hid assignments to recoverably deleted categories across Web, MCP, and CLI while preserving them for category restoration.
+- (2026-07-28) Restored the main-sidebar footer to its original bottom alignment, kept reviewed-Markdown saving available throughout edit mode, removed the inactive Library breadcrumb affordance, and replaced the native taxonomy-level menu with the themed selector.
+- (2026-07-28) Added clear read-only guidance when Author or Published metadata was not captured and can be filled after entering edit mode.
+- (2026-07-27) Restart PostgreSQL automatically with Docker Desktop and the Docker daemon by applying the same `unless-stopped` policy used by the Noosphere service.
+- (2026-07-27) Keep provider capability indicators on one line by presenting compact, accessible text/image icons instead of repeated visible labels.
+- (2026-07-27) Prefer the current reviewed Markdown heading in article lists and details, preventing a crawler fallback such as `微信公众号文章` from hiding the title recovered during AI review.
+- (2026-07-27) Replace the ambiguous, unstyled taxonomy retirement control with clear recoverable Delete and Restore actions.
+
+### Changed
+
+- (2026-07-28) Removed the redundant Library navigation item while Library mode is active so the category-and-article workspace begins directly below the Noosphere brand.
+- (2026-07-28) Added explicit recoverable category delete and restore operations to MCP and CLI while keeping the lower-level retired-state API backward compatible.
+- (2026-07-27) Added release-verified troubleshooting guidance for extraction, provider connectivity, image review, SiYuan upload, PostgreSQL restart behavior, and transient Docker build failures.
+- (2026-07-27) Renamed Review Studio to Review Configuration, added its own section navigation rail, and made the article inspection rail collapsible inside Library mode.
 
 ## [0.3.1.5] - 2026-07-26
 

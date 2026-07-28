@@ -18,6 +18,7 @@ from starlette.responses import FileResponse, JSONResponse
 
 from src.core.config.config import clear_config_cache, config_path, load_config
 from src.core.config.schema import Config
+from src.core.markdown.cleaner import extract_title_from_markdown
 from src.integrations.assets import MARKDOWN_IMAGE_RE, split_image_target
 
 
@@ -159,8 +160,11 @@ async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective:
                 from src.core.localization import resolve_output_language
                 classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
                 assignment = await classify_reviewed_article(reviewed_path.parent.name, reviewed_path, classification_language)
-                label = assignment.get("subtag_name") or assignment.get("tag_name") or ""
-                _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
+                if assignment.get("classified") is False:
+                    _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(assignment.get("reason") or ""))
+                else:
+                    label = assignment.get("subtag_name") or assignment.get("tag_name") or ""
+                    _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
             except Exception as exc:
                 _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
             if review_mode == "auto_upload":
@@ -310,7 +314,12 @@ async def _run_article_review_job(job_id: str, article_id: str, perspective: str
             from src.core.catalog import classify_reviewed_article
             from src.core.localization import resolve_output_language
             classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
-            await classify_reviewed_article(article_id, reviewed_path, classification_language)
+            assignment = await classify_reviewed_article(article_id, reviewed_path, classification_language)
+            if assignment.get("classified") is False:
+                _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(assignment.get("reason") or ""))
+            else:
+                label = assignment.get("subtag_name") or assignment.get("tag_name") or ""
+                _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
         except Exception as exc:
             _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
         _add_job_event(job, "system", "pipeline.events.articleReviewCompleted", level="success")
@@ -407,9 +416,20 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         return None
     article = manifest.get("article") or {}
     downloaded = (manifest.get("assets") or {}).get("downloaded") or []
-    metadata = _markdown_metadata(manifest_path.parent / "reviewed.md")
+    reviewed_path = manifest_path.parent / "reviewed.md"
+    raw_path = manifest_path.parent / "raw.md"
+    display_title = (
+        _markdown_title(reviewed_path)
+        or _markdown_title(raw_path)
+        or str(article.get("title") or manifest_path.parent.name)
+    )
+    metadata = _markdown_metadata(reviewed_path)
     if not metadata:
-        metadata = _markdown_metadata(manifest_path.parent / "raw.md")
+        metadata = _markdown_metadata(raw_path)
+    raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
+    from src.core.article_metadata import article_metadata_state
+
+    protected_metadata = article_metadata_state(manifest, raw_markdown)
     article_id = str(manifest.get("article_id") or manifest_path.parent.name)
     classification = None
     catalog_search_terms: list[str] = []
@@ -438,18 +458,28 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         logger.warning("Article activity unavailable for %s: %s", article_id, _exception_message(exc))
     return {
         "id": article_id,
-        "title": str(article.get("title") or manifest_path.parent.name),
+        "title": display_title,
         "url": str(article.get("url") or ""),
         "platform": str(article.get("platform") or "unknown"),
         "platformLabel": str(article.get("platform_label") or article.get("platform") or "Unknown"),
-        "author": article.get("author") or metadata.get("author"),
+        "author": protected_metadata["author"]["value"],
         "capturedAt": article.get("captured_at"),
         "status": _article_status(manifest_path.parent, manifest),
         "assetsCount": len(downloaded),
         "classification": classification,
         "operationSummary": operations,
-        "searchTerms": [value for value in [article.get("title"), article.get("author"), article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog_search_terms] if value],
+        "searchTerms": [value for value in [display_title, article.get("title"), protected_metadata["author"]["value"], article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog_search_terms] if value],
     }
+
+
+def _markdown_title(path: Path) -> str | None:
+    """Read the first Markdown H1 so edited and reviewed titles stay current."""
+    if not path.is_file():
+        return None
+    try:
+        return extract_title_from_markdown(path.read_text(encoding="utf-8")[:12000])
+    except OSError:
+        return None
 
 
 def _markdown_metadata(path: Path) -> dict[str, str]:
@@ -526,6 +556,9 @@ def _ensure_inventory_images_visible(
 
 def _persistable_reviewed_markdown(markdown: str, removed_names: set[str]) -> str:
     """Remove editor-only references to assets that remain in removed/."""
+    from src.core.article_metadata import strip_editor_artifacts
+
+    markdown = strip_editor_artifacts(markdown)
     for name in removed_names:
         markdown = _replace_image_target(markdown, name, None)
     return markdown.rstrip() + "\n"
@@ -656,6 +689,9 @@ async def get_article(request: Request) -> JSONResponse:
     review = _read_json(article_dir / "review.json")
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
+    from src.core.article_metadata import strip_editor_artifacts
+
+    reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
     metadata = _markdown_metadata(reviewed_path) or _markdown_metadata(raw_path)
 
     validation_data = review.get("validation") or {}
@@ -700,6 +736,9 @@ async def get_article(request: Request) -> JSONResponse:
         active_names={asset["name"] for asset in assets},
         removed_names={asset["name"] for asset in removed_assets},
     )
+    from src.core.article_metadata import article_metadata_state, editable_article_markdown
+
+    protected_metadata = article_metadata_state(manifest, raw_markdown)
 
     from src.core.catalog import CatalogStore
     classification = summary.get("classification") or await asyncio.to_thread(CatalogStore().get_assignment, request.path_params["article_id"], locale)
@@ -708,11 +747,14 @@ async def get_article(request: Request) -> JSONResponse:
 
     return JSONResponse({
         **summary,
-        "publishedAt": article.get("published_at") or metadata.get("published"),
+        "publishedAt": protected_metadata["publishedAt"]["value"],
         "contentType": str(article.get("content_type") or "article"),
         "rawMarkdown": raw_markdown,
         "reviewedMarkdown": reviewed_markdown,
         "displayMarkdown": display_markdown,
+        "editableMarkdown": editable_article_markdown(display_markdown),
+        "metadata": protected_metadata,
+        "metadataHistory": list((manifest.get("metadata_enrichment") or {}).get("history") or []),
         "validationIssues": validation_issues,
         "hasUploaded": bool(manifest.get("uploaded")),
         "activeUpload": active_upload,
@@ -773,6 +815,29 @@ async def update_article(request: Request) -> JSONResponse:
     except ValueError as exc:
         status_code = 413 if "10 MB" in str(exc) else 400
         return JSONResponse({"error": str(exc)}, status_code=status_code)
+    return JSONResponse(result)
+
+
+async def update_article_metadata(request: Request) -> JSONResponse:
+    try:
+        _safe_article_dir(request.path_params["article_id"])
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Metadata updates must be an object"}, status_code=400)
+    try:
+        from src.application.service import update_article_metadata as application_update_article_metadata
+
+        result = await asyncio.to_thread(
+            application_update_article_metadata,
+            request.path_params["article_id"],
+            payload,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
     return JSONResponse(result)
 
 
@@ -1050,8 +1115,62 @@ async def update_pipeline_settings(request: Request) -> JSONResponse:
 async def get_taxonomy(request: Request) -> JSONResponse:
     from src.application.service import list_taxonomy
 
-    tree = await asyncio.to_thread(list_taxonomy, locale=_request_language(request))
+    locale = _request_language(request)
+    include_retired = request.query_params.get("includeRetired", "").casefold() == "true"
+    tree = await asyncio.to_thread(
+        list_taxonomy,
+        locale=locale,
+        include_retired=include_retired,
+    )
     return JSONResponse({"tags": tree})
+
+
+async def create_taxonomy_category(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Category payload must be an object"}, status_code=400)
+    try:
+        from src.application.service import create_taxonomy_category as create_category
+
+        category = await asyncio.to_thread(
+            create_category,
+            name=str(payload.get("name") or ""),
+            description=str(payload.get("description") or ""),
+            parent_id=str(payload.get("parentId") or "") or None,
+            locale=_request_language(request),
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"category": category}, status_code=201)
+
+
+async def update_taxonomy_category(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Category payload must be an object"}, status_code=400)
+    retired = payload.get("retired")
+    if retired is not None and not isinstance(retired, bool):
+        return JSONResponse({"error": "retired must be a boolean"}, status_code=400)
+    try:
+        from src.application.service import update_taxonomy_category as update_category
+
+        category = await asyncio.to_thread(
+            update_category,
+            request.path_params["tag_id"],
+            name=str(payload["name"]) if "name" in payload else None,
+            description=str(payload["description"]) if "description" in payload else None,
+            retired=retired,
+            locale=_request_language(request),
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"category": category})
 
 
 async def update_article_classification(request: Request) -> JSONResponse:
@@ -1071,15 +1190,9 @@ async def update_article_classification(request: Request) -> JSONResponse:
         assignment = await asyncio.to_thread(
             classify_article,
             request.path_params["article_id"],
-            tag_name=str(payload.get("tagName") or ""),
-            tag_description=str(payload.get("tagDescription") or ""),
-            subtag_name=str(payload.get("subtagName") or "") or None,
-            subtag_description=str(payload.get("subtagDescription") or ""),
             locale=_request_language(request),
             tag_id=str(payload.get("tagId") or "") or None,
             subtag_id=str(payload.get("subtagId") or "") or None,
-            tag_localizations=payload.get("tagLocalizations") if isinstance(payload.get("tagLocalizations"), dict) else None,
-            subtag_localizations=payload.get("subtagLocalizations") if isinstance(payload.get("subtagLocalizations"), dict) else None,
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)

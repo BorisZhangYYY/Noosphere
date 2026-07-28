@@ -6,6 +6,7 @@ from src.core.config.schema import ReviewPerspectiveConfig
 from src.core.review.output_contract import (
     materialize_review_output,
     normalize_source_metadata_boundary,
+    parse_review_payload,
     validate_output_template,
 )
 
@@ -118,6 +119,24 @@ Original body.
     assert "> Published: Unknown" in rendered
     assert "### Model tried to own structure" in rendered
     assert rendered.count("## Main Article") == 1
+
+
+def test_structured_payload_keeps_evidence_candidates_separate_from_markdown() -> None:
+    payload = parse_review_payload(
+        '''{
+          "title": "Reviewed title",
+          "slots": {"summary": "Summary", "main_article": "Body"},
+          "metadata_candidates": {
+            "author": {"value": "Ada Lovelace", "evidence": "Written by Ada Lovelace"},
+            "published_at": null
+          }
+        }''',
+        {"summary": "AI Summary", "main_article": "Main Article"},
+    )
+
+    assert payload.metadata_candidates["author"].value == "Ada Lovelace"
+    assert payload.metadata_candidates["author"].evidence == "Written by Ada Lovelace"
+    assert "publishedAt" not in payload.metadata_candidates
 
 
 def test_metadata_boundary_moves_misplaced_image_below_type_and_rule() -> None:

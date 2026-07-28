@@ -140,9 +140,10 @@ async def edit_article(
         feedback=feedback,
         image_filter_result=image_filter_result,
     )
+    metadata_candidates: dict[str, dict[str, str]] = {}
 
     if perspective and len(raw_markdown) > LONG_REVIEW_THRESHOLD:
-        from src.core.review.output_contract import render_review_payload
+        from src.core.review.output_contract import render_review_payload, serialize_metadata_candidates
 
         payload, response = await _review_long_article(
             client=client,
@@ -158,6 +159,7 @@ async def edit_article(
             profile.output_sections,
             raw_markdown,
         )
+        metadata_candidates = serialize_metadata_candidates(payload.metadata_candidates)
     else:
         if perspective:
             from src.core.review.output_contract import review_payload_instruction
@@ -166,19 +168,26 @@ async def edit_article(
         response = await client.generate_text(resolved_rewrite_prompt, user_prompt)
         response_markdown = response.text
         if perspective:
-            from src.core.review.output_contract import materialize_review_output
+            from src.core.review.output_contract import (
+                parse_review_payload,
+                render_review_payload,
+                serialize_metadata_candidates,
+            )
 
-            response_markdown = materialize_review_output(
-                response.text,
+            payload = parse_review_payload(response.text, profile.output_sections)
+            response_markdown = render_review_payload(
+                payload,
                 output_template,
                 profile.output_sections,
-                source_markdown=raw_markdown,
+                raw_markdown,
             )
+            metadata_candidates = serialize_metadata_candidates(payload.metadata_candidates)
     prepared_markdown = response_markdown if perspective else prepare_rewritten_markdown(response_markdown, content_type)
     return {
         "markdown": normalize_markdown_links(prepared_markdown),
         "model": response.model,
         "provider": response.provider,
+        "metadata_candidates": metadata_candidates,
     }
 
 
@@ -264,7 +273,13 @@ async def _review_long_article(
     image_filter_result: ImageFilterResult | None,
 ):
     """Review a long article in bounded semantic chunks and assemble one payload."""
-    from src.core.review.output_contract import ReviewPayload, parse_json_object, sanitize_slot_markdown
+    from src.core.review.output_contract import (
+        MetadataCandidate,
+        ReviewPayload,
+        parse_json_object,
+        parse_metadata_candidates,
+        sanitize_slot_markdown,
+    )
     from src.core.telemetry import emit_event
 
     source = raw_markdown
@@ -295,7 +310,9 @@ async def _review_long_article(
         "\n\n# Long article chunk protocol\n\n"
         "Review only the supplied part. Return exactly one JSON object with two string fields: "
         "`content` (the complete reviewed Markdown for this part) and `summary` (a compact factual summary "
-        "used later to create the article-level summary). Do not add JSON fences or any text outside JSON. "
+        "used later to create the article-level summary), plus optional `metadata_candidates` for a missing "
+        "author or publication time only when this part contains a short exact evidence excerpt. "
+        "Do not add JSON fences or any text outside JSON. "
         "Keep every local image Markdown reference exactly. Do not add H1 or H2 headings; use H3 or deeper."
     )
     semaphore = asyncio.Semaphore(2)
@@ -324,7 +341,8 @@ async def _review_long_article(
                     f"fields: {', '.join(sorted(data))}"
                 )
             summary = str(data.get("summary") or "").strip() or _fallback_chunk_summary(content)
-            return content, summary, response
+            candidates = parse_metadata_candidates(data)
+            return content, summary, candidates, response
         except Exception as exc:
             if depth >= 2 or len(chunk) < 2200:
                 # A provider can occasionally return an empty body for one
@@ -341,7 +359,7 @@ async def _review_long_article(
                     "pipeline.events.aiReviewChunkFallback",
                     f"{part_label} · provider output unavailable; source text retained · {exc}",
                 )
-                return fallback, _fallback_chunk_summary(fallback), None
+                return fallback, _fallback_chunk_summary(fallback), {}, None
             sub_limit = max(1800, len(chunk) // 2)
             sub_chunks = _split_review_chunks(chunk, sub_limit)
             if len(sub_chunks) < 2:
@@ -353,7 +371,7 @@ async def _review_long_article(
                     "pipeline.events.aiReviewChunkFallback",
                     f"{part_label} · provider output unavailable; source text retained · {exc}",
                 )
-                return fallback, _fallback_chunk_summary(fallback), None
+                return fallback, _fallback_chunk_summary(fallback), {}, None
             sub_results = []
             for sub_index, sub_chunk in enumerate(sub_chunks, start=1):
                 sub_results.append(
@@ -362,17 +380,22 @@ async def _review_long_article(
             return (
                 "\n\n".join(result[0] for result in sub_results),
                 " ".join(result[1] for result in sub_results),
-                sub_results[-1][2],
+                {
+                    key: candidate
+                    for result in sub_results
+                    for key, candidate in result[2].items()
+                },
+                sub_results[-1][3],
             )
 
     async def review_chunk(index: int, chunk: str):
         cached = _read_review_chunk_cache(chunk_cache_dir / f"part-{index:03d}.json")
         if cached is not None:
-            content, summary = cached
-            return _preserve_chunk_images(content, chunk), summary, None
-        content, summary, response = await generate_chunk(str(index), chunk)
-        _write_review_chunk_cache(chunk_cache_dir / f"part-{index:03d}.json", content, summary)
-        return _preserve_chunk_images(content, chunk), summary, response
+            content, summary, candidates = cached
+            return _preserve_chunk_images(content, chunk), summary, candidates, None
+        content, summary, candidates, response = await generate_chunk(str(index), chunk)
+        _write_review_chunk_cache(chunk_cache_dir / f"part-{index:03d}.json", content, summary, candidates)
+        return _preserve_chunk_images(content, chunk), summary, candidates, response
 
     results = await asyncio.gather(*(
         review_chunk(index, chunk)
@@ -380,7 +403,12 @@ async def _review_long_article(
     ))
     reviewed_chunks = [item[0] for item in results]
     chunk_summaries = [item[1] for item in results]
-    last_response = next((item[2] for item in reversed(results) if item[2] is not None), None)
+    metadata_candidates: dict[str, MetadataCandidate] = {
+        key: candidate
+        for item in results
+        for key, candidate in item[2].items()
+    }
+    last_response = next((item[3] for item in reversed(results) if item[3] is not None), None)
 
     non_body_sections = {name: heading for name, heading in sections.items() if name != body_section}
     slots: dict[str, str] = {body_section: "\n\n".join(reviewed_chunks)}
@@ -415,7 +443,7 @@ async def _review_long_article(
 
     if last_response is None:
         raise ValueError("Long article contains no reviewable content")
-    return ReviewPayload(title=title, slots=slots), last_response
+    return ReviewPayload(title=title, slots=slots, metadata_candidates=metadata_candidates), last_response
 
 
 def _article_body(markdown: str) -> str:
@@ -490,20 +518,38 @@ def _fallback_chunk_summary(content: str, limit: int = 900) -> str:
     return plain[:limit]
 
 
-def _read_review_chunk_cache(path: Path) -> tuple[str, str] | None:
+def _read_review_chunk_cache(path: Path):
+    from src.core.review.output_contract import MetadataCandidate
+
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     content = str(data.get("content") or "").strip() if isinstance(data, dict) else ""
     summary = str(data.get("summary") or "").strip() if isinstance(data, dict) else ""
-    return (content, summary or _fallback_chunk_summary(content)) if content else None
+    raw_candidates = data.get("metadata_candidates") if isinstance(data, dict) else {}
+    candidates = {
+        str(key): MetadataCandidate(
+            value=str(value.get("value") or ""),
+            evidence=str(value.get("evidence") or ""),
+        )
+        for key, value in (raw_candidates or {}).items()
+        if isinstance(value, dict) and value.get("value") and value.get("evidence")
+    } if isinstance(raw_candidates, dict) else {}
+    return (content, summary or _fallback_chunk_summary(content), candidates) if content else None
 
 
-def _write_review_chunk_cache(path: Path, content: str, summary: str) -> None:
+def _write_review_chunk_cache(path: Path, content: str, summary: str, metadata_candidates=None) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(
-        json.dumps({"content": content, "summary": summary}, ensure_ascii=False),
+        json.dumps({
+            "content": content,
+            "summary": summary,
+            "metadata_candidates": {
+                key: {"value": candidate.value, "evidence": candidate.evidence}
+                for key, candidate in (metadata_candidates or {}).items()
+            },
+        }, ensure_ascii=False),
         encoding="utf-8",
     )
     temporary.replace(path)

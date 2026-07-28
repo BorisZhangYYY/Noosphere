@@ -110,15 +110,41 @@ def web_client(monkeypatch, tmp_path: Path):
     clear_config_cache()
 
 
+def _create_category_path(client: TestClient, root_name: str, child_name: str | None = None) -> tuple[str, str | None]:
+    root_response = client.post(
+        "/api/v1/taxonomy/categories",
+        json={"name": root_name, "description": f"{root_name} description"},
+    )
+    assert root_response.status_code == 201
+    root_id = root_response.json()["category"]["id"]
+    if child_name is None:
+        return root_id, None
+    child_response = client.post(
+        "/api/v1/taxonomy/categories",
+        json={
+            "name": child_name,
+            "description": f"{child_name} description",
+            "parentId": root_id,
+        },
+    )
+    assert child_response.status_code == 201
+    return root_id, child_response.json()["category"]["id"]
+
+
 def test_list_and_read_article(web_client) -> None:
     client, _, article_id = web_client
     listing = client.get("/api/v1/articles")
     assert listing.status_code == 200
     assert listing.json()["articles"][0]["id"] == article_id
+    assert listing.json()["articles"][0]["title"] == "Reviewed"
 
     detail = client.get(f"/api/v1/articles/{article_id}")
     assert detail.status_code == 200
+    assert detail.json()["title"] == "Reviewed"
     assert detail.json()["reviewedMarkdown"].startswith("# Reviewed\n")
+    assert detail.json()["editableMarkdown"].startswith("# Reviewed\n")
+    assert "> Source:" not in detail.json()["editableMarkdown"]
+    assert detail.json()["metadata"]["author"]["editable"] is False
     assert "assets/image.png" in detail.json()["displayMarkdown"]
     assert detail.json()["assets"][0]["name"] == "image.png"
 
@@ -153,9 +179,10 @@ def test_articles_support_batch_trash_restore_and_permanent_delete(web_client) -
     second_manifest["article_id"] = second_id
     second_manifest["article"]["title"] = "Second article"
     second_manifest_path.write_text(json.dumps(second_manifest), encoding="utf-8")
+    tag_id, subtag_id = _create_category_path(client, "Release QA", "Deletion")
     assert client.patch(
         f"/api/v1/articles/{article_id}/classification",
-        json={"tagName": "Release QA", "subtagName": "Deletion"},
+        json={"tagId": tag_id, "subtagId": subtag_id},
     ).status_code == 200
     assert client.get(f"/api/v1/articles/{article_id}").json()["operationSummary"]["captureCount"] == 1
 
@@ -303,7 +330,7 @@ def test_markdown_metadata_accepts_bold_field_names(web_client) -> None:
     manifest["article"].pop("published_at", None)
     (article_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     markdown = "# Article\n\n> **Author**: Ada Lovelace\n> **Published**: 2026-07-22\n"
-    (article_dir / "reviewed.md").write_text(markdown, encoding="utf-8")
+    (article_dir / "raw.md").write_text(markdown, encoding="utf-8")
 
     detail = client.get(f"/api/v1/articles/{article_id}").json()
     assert detail["author"] == "Ada Lovelace"
@@ -353,25 +380,73 @@ def test_frontend_client_routes_serve_spa_entry(web_client) -> None:
 
 def test_article_can_be_assigned_to_two_level_taxonomy(web_client) -> None:
     client, _, article_id = web_client
+    tag_id, subtag_id = _create_category_path(client, "AI", "Agent")
 
     assigned = client.patch(
         f"/api/v1/articles/{article_id}/classification",
-        json={
-            "tagName": "AI",
-            "tagDescription": "Artificial intelligence",
-            "subtagName": "Agent",
-            "subtagDescription": "Autonomous AI systems",
-        },
+        json={"tagId": tag_id, "subtagId": subtag_id},
     )
 
     assert assigned.status_code == 200
     assert assigned.json()["tag_name"] == "AI"
     assert assigned.json()["subtag_name"] == "Agent"
     taxonomy = client.get("/api/v1/taxonomy").json()["tags"]
-    assert taxonomy[0]["name"] == "AI"
-    assert taxonomy[0]["children"][0]["name"] == "Agent"
+    ai = next(item for item in taxonomy if item["id"] == assigned.json()["tag_id"])
+    assert ai["name"] == "AI"
+    assert ai["children"][0]["name"] == "Agent"
     detail = client.get(f"/api/v1/articles/{article_id}").json()
     assert detail["classification"]["subtag_name"] == "Agent"
+
+
+def test_taxonomy_categories_can_be_managed_and_retired(web_client) -> None:
+    client, _, article_id = web_client
+    root_id, child_id = _create_category_path(client, "Engineering", "Testing")
+    assert child_id is not None
+    assigned = client.patch(
+        f"/api/v1/articles/{article_id}/classification",
+        json={"tagId": root_id, "subtagId": child_id},
+    )
+    assert assigned.status_code == 200
+
+    too_deep = client.post(
+        "/api/v1/taxonomy/categories",
+        json={"name": "Unit tests", "parentId": child_id},
+    )
+    assert too_deep.status_code == 400
+    assert "two levels" in too_deep.json()["error"]
+
+    renamed = client.patch(
+        f"/api/v1/taxonomy/categories/{child_id}",
+        json={"name": "Software Testing", "description": "Verification practices"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["category"]["name"] == "Software Testing"
+
+    retired = client.patch(
+        f"/api/v1/taxonomy/categories/{root_id}",
+        json={"retired": True},
+    )
+    assert retired.status_code == 200
+    assert retired.json()["category"]["retired"] is True
+    assert client.get("/api/v1/taxonomy").json()["tags"] == []
+    managed = client.get("/api/v1/taxonomy?includeRetired=true").json()["tags"]
+    assert managed[0]["retired"] is True
+    assert managed[0]["children"][0]["retired"] is True
+    assert client.get("/api/v1/articles").json()["articles"][0]["classification"] is None
+    assert client.get(f"/api/v1/articles/{article_id}").json()["classification"] is None
+    rejected = client.patch(
+        f"/api/v1/articles/{article_id}/classification",
+        json={"tagId": root_id, "subtagId": child_id},
+    )
+    assert rejected.status_code == 400
+    assert "retired" in rejected.json()["error"]
+
+    restored = client.patch(
+        f"/api/v1/taxonomy/categories/{root_id}",
+        json={"retired": False},
+    )
+    assert restored.status_code == 200
+    assert client.get(f"/api/v1/articles/{article_id}").json()["classification"]["subtag_id"] == child_id
 
 
 def test_web_mcp_and_cli_share_canonical_taxonomy_ids(web_client, capsys) -> None:
@@ -379,22 +454,25 @@ def test_web_mcp_and_cli_share_canonical_taxonomy_ids(web_client, capsys) -> Non
     from src.cli import _main_async, parse_args
     from src.mcp.server import classify_article as mcp_classify_article
 
+    root = client.post(
+        "/api/v1/taxonomy/categories?locale=en-US",
+        json={"name": "AI", "description": "Artificial intelligence"},
+    ).json()["category"]
+    child = client.post(
+        "/api/v1/taxonomy/categories?locale=en-US",
+        json={"name": "Agents", "description": "Autonomous AI systems", "parentId": root["id"]},
+    ).json()["category"]
+    assert client.patch(
+        f"/api/v1/taxonomy/categories/{root['id']}?locale=zh-CN",
+        json={"name": "人工智能", "description": "人工智能相关内容"},
+    ).status_code == 200
+    assert client.patch(
+        f"/api/v1/taxonomy/categories/{child['id']}?locale=zh-CN",
+        json={"name": "智能体", "description": "自主智能系统"},
+    ).status_code == 200
     web_assignment = client.patch(
         f"/api/v1/articles/{article_id}/classification",
-        json={
-            "tagName": "AI",
-            "tagDescription": "Artificial intelligence",
-            "subtagName": "Agents",
-            "subtagDescription": "Autonomous AI systems",
-            "tagLocalizations": {
-                "en-US": {"name": "AI", "description": "Artificial intelligence", "aliases": ["Artificial Intelligence"]},
-                "zh-CN": {"name": "人工智能", "description": "人工智能相关内容", "aliases": ["AI"]},
-            },
-            "subtagLocalizations": {
-                "en-US": {"name": "Agents", "description": "Autonomous AI systems", "aliases": ["AI Agent"]},
-                "zh-CN": {"name": "智能体", "description": "自主智能系统", "aliases": ["Agent"]},
-            },
-        },
+        json={"tagId": root["id"], "subtagId": child["id"]},
     ).json()
 
     mcp_result = asyncio.run(
@@ -450,12 +528,32 @@ def test_taxonomy_localizes_and_merges_aliases(web_client) -> None:
     )
 
     assert first["tag_id"] == second["tag_id"]
-    english = client.get("/api/v1/taxonomy?locale=en-US").json()["tags"][0]
-    chinese = client.get("/api/v1/taxonomy?locale=zh-CN").json()["tags"][0]
+    english = next(
+        item
+        for item in client.get("/api/v1/taxonomy?locale=en-US").json()["tags"]
+        if item["id"] == first["tag_id"]
+    )
+    chinese = next(
+        item
+        for item in client.get("/api/v1/taxonomy?locale=zh-CN").json()["tags"]
+        if item["id"] == first["tag_id"]
+    )
     assert english["name"] == "AI Agents"
     assert "Agents" in english["aliases"]
     assert chinese["name"] == "智能体"
     assert chinese["description"] == "自主智能系统及其工作流。"
+
+
+def test_taxonomy_does_not_seed_product_categories(web_client) -> None:
+    client, _, _ = web_client
+
+    english = client.get("/api/v1/taxonomy?locale=en-US").json()
+    chinese = client.get("/api/v1/taxonomy?locale=zh-CN").json()
+
+    assert "profile" not in english
+    assert "profile" not in chinese
+    assert all(not tag["id"].startswith("builtin-") for tag in english["tags"])
+    assert all(not tag["id"].startswith("builtin-") for tag in chinese["tags"])
 
 
 def test_pipeline_defaults_are_localized_and_read_only(web_client) -> None:
@@ -908,12 +1006,22 @@ def test_capture_manual_only_is_rejected(web_client, monkeypatch) -> None:
 
 def test_article_reviewed_markdown_can_be_saved_and_uploaded(web_client, monkeypatch) -> None:
     client, _, article_id = web_client
+    editor_control = (
+        '<button type="button" class="noosphere-image-action" '
+        'data-action="restore" data-asset-name="image.png">Restore image</button>'
+    )
     saved = client.patch(
         f"/api/v1/articles/{article_id}",
-        json={"reviewedMarkdown": "# Edited\n\n`inline`\n"},
+        json={"reviewedMarkdown": f"# Edited\n\n{editor_control}\n\n`inline`\n"},
     )
     assert saved.status_code == 200
-    assert client.get(f"/api/v1/articles/{article_id}").json()["reviewedMarkdown"] == "# Edited\n\n`inline`\n"
+    reviewed = client.get(f"/api/v1/articles/{article_id}").json()
+    assert reviewed["editableMarkdown"].startswith("# Edited\n\n`inline`\n")
+    assert "noosphere-image-action" not in reviewed["reviewedMarkdown"]
+    assert "noosphere-image-action" not in reviewed["displayMarkdown"]
+    assert "> Source:" not in reviewed["editableMarkdown"]
+    assert "> Author: Lin" in reviewed["reviewedMarkdown"]
+    assert reviewed["reviewedMarkdown"].index("> Type: article") < reviewed["reviewedMarkdown"].index("---")
 
     async def fake_upload(path: Path, target: str):
         assert path.name == "reviewed.md"
@@ -931,6 +1039,79 @@ def test_article_reviewed_markdown_can_be_saved_and_uploaded(web_client, monkeyp
     assert job["status"] == "succeeded"
     assert job["progress"] == 100
     assert job["result"] == {"created": False}
+
+
+def test_article_save_cannot_overwrite_protected_source_metadata(web_client) -> None:
+    client, _, article_id = web_client
+    malicious = """# Edited
+
+> Source: [https://attacker.invalid](https://attacker.invalid)
+> Platform: Changed
+> Author: Changed
+> Published: 2099-01-01
+> Captured: tomorrow
+> Type: social_post
+
+---
+
+Protected body.
+"""
+    response = client.patch(
+        f"/api/v1/articles/{article_id}",
+        json={"reviewedMarkdown": malicious},
+    )
+
+    assert response.status_code == 200
+    detail = client.get(f"/api/v1/articles/{article_id}").json()
+    assert "https://attacker.invalid" not in detail["reviewedMarkdown"]
+    assert "> Source: [https://mp.weixin.qq.com/s/example](https://mp.weixin.qq.com/s/example)" in detail["reviewedMarkdown"]
+    assert "> Author: Lin" in detail["reviewedMarkdown"]
+    assert "> Type: article" in detail["reviewedMarkdown"]
+    assert detail["editableMarkdown"].startswith("# Edited\n\nProtected body.\n")
+    assert "> Source:" not in detail["editableMarkdown"]
+
+
+def test_only_missing_author_and_publication_can_be_filled(web_client) -> None:
+    client, config_path, article_id = web_client
+    article_dir = config_path.parent / "articles" / article_id
+    manifest_path = article_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["article"]["author"] = None
+    manifest["article"]["published_at"] = None
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    initial = client.get(f"/api/v1/articles/{article_id}").json()
+    assert initial["metadata"]["author"]["editable"] is True
+    assert initial["metadata"]["publishedAt"]["editable"] is True
+    locked = client.patch(
+        f"/api/v1/articles/{article_id}/metadata",
+        json={"capturedAt": "changed"},
+    )
+    assert locked.status_code == 400
+    accepted = client.patch(
+        f"/api/v1/articles/{article_id}/metadata",
+        json={"author": "Verified author", "publishedAt": "2026-07-02"},
+    )
+    assert accepted.status_code == 200
+
+    detail = client.get(f"/api/v1/articles/{article_id}").json()
+    assert detail["author"] == "Verified author"
+    assert detail["publishedAt"] == "2026-07-02"
+    assert detail["metadata"]["author"]["origin"] == "manual"
+    assert detail["metadata"]["author"]["editable"] is False
+    assert "> Author: Verified author" in detail["reviewedMarkdown"]
+    assert "> Published: 2026-07-02" in detail["reviewedMarkdown"]
+
+
+def test_source_author_cannot_be_overwritten_through_metadata_endpoint(web_client) -> None:
+    client, _, article_id = web_client
+    response = client.patch(
+        f"/api/v1/articles/{article_id}/metadata",
+        json={"author": "Replacement"},
+    )
+
+    assert response.status_code == 400
+    assert "protected" in response.json()["error"].lower()
 
 
 def test_article_image_can_be_removed_and_restored_without_mutating_raw(web_client) -> None:

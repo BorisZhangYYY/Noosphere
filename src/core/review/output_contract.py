@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.core.review.ai_review_data import strip_markdown_fence
 from src.core.review.review_validation import (
@@ -26,9 +26,16 @@ SOURCE_FIELDS = ("Source", "Platform", "Author", "Published", "Captured", "Type"
 
 
 @dataclass(frozen=True)
+class MetadataCandidate:
+    value: str
+    evidence: str
+
+
+@dataclass(frozen=True)
 class ReviewPayload:
     title: str
     slots: dict[str, str]
+    metadata_candidates: dict[str, MetadataCandidate] = field(default_factory=dict)
 
 
 def validate_output_template(template: str, sections: Mapping[str, str]) -> None:
@@ -59,10 +66,16 @@ def review_payload_instruction(sections: Mapping[str, str]) -> str:
         '  "title": "Reviewed article title",\n'
         '  "slots": {\n'
         f"{slot_example}\n"
+        "  },\n"
+        '  "metadata_candidates": {\n'
+        '    "author": {"value": "Only when missing", "evidence": "Exact excerpt from the source"},\n'
+        '    "published_at": null\n'
         "  }\n"
         "}\n"
         "```\n\n"
-        f"All slots are required: {required}. Preserve local image references exactly when they are relevant."
+        f"All slots are required: {required}. Preserve local image references exactly when they are relevant. "
+        "Metadata candidates are optional and must be null unless the captured metadata is missing and the original "
+        "article text contains explicit evidence. Copy a short evidence excerpt exactly; never infer from context."
     )
 
 
@@ -79,7 +92,35 @@ def parse_review_payload(response: str, sections: Mapping[str, str]) -> ReviewPa
         raise ValueError(f"AI structured review payload has empty slots: {', '.join(missing)}")
     if not title:
         raise ValueError("AI structured review payload has an empty title")
-    return ReviewPayload(title=title, slots=slots)
+    return ReviewPayload(
+        title=title,
+        slots=slots,
+        metadata_candidates=parse_metadata_candidates(data),
+    )
+
+
+def parse_metadata_candidates(data: Mapping[str, object]) -> dict[str, MetadataCandidate]:
+    """Parse optional evidence-backed candidates without trusting them yet."""
+    raw = data.get("metadata_candidates")
+    if not isinstance(raw, dict):
+        return {}
+    candidates: dict[str, MetadataCandidate] = {}
+    for response_key, internal_key in (("author", "author"), ("published_at", "publishedAt")):
+        candidate = raw.get(response_key)
+        if not isinstance(candidate, dict):
+            continue
+        value = str(candidate.get("value") or "").strip()
+        evidence = str(candidate.get("evidence") or "").strip()
+        if value and evidence:
+            candidates[internal_key] = MetadataCandidate(value=value, evidence=evidence)
+    return candidates
+
+
+def serialize_metadata_candidates(candidates: Mapping[str, MetadataCandidate]) -> dict[str, dict[str, str]]:
+    return {
+        key: {"value": candidate.value, "evidence": candidate.evidence}
+        for key, candidate in candidates.items()
+    }
 
 
 def parse_json_object(response: str) -> dict[str, object]:

@@ -21,24 +21,29 @@ The first four tools are synchronous. The `start_*` tools create background jobs
 - `list_articles`
 - `get_article`
 - `update_article_content`
+- `update_missing_article_metadata`
 - `list_article_images`
 - `set_article_image_state`
 
-Content updates affect the editable reviewed copy. Image state operations use the asset identity reported by `list_article_images`.
+Content updates affect editable prose; Noosphere restores protected source metadata before storing or exporting `reviewed.md`. `get_article` returns current metadata provenance and enrichment history. `update_missing_article_metadata` accepts only Author and Published values that were absent from the captured source. During AI review, candidate values additionally require an exact captured-text excerpt and are recorded as accepted or reverted. Image state operations use the asset identity reported by `list_article_images`.
 
 ### Knowledge organization
 
 - `list_taxonomy`
+- `create_taxonomy_category`
+- `update_taxonomy_category`
+- `delete_taxonomy_category`
+- `restore_taxonomy_category`
 - `classify_article`
 
 Safe classification flow:
 
 1. Call `list_taxonomy` using the preferred locale.
-2. Select an existing `tag_id` and optional `subtag_id`.
-3. Call `classify_article` with the stable IDs.
-4. Supply bilingual localization objects only when intentionally creating a new category path.
+2. If the intended category is missing, create it explicitly with `create_taxonomy_category`; pass a top-level `parent_id` only for the optional second level.
+3. Select an active `tag_id` and optional `subtag_id`.
+4. Call `classify_article` with the stable IDs.
 
-Localized names are presentation data, not category identities. This prevents `AI Agent`, `Agents`, and `智能体` from becoming unrelated categories.
+Use `update_taxonomy_category` to localize, rename, or describe a category. Use `delete_taxonomy_category` for a recoverable deletion and `restore_taxonomy_category` to bring it back. The lower-level `retired` update field remains available for backward compatibility. Localized names are presentation data, not category identities.
 
 ### Review design
 
@@ -70,16 +75,17 @@ An MCP client should reason over canonical IDs rather than labels:
 
 ```text
 list_taxonomy(locale="en-US")
-  -> tag_id="tag_ai", subtag_id="tag_agents"
+  -> tag_id="USER_CATEGORY_ID"
+  -> subtag_id="USER_SUBCATEGORY_ID"
 
 classify_article(
   article_id="ARTICLE_ID",
-  tag_id="tag_ai",
-  subtag_id="tag_agents"
+  tag_id="USER_CATEGORY_ID",
+  subtag_id="USER_SUBCATEGORY_ID"
 )
 ```
 
-If the interface later switches to Chinese, the article remains assigned to the same IDs while the returned labels use their Chinese localization.
+Noosphere does not seed categories. Configure the user-owned taxonomy first, then classify with the returned stable IDs. If the interface later switches to Chinese, the article remains assigned to the same IDs while the returned labels use their Chinese localization.
 
 ## Long Operations
 

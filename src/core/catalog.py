@@ -80,21 +80,41 @@ class CatalogStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS noosphere_tag_states (
+                    tag_id TEXT PRIMARY KEY,
+                    retired_at TEXT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS noosphere_article_classification_details (
+                    article_id TEXT PRIMARY KEY,
+                    confidence REAL NOT NULL DEFAULT 1,
+                    source TEXT NOT NULL DEFAULT 'manual'
+                )
+                """
+            )
 
-    def list_tree(self, locale: str = "en-US") -> list[dict[str, Any]]:
+    def list_tree(self, locale: str = "en-US", *, include_retired: bool = False) -> list[dict[str, Any]]:
         self.ensure_schema()
         from src.core.localization import normalize_language
         locale = normalize_language(locale)
         marker = self._placeholder
+        retired_clause = "" if include_retired else "WHERE state.retired_at IS NULL"
         with self._connect() as connection:
             rows = [dict(row) for row in connection.execute(
                 f"""
                 SELECT t.id, COALESCE(l.name, t.name) AS name,
                        COALESCE(l.description, t.description) AS description,
                        COALESCE(l.aliases_json, '[]') AS aliases_json,
-                       t.parent_id
+                       t.parent_id, state.retired_at
                 FROM noosphere_tags t
                 LEFT JOIN noosphere_tag_localizations l ON l.tag_id = t.id AND l.locale = {marker}
+                LEFT JOIN noosphere_tag_states state ON state.tag_id = t.id
+                {retired_clause}
                 ORDER BY COALESCE(l.name, t.name)
                 """,
                 (locale,),
@@ -121,8 +141,292 @@ class CatalogStore:
             "description": row.get("description") or "",
             "aliases": aliases if isinstance(aliases, list) else [],
             "parent_id": row.get("parent_id"),
+            "retired": bool(row.get("retired_at")),
             "children": [],
         }
+
+    def create_category(
+        self,
+        *,
+        name: str,
+        description: str = "",
+        parent_id: str | None = None,
+        locale: str = "en-US",
+    ) -> dict[str, Any]:
+        """Create one user-owned category while enforcing a maximum depth of two."""
+        self.ensure_schema()
+        from src.core.localization import normalize_language
+
+        locale = normalize_language(locale)
+        name = name.strip()
+        description = description.strip()
+        if not name:
+            raise ValueError("Category name is required")
+        marker = self._placeholder
+        with self._connect() as connection:
+            if parent_id:
+                parent = connection.execute(
+                    f"""
+                    SELECT t.id, t.parent_id, state.retired_at
+                    FROM noosphere_tags t
+                    LEFT JOIN noosphere_tag_states state ON state.tag_id = t.id
+                    WHERE t.id = {marker}
+                    """,
+                    (parent_id,),
+                ).fetchone()
+                if parent is None:
+                    raise ValueError(f"Parent category not found: {parent_id}")
+                parent_data = dict(parent)
+                if parent_data.get("parent_id"):
+                    raise ValueError("Category depth cannot exceed two levels")
+                if parent_data.get("retired_at"):
+                    raise ValueError("Cannot add a subcategory to a retired category")
+            self._assert_unique_localized_name(
+                connection,
+                name=name,
+                locale=locale,
+                parent_id=parent_id,
+            )
+            category_id = uuid.uuid4().hex
+            connection.execute(
+                f"""
+                INSERT INTO noosphere_tags (id, name, description, parent_id, created_at)
+                VALUES ({marker}, {marker}, {marker}, {marker}, {marker})
+                """,
+                (category_id, name, description, parent_id, _now()),
+            )
+            connection.execute(
+                f"""
+                INSERT INTO noosphere_tag_localizations
+                    (tag_id, locale, name, description, aliases_json)
+                VALUES ({marker}, {marker}, {marker}, {marker}, {marker})
+                """,
+                (category_id, locale, name, description, "[]"),
+            )
+        category = self.get_category(category_id, locale=locale, include_retired=True)
+        if category is None:
+            raise RuntimeError("Category was not persisted")
+        return category
+
+    def get_category(
+        self,
+        tag_id: str,
+        *,
+        locale: str = "en-US",
+        include_retired: bool = False,
+    ) -> dict[str, Any] | None:
+        for root in self.list_tree(locale, include_retired=include_retired):
+            if root["id"] == tag_id:
+                return root
+            for child in root["children"]:
+                if child["id"] == tag_id:
+                    return child
+        return None
+
+    def update_category(
+        self,
+        tag_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        retired: bool | None = None,
+        locale: str = "en-US",
+    ) -> dict[str, Any]:
+        """Update the current locale or retire/restore a category and its children."""
+        self.ensure_schema()
+        from src.core.localization import normalize_language
+
+        locale = normalize_language(locale)
+        marker = self._placeholder
+        with self._connect() as connection:
+            row = connection.execute(
+                f"SELECT id, name, description, parent_id FROM noosphere_tags WHERE id = {marker}",
+                (tag_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Category not found: {tag_id}")
+            current = dict(row)
+            localized = connection.execute(
+                f"""
+                SELECT name, description, aliases_json
+                FROM noosphere_tag_localizations
+                WHERE tag_id = {marker} AND locale = {marker}
+                """,
+                (tag_id, locale),
+            ).fetchone()
+            localized_data = dict(localized) if localized else {}
+            next_name = str(name if name is not None else localized_data.get("name") or current["name"]).strip()
+            next_description = str(
+                description if description is not None
+                else localized_data.get("description") or current.get("description") or ""
+            ).strip()
+            if not next_name:
+                raise ValueError("Category name is required")
+            if name is not None:
+                self._assert_unique_localized_name(
+                    connection,
+                    name=next_name,
+                    locale=locale,
+                    parent_id=current.get("parent_id"),
+                    exclude_id=tag_id,
+                )
+            aliases_json = str(localized_data.get("aliases_json") or "[]")
+            if localized:
+                connection.execute(
+                    f"""
+                    UPDATE noosphere_tag_localizations
+                    SET name = {marker}, description = {marker}, aliases_json = {marker}
+                    WHERE tag_id = {marker} AND locale = {marker}
+                    """,
+                    (next_name, next_description, aliases_json, tag_id, locale),
+                )
+            else:
+                connection.execute(
+                    f"""
+                    INSERT INTO noosphere_tag_localizations
+                        (tag_id, locale, name, description, aliases_json)
+                    VALUES ({marker}, {marker}, {marker}, {marker}, {marker})
+                    """,
+                    (tag_id, locale, next_name, next_description, aliases_json),
+                )
+            if locale == "en-US":
+                connection.execute(
+                    f"UPDATE noosphere_tags SET name = {marker}, description = {marker} WHERE id = {marker}",
+                    (next_name, next_description, tag_id),
+                )
+            if retired is not None:
+                affected_ids = [tag_id]
+                if not current.get("parent_id"):
+                    affected_ids.extend(
+                        str(dict(child)["id"])
+                        for child in connection.execute(
+                            f"SELECT id FROM noosphere_tags WHERE parent_id = {marker}",
+                            (tag_id,),
+                        ).fetchall()
+                    )
+                for affected_id in affected_ids:
+                    connection.execute(
+                        f"""
+                        INSERT INTO noosphere_tag_states (tag_id, retired_at)
+                        VALUES ({marker}, {marker})
+                        ON CONFLICT(tag_id) DO UPDATE SET retired_at = excluded.retired_at
+                        """,
+                        (affected_id, _now() if retired else None),
+                    )
+        category = self.get_category(tag_id, locale=locale, include_retired=True)
+        if category is None:
+            raise RuntimeError("Category update was not persisted")
+        return category
+
+    def _assert_unique_localized_name(
+        self,
+        connection,
+        *,
+        name: str,
+        locale: str,
+        parent_id: str | None,
+        exclude_id: str | None = None,
+    ) -> None:
+        marker = self._placeholder
+        rows = connection.execute(
+            f"""
+            SELECT t.id, t.parent_id, COALESCE(l.name, t.name) AS name
+            FROM noosphere_tags t
+            LEFT JOIN noosphere_tag_localizations l
+              ON l.tag_id = t.id AND l.locale = {marker}
+            """,
+            (locale,),
+        ).fetchall()
+        for row in rows:
+            item = dict(row)
+            if exclude_id and item["id"] == exclude_id:
+                continue
+            if item.get("parent_id") == parent_id and str(item.get("name") or "").casefold() == name.casefold():
+                raise ValueError(f"A category named '{name}' already exists at this level")
+
+    def assign_existing(
+        self,
+        article_id: str,
+        *,
+        tag_id: str,
+        subtag_id: str | None = None,
+        reason: str = "",
+        locale: str = "en-US",
+        confidence: float = 1.0,
+        source: str = "manual",
+    ) -> dict[str, Any]:
+        """Assign an article to active, preconfigured category IDs only."""
+        self.ensure_schema()
+        if not 0 <= confidence <= 1:
+            raise ValueError("Classification confidence must be between 0 and 1")
+        source = source.strip() or "manual"
+        marker = self._placeholder
+        with self._connect() as connection:
+            root = connection.execute(
+                f"""
+                SELECT t.id, t.parent_id, state.retired_at
+                FROM noosphere_tags t
+                LEFT JOIN noosphere_tag_states state ON state.tag_id = t.id
+                WHERE t.id = {marker}
+                """,
+                (tag_id,),
+            ).fetchone()
+            if root is None or dict(root).get("parent_id"):
+                raise ValueError(f"Top-level category not found: {tag_id}")
+            if dict(root).get("retired_at"):
+                raise ValueError(f"Category is retired: {tag_id}")
+            if subtag_id:
+                child = connection.execute(
+                    f"""
+                    SELECT t.id, t.parent_id, state.retired_at
+                    FROM noosphere_tags t
+                    LEFT JOIN noosphere_tag_states state ON state.tag_id = t.id
+                    WHERE t.id = {marker}
+                    """,
+                    (subtag_id,),
+                ).fetchone()
+                if child is None or dict(child).get("parent_id") != tag_id:
+                    raise ValueError(f"Subcategory {subtag_id} does not belong to {tag_id}")
+                if dict(child).get("retired_at"):
+                    raise ValueError(f"Subcategory is retired: {subtag_id}")
+            existing = connection.execute(
+                f"SELECT article_id FROM noosphere_article_tags WHERE article_id = {marker}",
+                (article_id,),
+            ).fetchone()
+            values = (tag_id, subtag_id, reason.strip(), _now(), article_id)
+            if existing:
+                connection.execute(
+                    f"""
+                    UPDATE noosphere_article_tags
+                    SET tag_id={marker}, subtag_id={marker}, reason={marker}, updated_at={marker}
+                    WHERE article_id={marker}
+                    """,
+                    values,
+                )
+            else:
+                connection.execute(
+                    f"""
+                    INSERT INTO noosphere_article_tags
+                        (tag_id, subtag_id, reason, updated_at, article_id)
+                    VALUES ({marker}, {marker}, {marker}, {marker}, {marker})
+                    """,
+                    values,
+                )
+            connection.execute(
+                f"""
+                INSERT INTO noosphere_article_classification_details
+                    (article_id, confidence, source)
+                VALUES ({marker}, {marker}, {marker})
+                ON CONFLICT(article_id) DO UPDATE SET
+                    confidence = excluded.confidence,
+                    source = excluded.source
+                """,
+                (article_id, confidence, source),
+            )
+        assignment = self.get_assignment(article_id, locale)
+        if assignment is None:
+            raise RuntimeError("Category assignment was not persisted")
+        return assignment
 
     def get_assignment(self, article_id: str, locale: str = "en-US") -> dict[str, Any] | None:
         self.ensure_schema()
@@ -134,13 +438,19 @@ class CatalogStore:
                 f"""
                 SELECT a.article_id, a.reason,
                        t.id AS tag_id, COALESCE(tl.name, t.name) AS tag_name,
-                       s.id AS subtag_id, COALESCE(sl.name, s.name) AS subtag_name
+                       CASE WHEN ss.retired_at IS NULL THEN s.id ELSE NULL END AS subtag_id,
+                       CASE WHEN ss.retired_at IS NULL THEN COALESCE(sl.name, s.name) ELSE NULL END AS subtag_name,
+                       COALESCE(d.confidence, 1) AS confidence,
+                       COALESCE(d.source, 'manual') AS source
                 FROM noosphere_article_tags a
                 JOIN noosphere_tags t ON t.id = a.tag_id
                 LEFT JOIN noosphere_tags s ON s.id = a.subtag_id
+                LEFT JOIN noosphere_tag_states ts ON ts.tag_id = t.id
+                LEFT JOIN noosphere_tag_states ss ON ss.tag_id = s.id
+                LEFT JOIN noosphere_article_classification_details d ON d.article_id = a.article_id
                 LEFT JOIN noosphere_tag_localizations tl ON tl.tag_id = t.id AND tl.locale = {marker}
                 LEFT JOIN noosphere_tag_localizations sl ON sl.tag_id = s.id AND sl.locale = {marker}
-                WHERE a.article_id = {marker}
+                WHERE a.article_id = {marker} AND ts.retired_at IS NULL
                 """,
                 (locale, locale, article_id),
             ).fetchone()
@@ -156,7 +466,12 @@ class CatalogStore:
                 SELECT l.name, l.aliases_json
                 FROM noosphere_article_tags a
                 JOIN noosphere_tag_localizations l ON l.tag_id = a.tag_id OR l.tag_id = a.subtag_id
+                JOIN noosphere_tags root ON root.id = a.tag_id
+                LEFT JOIN noosphere_tag_states root_state ON root_state.tag_id = root.id
+                LEFT JOIN noosphere_tag_states term_state ON term_state.tag_id = l.tag_id
                 WHERE a.article_id = {marker}
+                  AND root_state.retired_at IS NULL
+                  AND term_state.retired_at IS NULL
                 """,
                 (article_id,),
             ).fetchall()
@@ -177,6 +492,10 @@ class CatalogStore:
         self.ensure_schema()
         marker = self._placeholder
         with self._connect() as connection:
+            connection.execute(
+                f"DELETE FROM noosphere_article_classification_details WHERE article_id = {marker}",
+                (article_id,),
+            )
             connection.execute(
                 f"DELETE FROM noosphere_article_tags WHERE article_id = {marker}",
                 (article_id,),
@@ -346,6 +665,16 @@ async def classify_reviewed_article(article_id: str, reviewed_path: Path, locale
     config = load_config()
     store = CatalogStore()
     taxonomy = store.list_tree(locale)
+    if not taxonomy:
+        store.delete_assignment(article_id)
+        return {
+            "article_id": article_id,
+            "classified": False,
+            "confidence": 0.0,
+            "reason": "No active categories are configured",
+            "tag_name": None,
+            "subtag_name": None,
+        }
     system_prompt = parse_prompt_file(
         resolve_project_path(config.pipeline.classification_prompt_path)
     ).body
@@ -364,34 +693,42 @@ async def classify_reviewed_article(article_id: str, reviewed_path: Path, locale
     finally:
         reset_event_sink(token)
     payload = _extract_json_object(response.text)
-    tag = payload.get("tag")
-    subtag = payload.get("subtag")
-    if not isinstance(tag, dict):
-        raise ValueError("Classification response is missing tag")
-    if subtag is not None and not isinstance(subtag, dict):
-        raise ValueError("Classification subtag must be an object or null")
-    def translations(value: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-        if not value:
-            return {}
-        raw = value.get("translations") or value.get("localizations") or {}
-        return raw if isinstance(raw, dict) else {}
-
-    tag_translations = translations(tag)
-    subtag_translations = translations(subtag) if subtag else {}
-    tag_name = str(tag.get("name") or (tag_translations.get(locale) or {}).get("name") or (next(iter(tag_translations.values()), {})).get("name") or "").strip()
-    subtag_name = str(subtag.get("name") or (subtag_translations.get(locale) or {}).get("name") or (next(iter(subtag_translations.values()), {})).get("name") or "").strip() if subtag else None
-    if not tag_name:
-        raise ValueError("Classification response is missing a tag name")
-    return store.assign(
-        article_id,
-        tag_name=tag_name,
-        tag_description=str(tag.get("description") or ""),
-        subtag_name=subtag_name,
-        subtag_description=str(subtag.get("description") or "") if subtag else "",
-        reason=str(payload.get("reason") or ""),
-        locale=locale,
-        tag_localizations=tag_translations,
-        subtag_localizations=subtag_translations,
-        tag_id=str(tag.get("id") or "") or None,
-        subtag_id=str(subtag.get("id") or "") or None if subtag else None,
-    )
+    tag_id = str(payload.get("tag_id") or "").strip()
+    subtag_id = str(payload.get("subtag_id") or "").strip() or None
+    reason = str(payload.get("reason") or "").strip()
+    try:
+        confidence = float(payload.get("confidence") or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(confidence, 1.0))
+    if not tag_id or confidence < 0.6:
+        store.delete_assignment(article_id)
+        return {
+            "article_id": article_id,
+            "classified": False,
+            "confidence": confidence,
+            "reason": reason or "No configured category matched with sufficient confidence",
+            "tag_name": None,
+            "subtag_name": None,
+        }
+    try:
+        assignment = store.assign_existing(
+            article_id,
+            tag_id=tag_id,
+            subtag_id=subtag_id,
+            reason=reason,
+            locale=locale,
+            confidence=confidence,
+            source="ai",
+        )
+    except ValueError as exc:
+        store.delete_assignment(article_id)
+        return {
+            "article_id": article_id,
+            "classified": False,
+            "confidence": confidence,
+            "reason": f"AI returned an unknown category: {exc}",
+            "tag_name": None,
+            "subtag_name": None,
+        }
+    return {**assignment, "classified": True}

@@ -21,14 +21,20 @@ The `nsphr` CLI exposes the complete local workflow and automation-friendly work
 | `nsphr articles list --query TEXT --tag-id ID --json` | Search article summaries. |
 | `nsphr articles show ARTICLE_ID --json` | Read content, metadata, classification, images, and activity. |
 | `nsphr articles update ARTICLE_ID --from reviewed.md` | Replace the editable reviewed copy. |
+| `nsphr articles metadata ARTICLE_ID --author NAME --published-at DATE` | Fill Author or Published only when absent from the captured source. |
 
-Article updates never overwrite `raw.md`.
+Article updates never overwrite `raw.md`. Source, Platform, Captured, and Type are protected; reviewed Markdown is reassembled with canonical metadata before storage and export.
 
 ## Taxonomy
 
 | Command | Purpose |
 |---|---|
 | `nsphr taxonomy list --locale zh-CN --json` | List canonical category IDs and localized labels. |
+| `nsphr taxonomy create --name Engineering --description "Software practices"` | Create a top-level category. |
+| `nsphr taxonomy create --name Testing --parent-id ID` | Create the optional second-level category. |
+| `nsphr taxonomy update ID --name 软件工程 --locale zh-CN` | Set the localized name and description. |
+| `nsphr taxonomy delete ID` | Recoverably delete a category so automatic and manual assignment cannot use it. |
+| `nsphr taxonomy restore ID` | Restore a recoverably deleted category. |
 | `nsphr taxonomy assign ARTICLE_ID --tag-id ID` | Assign an article to an existing canonical tag. |
 | `nsphr taxonomy move ARTICLE_ID --tag-id ID --subtag-id ID` | Move an article to an existing tag and optional subtag. |
 

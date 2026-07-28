@@ -132,12 +132,41 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     articles_update.add_argument("article_id")
     articles_update.add_argument("--from", dest="source_file", type=Path, required=True)
     articles_update.add_argument("--json", action="store_true")
+    articles_metadata = articles_subparsers.add_parser("metadata", help="Fill source metadata fields that were missing at capture time.")
+    articles_metadata.add_argument("article_id")
+    articles_metadata.add_argument("--author")
+    articles_metadata.add_argument("--published-at")
+    articles_metadata.add_argument("--json", action="store_true")
 
     taxonomy_parser = subparsers.add_parser("taxonomy", help="Inspect taxonomy and move articles by stable IDs.")
     taxonomy_subparsers = taxonomy_parser.add_subparsers(dest="taxonomy_command", required=True)
     taxonomy_list = taxonomy_subparsers.add_parser("list", help="List the canonical two-level taxonomy.")
     taxonomy_list.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_list.add_argument("--include-retired", action="store_true")
     taxonomy_list.add_argument("--json", action="store_true")
+    taxonomy_create = taxonomy_subparsers.add_parser("create", help="Create a top-level category or one child category.")
+    taxonomy_create.add_argument("--name", required=True)
+    taxonomy_create.add_argument("--description", default="")
+    taxonomy_create.add_argument("--parent-id", default="")
+    taxonomy_create.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_create.add_argument("--json", action="store_true")
+    taxonomy_update = taxonomy_subparsers.add_parser("update", help="Rename or describe a category; legacy retire/restore flags remain supported.")
+    taxonomy_update.add_argument("tag_id")
+    taxonomy_update.add_argument("--name")
+    taxonomy_update.add_argument("--description")
+    retirement = taxonomy_update.add_mutually_exclusive_group()
+    retirement.add_argument("--retire", action="store_true")
+    retirement.add_argument("--restore", action="store_true")
+    taxonomy_update.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_update.add_argument("--json", action="store_true")
+    taxonomy_delete = taxonomy_subparsers.add_parser("delete", help="Recoverably delete a category and hide it from classification.")
+    taxonomy_delete.add_argument("tag_id")
+    taxonomy_delete.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_delete.add_argument("--json", action="store_true")
+    taxonomy_restore = taxonomy_subparsers.add_parser("restore", help="Restore a recoverably deleted category.")
+    taxonomy_restore.add_argument("tag_id")
+    taxonomy_restore.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_restore.add_argument("--json", action="store_true")
     taxonomy_assign = taxonomy_subparsers.add_parser("assign", aliases=["move"], help="Assign an article to a tag path.")
     taxonomy_assign.add_argument("article_id")
     taxonomy_assign.add_argument("--tag-id")
@@ -421,7 +450,7 @@ def _server_json(server: str, path: str) -> dict[str, Any]:
 
 async def _main_async(args: argparse.Namespace) -> int:
     if args.command == "articles":
-        from src.application.service import get_article, list_articles, save_reviewed_markdown
+        from src.application.service import get_article, list_articles, save_reviewed_markdown, update_article_metadata
 
         try:
             if args.articles_command == "list":
@@ -435,9 +464,16 @@ async def _main_async(args: argparse.Namespace) -> int:
                 }
             elif args.articles_command == "show":
                 payload = {"article": get_article(args.article_id, locale=args.locale, include_content=not args.no_content)}
-            else:
+            elif args.articles_command == "update":
                 markdown = args.source_file.read_text(encoding="utf-8")
                 payload = save_reviewed_markdown(args.article_id, markdown)
+            else:
+                updates = {
+                    key: value
+                    for key, value in {"author": args.author, "publishedAt": args.published_at}.items()
+                    if value is not None
+                }
+                payload = update_article_metadata(args.article_id, updates)
             _emit_payload(payload, as_json=args.json)
             return 0
         except (OSError, ValueError) as exc:
@@ -445,14 +481,56 @@ async def _main_async(args: argparse.Namespace) -> int:
             return 1
 
     if args.command == "taxonomy":
-        from src.application.service import classify_article, list_taxonomy
+        from src.application.service import (
+            classify_article,
+            create_taxonomy_category,
+            list_taxonomy,
+            update_taxonomy_category,
+        )
 
         try:
             if args.taxonomy_command == "list":
-                payload = {"tags": list_taxonomy(locale=args.locale)}
+                payload = {
+                    "tags": list_taxonomy(
+                        locale=args.locale,
+                        include_retired=args.include_retired,
+                    )
+                }
+            elif args.taxonomy_command == "create":
+                payload = {
+                    "category": create_taxonomy_category(
+                        name=args.name,
+                        description=args.description,
+                        parent_id=args.parent_id or None,
+                        locale=args.locale,
+                    )
+                }
+            elif args.taxonomy_command == "update":
+                if args.name is None and args.description is None and not args.retire and not args.restore:
+                    raise ValueError("Provide a name, description, --retire, or --restore")
+                payload = {
+                    "category": update_taxonomy_category(
+                        args.tag_id,
+                        name=args.name,
+                        description=args.description,
+                        retired=True if args.retire else False if args.restore else None,
+                        locale=args.locale,
+                    )
+                }
+            elif args.taxonomy_command in {"delete", "restore"}:
+                deleted = args.taxonomy_command == "delete"
+                payload = {
+                    "deleted": deleted,
+                    "recoverable": True,
+                    "category": update_taxonomy_category(
+                        args.tag_id,
+                        retired=deleted,
+                        locale=args.locale,
+                    ),
+                }
             else:
-                if not args.tag_id and not args.tag_name:
-                    raise ValueError("Provide --tag-id for an existing category or --tag-name for a new category")
+                if not args.tag_id:
+                    raise ValueError("Provide --tag-id for a configured category")
                 payload = {
                     "classification": classify_article(
                         args.article_id,

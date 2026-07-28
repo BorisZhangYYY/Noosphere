@@ -1,6 +1,7 @@
 """LangGraph StateGraph definition for the Noosphere article pipeline."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from langgraph.graph import END, START, StateGraph
@@ -359,6 +360,35 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
 
     reviewed_path = Path(state["reviewed_path"])
     reviewed_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path = inferred_manifest_path(reviewed_path)
+    enrichment_outcomes: list[dict[str, str]] = []
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        raw_relative = str((manifest.get("paths") or {}).get("raw") or "raw.md")
+        captured_raw_path = manifest_path.parent / raw_relative
+        captured_raw = (
+            captured_raw_path.read_text(encoding="utf-8")
+            if captured_raw_path.is_file()
+            else state["raw_markdown"]
+        )
+        from src.core.article_metadata import apply_ai_metadata_candidates
+
+        reviewed_markdown, enrichment_outcomes = apply_ai_metadata_candidates(
+            manifest_path,
+            captured_raw,
+            reviewed_markdown,
+            edit_result.get("metadata_candidates") or {},
+            model=str(edit_result.get("model") or ""),
+            provider=str(edit_result.get("provider") or ""),
+        )
+        for outcome in enrichment_outcomes:
+            await emit_event(
+                "ai_review",
+                "pipeline.events.metadataEnrichmentAccepted"
+                if outcome.get("action") == "accepted"
+                else "pipeline.events.metadataEnrichmentReverted",
+                f"{outcome.get('field')}: {outcome.get('value')}",
+            )
     reviewed_path.write_text(reviewed_markdown, encoding="utf-8")
     await emit_event("ai_review", "pipeline.events.aiReviewCompleted", f"{len(reviewed_markdown)} characters")
 
@@ -368,6 +398,7 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
         "review_model": edit_result.get("model", ""),
         "review_provider": edit_result.get("provider", ""),
         "removed_files": removed_files,
+        "metadata_enrichment_outcomes": enrichment_outcomes,
         "validation_result": None,
         "feedback": "",
         "status": "reviewed",
@@ -570,6 +601,7 @@ def _default_initial_state() -> ArticleState:
         "review_model": "",
         "review_provider": "",
         "review_perspective": "",
+        "metadata_enrichment_outcomes": [],
         "upload_target": None,
         "removed_files": [],
         "upload_result": None,
@@ -625,6 +657,7 @@ async def run_ai_review_graph(
     assets_dir = manifest_path.parent / paths_data.get("assets", "assets") if paths_data.get("assets") else manifest_path.parent / "assets"
 
     config = load_config()
+    selected_perspective = perspective or config.pipeline.active_perspective
     initial_state = _default_initial_state()
     from src.core.localization import detect_text_language, resolve_output_language
     source_language = detect_text_language(raw_markdown)
@@ -641,7 +674,7 @@ async def run_ai_review_graph(
             "assets_dir": str(assets_dir),
             "raw_markdown": raw_markdown,
             "max_attempts": max_attempts if max_attempts is not None else config.ai.max_attempts,
-            "review_perspective": perspective or "",
+            "review_perspective": selected_perspective,
             "source_language": source_language,
             "output_language": resolved_language,
         }

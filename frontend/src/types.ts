@@ -68,6 +68,27 @@ export interface ArticleDetail extends ArticleSummary {
   rawMarkdown: string;
   reviewedMarkdown: string;
   displayMarkdown: string;
+  editableMarkdown: string;
+  metadata: Record<"source" | "platform" | "author" | "publishedAt" | "capturedAt" | "contentType", {
+    value: string;
+    editable: boolean;
+    origin: "source" | "missing" | "manual" | "ai" | string;
+    evidence: string;
+    model: string;
+    provider: string;
+    updatedAt: string | null;
+  }>;
+  metadataHistory: Array<{
+    field: string;
+    action: "accepted" | "reverted" | string;
+    source: "manual" | "ai" | string;
+    value: string;
+    evidence: string;
+    model?: string;
+    provider?: string;
+    reason?: string;
+    at: string;
+  }>;
   validationIssues: string[];
   hasUploaded: boolean;
   activeUpload: UploadJob | null;
@@ -107,6 +128,8 @@ export interface ArticleClassification {
   tag_name: string;
   subtag_id: string | null;
   subtag_name: string | null;
+  confidence: number;
+  source: "ai" | "manual" | string;
 }
 
 export interface ArticleOperationSummary {
@@ -123,6 +146,7 @@ export interface TaxonomyTag {
   description: string;
   aliases: string[];
   parent_id: string | null;
+  retired: boolean;
   children: TaxonomyTag[];
 }
 

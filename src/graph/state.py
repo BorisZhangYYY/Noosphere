@@ -57,6 +57,7 @@ class ArticleState(TypedDict):
     review_model: str
     review_provider: str
     review_perspective: str
+    metadata_enrichment_outcomes: list[dict[str, str]]
     upload_target: str | None
 
     # Image filter tracking (persisted to manifest on success)

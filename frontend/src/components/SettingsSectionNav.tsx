@@ -1,15 +1,27 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 
-const sections = [
+export interface SettingsSectionNavItem {
+  id: string;
+  labelKey: string;
+  lineClass: "line-short" | "line-medium" | "line-long";
+}
+
+const defaultSections: SettingsSectionNavItem[] = [
   { id: "settings-ai", labelKey: "settings.aiTitle", lineClass: "line-medium" },
   { id: "settings-crawlers", labelKey: "settings.crawlersTitle", lineClass: "line-long" },
   { id: "settings-destinations", labelKey: "settings.destinationsTitle", lineClass: "line-medium" }
 ] as const;
 
-export function SettingsSectionNav() {
+export function SettingsSectionNav({
+  sections = defaultSections,
+  ariaLabel
+}: {
+  sections?: SettingsSectionNavItem[];
+  ariaLabel?: string;
+}) {
   const { t } = useTranslation();
-  const [activeId, setActiveId] = useState(sections[0].id);
+  const [activeId, setActiveId] = useState(sections[0]?.id ?? "");
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const itemHeight = Math.max(10, Math.min(18, 84 / sections.length));
   const navStyle = {
@@ -21,21 +33,21 @@ export function SettingsSectionNav() {
     const elements = sections.map(({ id }) => document.getElementById(id)).filter((element): element is HTMLElement => Boolean(element));
     const observer = new IntersectionObserver((entries) => {
       const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-      if (visible[0]?.target.id) setActiveId(visible[0].target.id as typeof activeId);
+      if (visible[0]?.target.id) setActiveId(visible[0].target.id);
     }, { rootMargin: "-16% 0px -66% 0px", threshold: [0, 0.05] });
     elements.forEach((element) => observer.observe(element));
     return () => observer.disconnect();
   }, []);
 
   function goTo(id: string) {
-    setActiveId(id as typeof activeId);
+    setActiveId(id);
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
     <nav
       className="settings-section-nav"
-      aria-label={t("settings.sectionNavLabel")}
+      aria-label={ariaLabel ?? t("settings.sectionNavLabel")}
       onPointerLeave={() => setHoveredIndex(null)}
       style={navStyle}
     >

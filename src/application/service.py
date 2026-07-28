@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +76,10 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
     assets_dir = article_dir / str(paths.get("assets") or "assets")
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
-    metadata = web._markdown_metadata(reviewed_path) or web._markdown_metadata(raw_path)
+    from src.core.article_metadata import article_metadata_state, editable_article_markdown, strip_editor_artifacts
+
+    reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
+    protected_metadata = article_metadata_state(manifest, raw_markdown)
     referenced = {
         web._markdown_image_name(match.group(2))
         for markdown in (raw_markdown, reviewed_markdown)
@@ -103,14 +107,20 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
     ] if removed_dir.is_dir() else []
     payload: dict[str, Any] = {
         **summary,
-        "publishedAt": article.get("published_at") or metadata.get("published"),
+        "publishedAt": protected_metadata["publishedAt"]["value"],
         "contentType": str(article.get("content_type") or "article"),
         "hasUploaded": bool(manifest.get("uploaded")),
         "assets": assets,
         "removedAssets": removed_assets,
+        "metadata": protected_metadata,
+        "metadataHistory": list((manifest.get("metadata_enrichment") or {}).get("history") or []),
     }
     if include_content:
-        payload.update(rawMarkdown=raw_markdown, reviewedMarkdown=reviewed_markdown)
+        payload.update(
+            rawMarkdown=raw_markdown,
+            reviewedMarkdown=reviewed_markdown,
+            editableMarkdown=editable_article_markdown(reviewed_markdown or raw_markdown),
+        )
     return payload
 
 
@@ -265,13 +275,82 @@ def save_reviewed_markdown(article_id: str, reviewed_markdown: str) -> dict[str,
         raise ValueError("Reviewed Markdown exceeds the 10 MB limit")
     web = _web_helpers()
     article_dir = web._safe_article_dir(article_id)
+    manifest = web._read_json(article_dir / "manifest.json")
+    raw_path = article_dir / "raw.md"
+    raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     removed_dir = article_dir / "removed"
     removed_names = {path.name for path in removed_dir.iterdir() if path.is_file()} if removed_dir.is_dir() else set()
+    from src.core.article_metadata import render_protected_review, strip_editor_artifacts
+
+    protected_markdown = render_protected_review(strip_editor_artifacts(reviewed_markdown), manifest, raw_markdown)
     web._atomic_write_text(
         article_dir / "reviewed.md",
-        web._persistable_reviewed_markdown(reviewed_markdown, removed_names),
+        web._persistable_reviewed_markdown(protected_markdown, removed_names),
     )
     return {"ok": True, "article_id": article_id}
+
+
+def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    """Update only missing author/publication fields through a controlled boundary."""
+    if not isinstance(updates, dict):
+        raise ValueError("Metadata updates must be an object")
+    allowed = {"author", "publishedAt"}
+    unexpected = set(updates) - allowed
+    if unexpected:
+        raise ValueError(f"Protected metadata cannot be edited: {', '.join(sorted(unexpected))}")
+    if not updates:
+        raise ValueError("At least one metadata field is required")
+
+    web = _web_helpers()
+    article_dir = web._safe_article_dir(article_id)
+    manifest_path = article_dir / "manifest.json"
+    reviewed_path = article_dir / "reviewed.md"
+    raw_path = article_dir / "raw.md"
+    manifest = web._read_json(manifest_path)
+    raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
+    reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else raw_markdown
+    from src.core.article_metadata import article_metadata_state, render_protected_review, strip_editor_artifacts
+
+    reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
+    state = article_metadata_state(manifest, raw_markdown)
+    enrichment = manifest.setdefault("metadata_enrichment", {})
+    fields = enrichment.setdefault("fields", {})
+    history = enrichment.setdefault("history", [])
+    now = datetime.now(UTC).isoformat()
+    for key, raw_value in updates.items():
+        if not state[key]["editable"]:
+            raise ValueError(f"Source metadata is protected and already contains {key}")
+        value = str(raw_value or "").strip()
+        previous = fields.get(key) if isinstance(fields.get(key), dict) else None
+        if value:
+            fields[key] = {
+                "value": value,
+                "source": "manual",
+                "evidence": "",
+                "updated_at": now,
+            }
+            action = "accepted"
+        else:
+            fields.pop(key, None)
+            action = "reverted"
+        history.append({
+            "field": key,
+            "action": action,
+            "source": "manual",
+            "value": value,
+            "previous_value": str((previous or {}).get("value") or ""),
+            "evidence": "",
+            "at": now,
+        })
+
+    protected_markdown = render_protected_review(reviewed_markdown, manifest, raw_markdown)
+    web._atomic_write_text(reviewed_path, protected_markdown)
+    web._atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    return {
+        "ok": True,
+        "article_id": article_id,
+        "metadata": article_metadata_state(manifest, raw_markdown),
+    }
 
 
 def set_article_image_state(
@@ -293,6 +372,9 @@ def set_article_image_state(
         reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
     if len(reviewed_markdown.encode("utf-8")) > 10 * 1024 * 1024:
         raise ValueError("Reviewed Markdown exceeds the 10 MB limit")
+    from src.core.article_metadata import strip_editor_artifacts
+
+    reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
     assets_dir = article_dir / "assets"
     removed_dir = article_dir / "removed"
     assets_dir.mkdir(exist_ok=True)
@@ -341,6 +423,9 @@ def set_article_image_state(
         image_filter["promotion_images"] = sorted(promotion_images)
     image_filter["manual_removed_images"] = sorted(manual_removed)
     image_filter["removed_files"] = sorted(removed_files)
+    from src.core.article_metadata import render_protected_review
+
+    persisted_markdown = render_protected_review(persisted_markdown, manifest, raw_markdown)
     try:
         source.rename(destination)
         web._atomic_write_text(reviewed_path, persisted_markdown.rstrip() + "\n")
@@ -352,10 +437,46 @@ def set_article_image_state(
     return {"ok": True, "article_id": article_id, "name": asset_name, "state": state}
 
 
-def list_taxonomy(*, locale: str = "en-US") -> list[dict[str, Any]]:
+def list_taxonomy(*, locale: str = "en-US", include_retired: bool = False) -> list[dict[str, Any]]:
     from src.core.catalog import CatalogStore
 
-    return CatalogStore().list_tree(locale)
+    return CatalogStore().list_tree(locale, include_retired=include_retired)
+
+
+def create_taxonomy_category(
+    *,
+    name: str,
+    description: str = "",
+    parent_id: str | None = None,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    from src.core.catalog import CatalogStore
+
+    return CatalogStore().create_category(
+        name=name,
+        description=description,
+        parent_id=parent_id,
+        locale=locale,
+    )
+
+
+def update_taxonomy_category(
+    tag_id: str,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    retired: bool | None = None,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    from src.core.catalog import CatalogStore
+
+    return CatalogStore().update_category(
+        tag_id,
+        name=name,
+        description=description,
+        retired=retired,
+        locale=locale,
+    )
 
 
 def classify_article(
@@ -371,35 +492,18 @@ def classify_article(
     subtag_localizations: dict[str, dict[str, Any]] | None = None,
     locale: str = "en-US",
 ) -> dict[str, Any]:
-    """Assign an article by stable taxonomy IDs or create a localized path."""
+    """Assign an article by stable, user-configured taxonomy IDs."""
     _web_helpers()._safe_article_dir(article_id)
     from src.core.catalog import CatalogStore
 
-    store = CatalogStore()
-    if tag_id:
-        tree = store.list_tree(locale)
-        root = next((item for item in tree if item["id"] == tag_id), None)
-        if root is None:
-            raise ValueError(f"Top-level tag not found: {tag_id}")
-        child = next((item for item in root.get("children") or [] if item["id"] == subtag_id), None) if subtag_id else None
-        if subtag_id and child is None:
-            raise ValueError(f"Subtag {subtag_id} does not belong to {tag_id}")
-        tag_name = root["name"]
-        tag_description = root.get("description") or ""
-        subtag_name = child["name"] if child else ""
-        subtag_description = (child or {}).get("description") or ""
-    return store.assign(
+    if not tag_id:
+        raise ValueError("A configured top-level category ID is required")
+    return CatalogStore().assign_existing(
         article_id,
-        tag_name=tag_name,
-        tag_description=tag_description,
-        subtag_name=subtag_name or None,
-        subtag_description=subtag_description,
-        reason="Manual assignment",
-        locale=locale,
-        tag_localizations=tag_localizations,
-        subtag_localizations=subtag_localizations,
         tag_id=tag_id,
         subtag_id=subtag_id,
+        reason="Manual assignment",
+        locale=locale,
     )
 
 
