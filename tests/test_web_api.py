@@ -402,6 +402,11 @@ def test_taxonomy_categories_can_be_managed_and_retired(web_client) -> None:
     client, _, article_id = web_client
     root_id, child_id = _create_category_path(client, "Engineering", "Testing")
     assert child_id is not None
+    assigned = client.patch(
+        f"/api/v1/articles/{article_id}/classification",
+        json={"tagId": root_id, "subtagId": child_id},
+    )
+    assert assigned.status_code == 200
 
     too_deep = client.post(
         "/api/v1/taxonomy/categories",
@@ -427,12 +432,21 @@ def test_taxonomy_categories_can_be_managed_and_retired(web_client) -> None:
     managed = client.get("/api/v1/taxonomy?includeRetired=true").json()["tags"]
     assert managed[0]["retired"] is True
     assert managed[0]["children"][0]["retired"] is True
+    assert client.get("/api/v1/articles").json()["articles"][0]["classification"] is None
+    assert client.get(f"/api/v1/articles/{article_id}").json()["classification"] is None
     rejected = client.patch(
         f"/api/v1/articles/{article_id}/classification",
         json={"tagId": root_id, "subtagId": child_id},
     )
     assert rejected.status_code == 400
     assert "retired" in rejected.json()["error"]
+
+    restored = client.patch(
+        f"/api/v1/taxonomy/categories/{root_id}",
+        json={"retired": False},
+    )
+    assert restored.status_code == 200
+    assert client.get(f"/api/v1/articles/{article_id}").json()["classification"]["subtag_id"] == child_id
 
 
 def test_web_mcp_and_cli_share_canonical_taxonomy_ids(web_client, capsys) -> None:
@@ -992,13 +1006,19 @@ def test_capture_manual_only_is_rejected(web_client, monkeypatch) -> None:
 
 def test_article_reviewed_markdown_can_be_saved_and_uploaded(web_client, monkeypatch) -> None:
     client, _, article_id = web_client
+    editor_control = (
+        '<button type="button" class="noosphere-image-action" '
+        'data-action="restore" data-asset-name="image.png">Restore image</button>'
+    )
     saved = client.patch(
         f"/api/v1/articles/{article_id}",
-        json={"reviewedMarkdown": "# Edited\n\n`inline`\n"},
+        json={"reviewedMarkdown": f"# Edited\n\n{editor_control}\n\n`inline`\n"},
     )
     assert saved.status_code == 200
     reviewed = client.get(f"/api/v1/articles/{article_id}").json()
     assert reviewed["editableMarkdown"].startswith("# Edited\n\n`inline`\n")
+    assert "noosphere-image-action" not in reviewed["reviewedMarkdown"]
+    assert "noosphere-image-action" not in reviewed["displayMarkdown"]
     assert "> Source:" not in reviewed["editableMarkdown"]
     assert "> Author: Lin" in reviewed["reviewedMarkdown"]
     assert reviewed["reviewedMarkdown"].index("> Type: article") < reviewed["reviewedMarkdown"].index("---")

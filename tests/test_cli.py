@@ -78,6 +78,18 @@ def test_taxonomy_create_and_update_accept_management_fields() -> None:
     assert updated.locale == "zh-CN"
 
 
+def test_taxonomy_delete_and_restore_are_explicit_commands() -> None:
+    deleted = parse_args(["taxonomy", "delete", "root-1", "--locale", "zh-CN", "--json"])
+    restored = parse_args(["taxonomy", "restore", "root-1", "--json"])
+
+    assert deleted.taxonomy_command == "delete"
+    assert deleted.tag_id == "root-1"
+    assert deleted.locale == "zh-CN"
+    assert deleted.json is True
+    assert restored.taxonomy_command == "restore"
+    assert restored.tag_id == "root-1"
+
+
 def test_perspective_save_accepts_template_contract(tmp_path) -> None:
     prompt = tmp_path / "prompt.md"
     template = tmp_path / "template.md"

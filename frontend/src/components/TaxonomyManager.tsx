@@ -1,11 +1,11 @@
 import {
-  Archive,
   ArrowCounterClockwise,
   FloppyDisk,
   FolderSimple,
   FolderSimplePlus,
   Plus,
   SpinnerGap,
+  Trash,
   TreeStructure
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import type { TaxonomyTag } from "../types";
+import { InlineSelect } from "./InlineSelect";
 
 function CategoryEditor({
   category,
@@ -82,14 +83,17 @@ export function TaxonomyManager() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const roots = query.data?.tags ?? [];
   const activeRoots = useMemo(() => roots.filter((root) => !root.retired), [roots]);
+  const deletedRoots = useMemo(() => roots.filter((root) => root.retired), [roots]);
 
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["taxonomy"] }),
-      queryClient.invalidateQueries({ queryKey: ["articles"] })
+      queryClient.invalidateQueries({ queryKey: ["articles"] }),
+      queryClient.invalidateQueries({ queryKey: ["article"] })
     ]);
   };
 
@@ -110,11 +114,12 @@ export function TaxonomyManager() {
     onSuccess: async (_, variables) => {
       setFeedback(
         variables.values.retired === true
-          ? t("reviewStudio.taxonomy.retired")
+          ? t("reviewStudio.taxonomy.deleted")
           : variables.values.retired === false
             ? t("reviewStudio.taxonomy.restored")
             : t("reviewStudio.taxonomy.saved")
       );
+      setPendingDeleteId(null);
       await refresh();
     },
     onError: (error: Error) => setFeedback(error.message)
@@ -123,7 +128,7 @@ export function TaxonomyManager() {
   const pending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <section className="taxonomy-manager" aria-labelledby="taxonomy-manager-title">
+    <section className="taxonomy-manager" id="review-taxonomy" aria-labelledby="taxonomy-manager-title">
       <div className="section-heading taxonomy-manager-heading">
         <div>
           <p className="context-label">{t("reviewStudio.taxonomy.eyebrow")}</p>
@@ -149,17 +154,22 @@ export function TaxonomyManager() {
           });
         }}
       >
-        <label>
+        <div className="taxonomy-level-field">
           <span>{t("reviewStudio.taxonomy.level")}</span>
-          <select value={parentId} onChange={(event) => setParentId(event.target.value)}>
-            <option value="">{t("reviewStudio.taxonomy.topLevel")}</option>
-            {activeRoots.map((root) => (
-              <option value={root.id} key={root.id}>
-                {t("reviewStudio.taxonomy.under", { name: root.name })}
-              </option>
-            ))}
-          </select>
-        </label>
+          <InlineSelect
+            value={parentId}
+            ariaLabel={t("reviewStudio.taxonomy.level")}
+            onChange={setParentId}
+            options={[
+              { value: "", label: t("reviewStudio.taxonomy.topLevel") },
+              ...activeRoots.map((root) => ({
+                value: root.id,
+                label: t("reviewStudio.taxonomy.under", { name: root.name }),
+                description: root.description
+              }))
+            ]}
+          />
+        </div>
         <label>
           <span>{parentId ? t("reviewStudio.taxonomy.subtypeName") : t("reviewStudio.taxonomy.typeName")}</span>
           <input
@@ -203,8 +213,8 @@ export function TaxonomyManager() {
       )}
 
       <div className="taxonomy-editor-tree">
-        {roots.map((root) => (
-          <article className={`taxonomy-family-editor${root.retired ? " retired" : ""}`} key={root.id}>
+        {activeRoots.map((root) => (
+          <article className="taxonomy-family-editor" key={root.id}>
             <CategoryEditor
               category={root}
               depth={1}
@@ -213,17 +223,23 @@ export function TaxonomyManager() {
             <div className="taxonomy-family-actions">
               <button
                 type="button"
-                className="button-tertiary"
+                className={`taxonomy-delete-button${pendingDeleteId === root.id ? " confirming" : ""}`}
                 disabled={pending}
-                onClick={() => updateMutation.mutate({ category: root, values: { retired: !root.retired } })}
+                aria-label={pendingDeleteId === root.id
+                  ? t("reviewStudio.taxonomy.confirmDeleteNamed", { name: root.name })
+                  : t("reviewStudio.taxonomy.deleteNamed", { name: root.name })}
+                onClick={() => {
+                  if (pendingDeleteId === root.id) updateMutation.mutate({ category: root, values: { retired: true } });
+                  else setPendingDeleteId(root.id);
+                }}
               >
-                {root.retired ? <ArrowCounterClockwise size={15} /> : <Archive size={15} />}
-                {root.retired ? t("reviewStudio.taxonomy.restore") : t("reviewStudio.taxonomy.retire")}
+                <Trash size={15} />
+                {pendingDeleteId === root.id ? t("reviewStudio.taxonomy.confirmDelete") : t("reviewStudio.taxonomy.delete")}
               </button>
             </div>
-            {root.children.length > 0 && (
+            {root.children.some((child) => !child.retired) && (
               <div className="taxonomy-child-editors">
-                {root.children.map((child) => (
+                {root.children.filter((child) => !child.retired).map((child) => (
                   <div className="taxonomy-child-editor" key={child.id}>
                     <CategoryEditor
                       category={child}
@@ -232,12 +248,36 @@ export function TaxonomyManager() {
                     />
                     <button
                       type="button"
-                      className="button-tertiary taxonomy-child-retire"
+                      className={`taxonomy-delete-button taxonomy-child-delete${pendingDeleteId === child.id ? " confirming" : ""}`}
                       disabled={pending}
-                      onClick={() => updateMutation.mutate({ category: child, values: { retired: !child.retired } })}
+                      aria-label={pendingDeleteId === child.id
+                        ? t("reviewStudio.taxonomy.confirmDeleteNamed", { name: child.name })
+                        : t("reviewStudio.taxonomy.deleteNamed", { name: child.name })}
+                      onClick={() => {
+                        if (pendingDeleteId === child.id) updateMutation.mutate({ category: child, values: { retired: true } });
+                        else setPendingDeleteId(child.id);
+                      }}
                     >
-                      {child.retired ? <ArrowCounterClockwise size={15} /> : <Archive size={15} />}
-                      {child.retired ? t("reviewStudio.taxonomy.restore") : t("reviewStudio.taxonomy.retire")}
+                      <Trash size={15} />
+                      {pendingDeleteId === child.id ? t("reviewStudio.taxonomy.confirmDelete") : t("reviewStudio.taxonomy.delete")}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {root.children.some((child) => child.retired) && (
+              <div className="taxonomy-deleted-children">
+                {root.children.filter((child) => child.retired).map((child) => (
+                  <div className="taxonomy-deleted-row" key={child.id}>
+                    <span><Trash size={14} />{child.name}</span>
+                    <button
+                      type="button"
+                      className="button-tertiary taxonomy-restore-button"
+                      disabled={pending}
+                      onClick={() => updateMutation.mutate({ category: child, values: { retired: false } })}
+                    >
+                      <ArrowCounterClockwise size={15} />
+                      {t("reviewStudio.taxonomy.restore")}
                     </button>
                   </div>
                 ))}
@@ -246,6 +286,30 @@ export function TaxonomyManager() {
           </article>
         ))}
       </div>
+      {deletedRoots.length > 0 && (
+        <section className="taxonomy-deleted-section" aria-labelledby="taxonomy-deleted-title">
+          <div>
+            <h3 id="taxonomy-deleted-title">{t("reviewStudio.taxonomy.deletedTitle")}</h3>
+            <p>{t("reviewStudio.taxonomy.deletedDescription")}</p>
+          </div>
+          <div className="taxonomy-deleted-list">
+            {deletedRoots.map((root) => (
+              <div className="taxonomy-deleted-row" key={root.id}>
+                <span><Trash size={14} />{root.name}</span>
+                <button
+                  type="button"
+                  className="button-tertiary taxonomy-restore-button"
+                  disabled={pending}
+                  onClick={() => updateMutation.mutate({ category: root, values: { retired: false } })}
+                >
+                  <ArrowCounterClockwise size={15} />
+                  {t("reviewStudio.taxonomy.restore")}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </section>
   );
 }

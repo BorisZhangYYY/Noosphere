@@ -32,6 +32,8 @@ Content updates affect editable prose; Noosphere restores protected source metad
 - `list_taxonomy`
 - `create_taxonomy_category`
 - `update_taxonomy_category`
+- `delete_taxonomy_category`
+- `restore_taxonomy_category`
 - `classify_article`
 
 Safe classification flow:
@@ -41,7 +43,7 @@ Safe classification flow:
 3. Select an active `tag_id` and optional `subtag_id`.
 4. Call `classify_article` with the stable IDs.
 
-Use `update_taxonomy_category` to localize, rename, describe, retire, or restore a category. Localized names are presentation data, not category identities.
+Use `update_taxonomy_category` to localize, rename, or describe a category. Use `delete_taxonomy_category` for a recoverable deletion and `restore_taxonomy_category` to bring it back. The lower-level `retired` update field remains available for backward compatibility. Localized names are presentation data, not category identities.
 
 ### Review design
 

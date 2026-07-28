@@ -9,6 +9,7 @@ import pytest
 from src.mcp.server import (
     classify_article,
     create_taxonomy_category,
+    delete_taxonomy_category,
     get_job,
     list_articles,
     list_taxonomy,
@@ -16,6 +17,7 @@ from src.mcp.server import (
     _validate_article_id,
     _validate_upload_target,
     review_article,
+    restore_taxonomy_category,
     run_pipeline,
     update_taxonomy_category,
 )
@@ -169,6 +171,29 @@ async def test_taxonomy_management_tools_delegate_to_application(monkeypatch) ->
     assert updated["category"]["id"] == "new"
     assert updated["category"]["name"] == "软件工程"
     assert updated["category"]["retired"] is True
+
+
+@pytest.mark.asyncio
+async def test_taxonomy_delete_and_restore_tools_are_recoverable(monkeypatch) -> None:
+    calls: list[tuple[str, bool, str]] = []
+
+    def fake_update(tag_id: str, *, retired: bool, locale: str):
+        calls.append((tag_id, retired, locale))
+        return {"id": tag_id, "retired": retired}
+
+    monkeypatch.setattr("src.application.service.update_taxonomy_category", fake_update)
+
+    deleted = await delete_taxonomy_category("category-1", locale="zh-CN")
+    restored = await restore_taxonomy_category("category-1", locale="zh-CN")
+
+    assert deleted["deleted"] is True
+    assert deleted["recoverable"] is True
+    assert restored["deleted"] is False
+    assert restored["recoverable"] is True
+    assert calls == [
+        ("category-1", True, "zh-CN"),
+        ("category-1", False, "zh-CN"),
+    ]
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   BookOpenText,
   Gear,
   House,
@@ -15,11 +16,12 @@ import {
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { Atmosphere } from "./Atmosphere";
 import { useTheme } from "../theme";
 import { InlineSelect } from "./InlineSelect";
+import { KnowledgeSidebar } from "./KnowledgeSidebar";
 import type { OutputLanguage, ReviewMode } from "../types";
 
 const navItems = [
@@ -42,6 +44,8 @@ export function AppShell() {
   const [outputLanguage, setOutputLanguage] = useState<OutputLanguage>("follow_ui");
   const { resolvedTheme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
+  const libraryMode = location.pathname === "/library" || location.pathname.startsWith("/articles/");
   const captureMutation = useMutation({
     mutationFn: api.createCapture,
     onSuccess: () => {
@@ -59,12 +63,12 @@ export function AppShell() {
   }, [pipelineSettings.data]);
 
   return (
-    <div className="app-root">
+    <div className={`app-root${libraryMode ? " library-mode-active" : ""}`}>
       <Atmosphere />
       <button className="mobile-menu" aria-label={t("nav.open")} onClick={() => setMobileOpen(true)}>
         <SidebarSimple size={21} />
       </button>
-      <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
+      <aside className={`sidebar${libraryMode ? " library-sidebar-mode" : ""}${mobileOpen ? " sidebar-open" : ""}`}>
         <div className="brand-row">
           <NavLink to="/" className="brand" onClick={() => setMobileOpen(false)}>
             <img className="brand-mark" src="/app/noosphere-mark.svg" alt="" />
@@ -81,7 +85,7 @@ export function AppShell() {
               key={to}
               to={to}
               onClick={() => setMobileOpen(false)}
-              className={({ isActive }) => `nav-item ${isActive ? "nav-item-active" : ""}`}
+              className={({ isActive }) => `nav-item nav-item-${to === "/" ? "overview" : to.slice(1)} ${(isActive || (to === "/library" && libraryMode)) ? "nav-item-active" : ""}`}
             >
               <Icon size={20} weight="regular" />
               <span>{t(labelKey)}</span>
@@ -89,7 +93,9 @@ export function AppShell() {
           ))}
         </nav>
 
-        <div className="sidebar-footer">
+        <KnowledgeSidebar active={libraryMode} />
+
+        <div className="sidebar-footer sidebar-footer-default">
           <button className="theme-button" onClick={toggleTheme} aria-label={t("controls.toggleTheme")}>
             {resolvedTheme === "dark" ? <Sun size={19} /> : <Moon size={19} />}
             <span>{resolvedTheme === "dark" ? t("controls.lightMode") : t("controls.darkMode")}</span>
@@ -103,10 +109,16 @@ export function AppShell() {
             <span>{t("capture.button")}</span>
           </button>
         </div>
+        <div className="sidebar-footer sidebar-footer-library">
+          <button className="library-return-button" type="button" onClick={() => navigate("/")}>
+            <ArrowLeft size={18} />
+            <span>{t("knowledge.returnToMain")}</span>
+          </button>
+        </div>
       </aside>
 
       {mobileOpen && <button className="sidebar-scrim" aria-label={t("nav.close")} onClick={() => setMobileOpen(false)} />}
-      <main className="content-shell"><Outlet /></main>
+      <main className={`content-shell${libraryMode ? " library-content-shell" : ""}`}><Outlet /></main>
 
       {captureOpen && (
         <div className="dialog-layer" role="presentation" onMouseDown={() => setCaptureOpen(false)}>

@@ -313,6 +313,52 @@ async def update_taxonomy_category(
 
 
 @mcp.tool()
+async def delete_taxonomy_category(
+    tag_id: str,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    """Recoverably delete one category; deleting a parent also hides its children."""
+    from src.application.service import update_taxonomy_category as update_category
+
+    category = await _to_thread(
+        update_category,
+        tag_id,
+        retired=True,
+        locale=locale,
+    )
+    return {
+        "ok": True,
+        "deleted": True,
+        "recoverable": True,
+        "category": category,
+        "next_actions": ["restore_taxonomy_category", "list_taxonomy"],
+    }
+
+
+@mcp.tool()
+async def restore_taxonomy_category(
+    tag_id: str,
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    """Restore a recoverably deleted category and its children."""
+    from src.application.service import update_taxonomy_category as update_category
+
+    category = await _to_thread(
+        update_category,
+        tag_id,
+        retired=False,
+        locale=locale,
+    )
+    return {
+        "ok": True,
+        "deleted": False,
+        "recoverable": True,
+        "category": category,
+        "next_actions": ["list_taxonomy", "classify_article"],
+    }
+
+
+@mcp.tool()
 async def classify_article(
     article_id: str,
     tag_id: str = "",

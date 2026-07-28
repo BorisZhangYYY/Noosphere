@@ -556,6 +556,9 @@ def _ensure_inventory_images_visible(
 
 def _persistable_reviewed_markdown(markdown: str, removed_names: set[str]) -> str:
     """Remove editor-only references to assets that remain in removed/."""
+    from src.core.article_metadata import strip_editor_artifacts
+
+    markdown = strip_editor_artifacts(markdown)
     for name in removed_names:
         markdown = _replace_image_target(markdown, name, None)
     return markdown.rstrip() + "\n"
@@ -686,6 +689,9 @@ async def get_article(request: Request) -> JSONResponse:
     review = _read_json(article_dir / "review.json")
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
+    from src.core.article_metadata import strip_editor_artifacts
+
+    reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
     metadata = _markdown_metadata(reviewed_path) or _markdown_metadata(raw_path)
 
     validation_data = review.get("validation") or {}

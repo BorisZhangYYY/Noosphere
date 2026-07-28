@@ -33,7 +33,8 @@ Article updates never overwrite `raw.md`. Source, Platform, Captured, and Type a
 | `nsphr taxonomy create --name Engineering --description "Software practices"` | Create a top-level category. |
 | `nsphr taxonomy create --name Testing --parent-id ID` | Create the optional second-level category. |
 | `nsphr taxonomy update ID --name 软件工程 --locale zh-CN` | Set the localized name and description. |
-| `nsphr taxonomy update ID --retire` | Retire a category so automatic and manual assignment cannot use it. |
+| `nsphr taxonomy delete ID` | Recoverably delete a category so automatic and manual assignment cannot use it. |
+| `nsphr taxonomy restore ID` | Restore a recoverably deleted category. |
 | `nsphr taxonomy assign ARTICLE_ID --tag-id ID` | Assign an article to an existing canonical tag. |
 | `nsphr taxonomy move ARTICLE_ID --tag-id ID --subtag-id ID` | Move an article to an existing tag and optional subtag. |
 

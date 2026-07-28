@@ -150,7 +150,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     taxonomy_create.add_argument("--parent-id", default="")
     taxonomy_create.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
     taxonomy_create.add_argument("--json", action="store_true")
-    taxonomy_update = taxonomy_subparsers.add_parser("update", help="Rename, describe, retire, or restore a category.")
+    taxonomy_update = taxonomy_subparsers.add_parser("update", help="Rename or describe a category; legacy retire/restore flags remain supported.")
     taxonomy_update.add_argument("tag_id")
     taxonomy_update.add_argument("--name")
     taxonomy_update.add_argument("--description")
@@ -159,6 +159,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     retirement.add_argument("--restore", action="store_true")
     taxonomy_update.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
     taxonomy_update.add_argument("--json", action="store_true")
+    taxonomy_delete = taxonomy_subparsers.add_parser("delete", help="Recoverably delete a category and hide it from classification.")
+    taxonomy_delete.add_argument("tag_id")
+    taxonomy_delete.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_delete.add_argument("--json", action="store_true")
+    taxonomy_restore = taxonomy_subparsers.add_parser("restore", help="Restore a recoverably deleted category.")
+    taxonomy_restore.add_argument("tag_id")
+    taxonomy_restore.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
+    taxonomy_restore.add_argument("--json", action="store_true")
     taxonomy_assign = taxonomy_subparsers.add_parser("assign", aliases=["move"], help="Assign an article to a tag path.")
     taxonomy_assign.add_argument("article_id")
     taxonomy_assign.add_argument("--tag-id")
@@ -508,6 +516,17 @@ async def _main_async(args: argparse.Namespace) -> int:
                         retired=True if args.retire else False if args.restore else None,
                         locale=args.locale,
                     )
+                }
+            elif args.taxonomy_command in {"delete", "restore"}:
+                deleted = args.taxonomy_command == "delete"
+                payload = {
+                    "deleted": deleted,
+                    "recoverable": True,
+                    "category": update_taxonomy_category(
+                        args.tag_id,
+                        retired=deleted,
+                        locale=args.locale,
+                    ),
                 }
             else:
                 if not args.tag_id:

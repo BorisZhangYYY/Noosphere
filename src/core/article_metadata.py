@@ -17,6 +17,10 @@ ENRICHABLE_FIELDS = {"author": "Author", "publishedAt": "Published"}
 _MISSING_VALUES = {"", "unknown", "未知", "none", "null", "n/a", "-"}
 _H1_RE = re.compile(r"^#\s+\S")
 _RULE_RE = re.compile(r"^\s{0,3}(?:-{3,}|_{3,}|\*{3,})\s*$")
+_EDITOR_IMAGE_ACTION_RE = re.compile(
+    r"""[ \t]*<button\b[^>]*\bclass\s*=\s*["'][^"']*\bnoosphere-image-action\b[^"']*["'][^>]*>.*?</button>[ \t]*\n?""",
+    flags=re.IGNORECASE | re.DOTALL,
+)
 
 
 def _missing(value: Any) -> bool:
@@ -31,9 +35,14 @@ def _source_metadata(markdown: str) -> dict[str, str]:
     }
 
 
+def strip_editor_artifacts(markdown: str) -> str:
+    """Remove UI-only controls that must never enter reviewed Markdown."""
+    return _EDITOR_IMAGE_ACTION_RE.sub("", markdown)
+
+
 def editable_article_markdown(markdown: str) -> str:
     """Remove the leading canonical metadata block from content shown in the editor."""
-    normalized = markdown.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = strip_editor_artifacts(markdown).replace("\r\n", "\n").replace("\r", "\n")
     lines = normalized.split("\n")
     h1_index = next((index for index, line in enumerate(lines) if _H1_RE.match(line.strip())), None)
     if h1_index is None:

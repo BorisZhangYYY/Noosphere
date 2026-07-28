@@ -77,7 +77,7 @@ docker compose up -d --build
 open http://localhost:8080/app/
 ```
 
-The web workspace separates an operational Overview from a three-column Library. The Library combines a category-and-article tree, article outline, and read-only Markdown reader; the article workbench keeps full editing, image recovery, review, and upload controls.
+The web workspace separates the operational Overview from an immersive Library mode. Entering the Library transforms the primary sidebar into a category-and-article tree and opens the selected article directly in its workbench. The workbench combines an article outline, editor, and collapsible inspection rail for classification, image recovery, review, and upload.
 
 To install the optional Codex/Claude-compatible Noosphere skill:
 
@@ -103,7 +103,7 @@ AI fills typed content slots. Noosphere assembles the final metadata block, head
 
 ### Canonical bilingual taxonomy
 
-Classification follows `category → optional subcategory → article`, with at most two directory levels. New workspaces start empty. Users create and describe category boundaries in Review Studio; both manual moves and AI organization use only active, stable category IDs. AI results below the confidence threshold remain explicitly unclassified instead of inventing a directory.
+Classification follows `category → optional subcategory → article`, with at most two directory levels. New workspaces start empty. Users create and describe category boundaries in Review Configuration; both manual moves and AI organization use only active, stable category IDs. AI results below the confidence threshold remain explicitly unclassified instead of inventing a directory.
 
 ### Independent image review
 
@@ -115,9 +115,9 @@ The text-review provider and image-review provider are configured independently.
 |---|---|---|---|
 | Extract, review, upload, full pipeline | Background actions | Synchronous tools and `start_*` jobs | Foreground commands with JSON output |
 | Article list, protected metadata, and prose update | Library and editor | `list_articles`, `get_article`, `update_article_content`, `update_missing_article_metadata` | `articles list/show/update/metadata` |
-| Two-level bilingual taxonomy | Review Studio category controls | `list_taxonomy`, `create_taxonomy_category`, `update_taxonomy_category`, `classify_article` | `taxonomy list/create/update/assign/move` |
+| Two-level bilingual taxonomy | Review Configuration category controls | `list_taxonomy`, `create_taxonomy_category`, `update_taxonomy_category`, `delete_taxonomy_category`, `restore_taxonomy_category`, `classify_article` | `taxonomy list/create/update/delete/restore/assign/move` |
 | Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
-| Review perspectives and templates | Review Studio | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
+| Review perspectives and templates | Review Configuration | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
 | Provider, crawler, and archive settings | Settings page | Masked get/update/activate/test tools | `config show/apply/activate/test` |
 | Capture, review, and upload jobs | Live progress | `start_*`, `get_job`, `list_jobs` | `jobs list/show` against a running service |
 

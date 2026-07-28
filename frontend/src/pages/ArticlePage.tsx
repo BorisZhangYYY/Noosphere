@@ -1,8 +1,8 @@
-import { ArrowLeft, ArrowSquareOut, CaretDown, Eye, FileText, FloppyDisk, Image, MagicWand, PencilSimple, SpinnerGap, Tag, UploadSimple } from "@phosphor-icons/react";
+import { ArrowSquareOut, CaretDown, Eye, FileText, FloppyDisk, Image, MagicWand, PencilSimple, SidebarSimple, SpinnerGap, Tag, UploadSimple } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { ArticleOutline } from "../components/ArticleOutline";
 import { InlineSelect } from "../components/InlineSelect";
@@ -29,6 +29,7 @@ export function ArticlePage() {
   const [tagName, setTagName] = useState("");
   const [subtagName, setSubtagName] = useState("");
   const [sourceExpanded, setSourceExpanded] = useState(false);
+  const [inspectionOpen, setInspectionOpen] = useState(true);
   const [metadataAuthor, setMetadataAuthor] = useState("");
   const [metadataPublishedAt, setMetadataPublishedAt] = useState("");
   const [pendingImageAction, setPendingImageAction] = useState<{ name: string; state: "active" | "removed" } | null>(null);
@@ -157,19 +158,37 @@ export function ArticlePage() {
   return (
     <div className="page article-page">
       <header className="article-toolbar">
-        <Link to="/library" className="icon-text-link"><ArrowLeft size={18} />{t("nav.library")}</Link>
+        <nav className="article-breadcrumb" aria-label={t("article.breadcrumb")}>
+          <span className="article-breadcrumb-root">{t("nav.library")}</span>
+          {article.classification?.tag_name && (
+            <span>{article.classification.tag_name}</span>
+          )}
+          {article.classification?.subtag_name && (
+            <span>{article.classification.subtag_name}</span>
+          )}
+        </nav>
         <div className="article-toolbar-actions">
           <StatusBadge status={article.status} />
+          <button
+            type="button"
+            className={`inspection-rail-toggle${inspectionOpen ? " active" : ""}`}
+            aria-pressed={inspectionOpen}
+            aria-label={inspectionOpen ? t("article.hideInspection") : t("article.showInspection")}
+            title={inspectionOpen ? t("article.hideInspection") : t("article.showInspection")}
+            onClick={() => setInspectionOpen((open) => !open)}
+          >
+            <SidebarSimple size={18} weight={inspectionOpen ? "fill" : "regular"} />
+          </button>
           <div className="editor-mode-toggle" aria-label={t("article.modeLabel")}>
             <button type="button" className={readOnly ? "active" : ""} onClick={() => setReadOnly(true)}><Eye size={17} />{t("article.readOnly")}</button>
             <button type="button" className={!readOnly ? "active" : ""} onClick={() => { setReadOnly(false); setSourceExpanded(true); }}><PencilSimple size={17} />{t("article.edit")}</button>
           </div>
-          {!readOnly && <button className="button-secondary" type="button" onClick={() => saveMutation.mutate()} disabled={!dirty || saveMutation.isPending}>
+          {!readOnly && <button className="button-secondary" type="button" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
             {saveMutation.isPending ? <SpinnerGap className="spin" size={17} /> : <FloppyDisk size={17} />}{t("article.saveDraft")}
           </button>}
         </div>
       </header>
-      <div className="article-layout">
+      <div className={`article-layout${inspectionOpen ? "" : " inspection-collapsed"}`}>
         <ArticleOutline markdown={draft} />
         <article className="reader-surface editor-surface">
           <MarkdownEditor
@@ -184,7 +203,7 @@ export function ArticlePage() {
           {(saveMutation.isError || uploadMutation.isError || imageMutation.isError) && <p className="article-action-error" role="alert">{((saveMutation.error || uploadMutation.error || imageMutation.error) as Error).message}</p>}
         </article>
 
-        <aside className="inspection-rail">
+        <aside className="inspection-rail" aria-hidden={!inspectionOpen}>
           <section className={`inspection-section inspection-source-section${sourceExpanded ? " inspection-source-expanded" : ""}`}>
             <button className="inspection-collapse-toggle" type="button" aria-expanded={sourceExpanded} onClick={() => setSourceExpanded((expanded) => !expanded)}>
               <span className="inspection-title"><FileText size={19} /><h2>{t("article.source")}</h2></span>
@@ -194,12 +213,18 @@ export function ArticlePage() {
               <div>
                 <dl>
                   <div><dt>{t("article.platform")}</dt><dd>{platformLabel}</dd></div>
-                  <div><dt>{t("article.author")}</dt><dd>{!readOnly && article.metadata.author.editable
-                    ? <input className="metadata-field-input" value={metadataAuthor} onChange={(event) => setMetadataAuthor(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
-                    : article.metadata.author.value}</dd></div>
-                  <div><dt>{t("article.published")}</dt><dd>{!readOnly && article.metadata.publishedAt.editable
-                    ? <input className="metadata-field-input" value={metadataPublishedAt} onChange={(event) => setMetadataPublishedAt(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
-                    : article.metadata.publishedAt.value}</dd></div>
+                  <div><dt>{t("article.author")}</dt><dd>
+                    {!readOnly && article.metadata.author.editable
+                      ? <input className="metadata-field-input" value={metadataAuthor} onChange={(event) => setMetadataAuthor(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
+                      : article.metadata.author.value}
+                    {readOnly && article.metadata.author.editable && <span className="metadata-missing-tip">{t("article.missingMetadataTip")}</span>}
+                  </dd></div>
+                  <div><dt>{t("article.published")}</dt><dd>
+                    {!readOnly && article.metadata.publishedAt.editable
+                      ? <input className="metadata-field-input" value={metadataPublishedAt} onChange={(event) => setMetadataPublishedAt(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
+                      : article.metadata.publishedAt.value}
+                    {readOnly && article.metadata.publishedAt.editable && <span className="metadata-missing-tip">{t("article.missingMetadataTip")}</span>}
+                  </dd></div>
                   <div><dt>{t("article.captured")}</dt><dd>{article.metadata.capturedAt.value}</dd></div>
                   <div><dt>{t("article.type")}</dt><dd>{t(`article.types.${article.contentType}`, { defaultValue: article.contentType })}</dd></div>
                 </dl>

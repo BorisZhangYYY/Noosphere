@@ -438,16 +438,19 @@ class CatalogStore:
                 f"""
                 SELECT a.article_id, a.reason,
                        t.id AS tag_id, COALESCE(tl.name, t.name) AS tag_name,
-                       s.id AS subtag_id, COALESCE(sl.name, s.name) AS subtag_name,
+                       CASE WHEN ss.retired_at IS NULL THEN s.id ELSE NULL END AS subtag_id,
+                       CASE WHEN ss.retired_at IS NULL THEN COALESCE(sl.name, s.name) ELSE NULL END AS subtag_name,
                        COALESCE(d.confidence, 1) AS confidence,
                        COALESCE(d.source, 'manual') AS source
                 FROM noosphere_article_tags a
                 JOIN noosphere_tags t ON t.id = a.tag_id
                 LEFT JOIN noosphere_tags s ON s.id = a.subtag_id
+                LEFT JOIN noosphere_tag_states ts ON ts.tag_id = t.id
+                LEFT JOIN noosphere_tag_states ss ON ss.tag_id = s.id
                 LEFT JOIN noosphere_article_classification_details d ON d.article_id = a.article_id
                 LEFT JOIN noosphere_tag_localizations tl ON tl.tag_id = t.id AND tl.locale = {marker}
                 LEFT JOIN noosphere_tag_localizations sl ON sl.tag_id = s.id AND sl.locale = {marker}
-                WHERE a.article_id = {marker}
+                WHERE a.article_id = {marker} AND ts.retired_at IS NULL
                 """,
                 (locale, locale, article_id),
             ).fetchone()
@@ -463,7 +466,12 @@ class CatalogStore:
                 SELECT l.name, l.aliases_json
                 FROM noosphere_article_tags a
                 JOIN noosphere_tag_localizations l ON l.tag_id = a.tag_id OR l.tag_id = a.subtag_id
+                JOIN noosphere_tags root ON root.id = a.tag_id
+                LEFT JOIN noosphere_tag_states root_state ON root_state.tag_id = root.id
+                LEFT JOIN noosphere_tag_states term_state ON term_state.tag_id = l.tag_id
                 WHERE a.article_id = {marker}
+                  AND root_state.retired_at IS NULL
+                  AND term_state.retired_at IS NULL
                 """,
                 (article_id,),
             ).fetchall()

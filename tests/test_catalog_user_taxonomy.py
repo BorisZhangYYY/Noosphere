@@ -88,21 +88,26 @@ def test_category_management_enforces_two_levels_and_retirement(catalog_store) -
         locale="zh-CN",
     )
     assert updated["name"] == "软件工程"
-    retired = catalog_store.update_category(root["id"], retired=True)
-    assert retired["retired"] is True
-    assert catalog_store.list_tree() == []
-    with pytest.raises(ValueError, match="retired"):
-        catalog_store.assign_existing("article", tag_id=root["id"], subtag_id=child["id"])
-
-    restored = catalog_store.update_category(root["id"], retired=False)
-    assert restored["retired"] is False
     assignment = catalog_store.assign_existing(
         "article",
         tag_id=root["id"],
         subtag_id=child["id"],
     )
-    assert assignment["tag_id"] == root["id"]
     assert assignment["subtag_id"] == child["id"]
+    retired = catalog_store.update_category(root["id"], retired=True)
+    assert retired["retired"] is True
+    assert catalog_store.list_tree() == []
+    assert catalog_store.get_assignment("article") is None
+    assert catalog_store.get_search_terms("article") == []
+    with pytest.raises(ValueError, match="retired"):
+        catalog_store.assign_existing("article", tag_id=root["id"], subtag_id=child["id"])
+
+    restored = catalog_store.update_category(root["id"], retired=False)
+    assert restored["retired"] is False
+    restored_assignment = catalog_store.get_assignment("article")
+    assert restored_assignment is not None
+    assert restored_assignment["tag_id"] == root["id"]
+    assert restored_assignment["subtag_id"] == child["id"]
 
 
 @pytest.mark.asyncio

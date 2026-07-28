@@ -76,8 +76,9 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
     assets_dir = article_dir / str(paths.get("assets") or "assets")
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
-    from src.core.article_metadata import article_metadata_state, editable_article_markdown
+    from src.core.article_metadata import article_metadata_state, editable_article_markdown, strip_editor_artifacts
 
+    reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
     protected_metadata = article_metadata_state(manifest, raw_markdown)
     referenced = {
         web._markdown_image_name(match.group(2))
@@ -279,9 +280,9 @@ def save_reviewed_markdown(article_id: str, reviewed_markdown: str) -> dict[str,
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     removed_dir = article_dir / "removed"
     removed_names = {path.name for path in removed_dir.iterdir() if path.is_file()} if removed_dir.is_dir() else set()
-    from src.core.article_metadata import render_protected_review
+    from src.core.article_metadata import render_protected_review, strip_editor_artifacts
 
-    protected_markdown = render_protected_review(reviewed_markdown, manifest, raw_markdown)
+    protected_markdown = render_protected_review(strip_editor_artifacts(reviewed_markdown), manifest, raw_markdown)
     web._atomic_write_text(
         article_dir / "reviewed.md",
         web._persistable_reviewed_markdown(protected_markdown, removed_names),
@@ -308,8 +309,9 @@ def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[st
     manifest = web._read_json(manifest_path)
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else raw_markdown
-    from src.core.article_metadata import article_metadata_state, render_protected_review
+    from src.core.article_metadata import article_metadata_state, render_protected_review, strip_editor_artifacts
 
+    reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
     state = article_metadata_state(manifest, raw_markdown)
     enrichment = manifest.setdefault("metadata_enrichment", {})
     fields = enrichment.setdefault("fields", {})
@@ -370,6 +372,9 @@ def set_article_image_state(
         reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
     if len(reviewed_markdown.encode("utf-8")) > 10 * 1024 * 1024:
         raise ValueError("Reviewed Markdown exceeds the 10 MB limit")
+    from src.core.article_metadata import strip_editor_artifacts
+
+    reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
     assets_dir = article_dir / "assets"
     removed_dir = article_dir / "removed"
     assets_dir.mkdir(exist_ok=True)

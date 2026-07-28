@@ -15,6 +15,12 @@ interface MarkdownEditorProps {
   onRestoreImage?: (assetName: string) => void;
 }
 
+const EDITOR_IMAGE_ACTION_RE = /[ \t]*<button\b[^>]*\bclass\s*=\s*["'][^"']*\bnoosphere-image-action\b[^"']*["'][^>]*>.*?<\/button>[ \t]*\n?/gis;
+
+function stripEditorArtifacts(markdown: string) {
+  return markdown.replace(EDITOR_IMAGE_ACTION_RE, "");
+}
+
 export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAssetNames = [], onDeleteImage, onRestoreImage }: MarkdownEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Vditor | null>(null);
@@ -160,7 +166,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         link: { isOpen: false },
         image: { isPreview: false },
         input: (markdown) => {
-          if (!readOnly) onChangeRef.current(markdown);
+          if (!readOnly) onChangeRef.current(stripEditorArtifacts(markdown));
         },
         after: () => {
           if (cancelled) {
