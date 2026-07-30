@@ -49,7 +49,7 @@ image: ghcr.io/boriszhangyyy/noosphere:latest
 
 ### PostgreSQL in Docker
 
-PostgreSQL is required by the Docker Compose deployment. It stores workflow checkpoints, taxonomy assignments, operation history, and recycle-bin records; article Markdown and images remain portable files in the mounted data directory.
+PostgreSQL is required by the Docker Compose deployment. It stores workflow checkpoints, the Collection tree and article placements, operation history, and recycle-bin records; article Markdown and images remain portable files in the mounted data directory.
 
 If PostgreSQL is stopped after Noosphere has already started, the web service process can remain visible because Compose only enforces dependency order during startup. Article files remain readable, while database-backed metadata temporarily degrades or becomes unavailable. Restart the complete stack with:
 

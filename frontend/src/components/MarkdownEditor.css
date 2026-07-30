@@ -2,10 +2,17 @@
   width: 100%;
   max-width: none !important;
   overflow: hidden;
-  border-radius: var(--radius-surface);
-  background: color-mix(in srgb, var(--surface-muted) 30%, transparent);
+  border-radius: 0;
+  background: transparent;
 }
 
+.markdown-editor-frame {
+  position: relative;
+  width: 100%;
+  max-width: none !important;
+}
+
+.markdown-editor.vditor,
 .markdown-editor .vditor {
   overflow: visible;
   border: 0 !important;
@@ -30,7 +37,9 @@
 }
 
 .markdown-editor .vditor-wysiwyg pre.vditor-reset {
-  padding: 24px clamp(18px, 3vw, 38px) 56px !important;
+  width: min(1080px, 100%);
+  margin-inline: auto;
+  padding: 28px clamp(22px, 3.2vw, 46px) 64px !important;
   color: var(--text) !important;
   font-family: inherit;
   font-size: 15.5px;
@@ -135,6 +144,10 @@
   background: var(--surface-muted);
 }
 
+.markdown-editor-hide-removed .noosphere-image-shell[data-image-state="removed"] {
+  display: none;
+}
+
 .markdown-editor .noosphere-image-shell[data-image-state="removed"] img {
   width: 100%;
   height: clamp(180px, 24vw, 260px);
@@ -154,37 +167,43 @@
   opacity: 1;
 }
 
-.markdown-editor .noosphere-image-action {
+.noosphere-image-actions-layer {
   position: absolute;
-  z-index: 3;
-  top: 12px;
-  right: 12px;
+  z-index: 4;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.markdown-editor-frame .noosphere-image-action {
+  position: absolute;
+  z-index: 1;
   min-height: 34px;
   padding: 0 12px;
   border: 1px solid color-mix(in srgb, var(--surface-solid) 58%, transparent);
   border-radius: 9px;
-  opacity: 0;
+  opacity: .88;
   background: rgba(7, 17, 31, .86);
   color: #fff;
   box-shadow: 0 8px 24px rgba(5, 15, 28, .24);
   cursor: pointer;
   font-size: 11px;
   font-weight: 680;
-  transform: translateY(-4px);
-  transition: opacity .18s ease, transform .18s ease, background-color .18s ease;
+  pointer-events: auto;
+  transition: opacity .18s ease, background-color .18s ease, transform .18s ease;
 }
 
-.markdown-editor .noosphere-image-shell:hover .noosphere-image-action,
-.markdown-editor .noosphere-image-action:focus-visible {
+.markdown-editor-frame .noosphere-image-action:hover,
+.markdown-editor-frame .noosphere-image-action:focus-visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(-1px);
 }
 
-.markdown-editor .noosphere-image-shell[data-image-state="active"] .noosphere-image-action:hover {
+.markdown-editor-frame .noosphere-image-action[data-image-state="active"]:hover {
   background: var(--danger);
 }
 
-.markdown-editor .noosphere-image-shell[data-image-state="removed"] .noosphere-image-action:hover {
+.markdown-editor-frame .noosphere-image-action[data-image-state="removed"]:hover {
   background: var(--success);
 }
 

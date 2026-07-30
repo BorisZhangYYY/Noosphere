@@ -8,6 +8,7 @@ export interface SettingsSectionNavItem {
 }
 
 const defaultSections: SettingsSectionNavItem[] = [
+  { id: "settings-review", labelKey: "reviewStudio.reviewSection", lineClass: "line-long" },
   { id: "settings-ai", labelKey: "settings.aiTitle", lineClass: "line-medium" },
   { id: "settings-crawlers", labelKey: "settings.crawlersTitle", lineClass: "line-long" },
   { id: "settings-destinations", labelKey: "settings.destinationsTitle", lineClass: "line-medium" }

@@ -2,11 +2,9 @@ import { MagicWand, BracketsCurly, FileText } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import { PipelineSettingsPanel } from "../components/PipelineSettingsPanel";
 import { SettingsSectionNav, type SettingsSectionNavItem } from "../components/SettingsSectionNav";
-import { TaxonomyManager } from "../components/TaxonomyManager";
 
 const reviewSections: SettingsSectionNavItem[] = [
-  { id: "settings-review", labelKey: "reviewStudio.reviewSection", lineClass: "line-long" },
-  { id: "review-taxonomy", labelKey: "reviewStudio.taxonomy.title", lineClass: "line-medium" }
+  { id: "settings-review", labelKey: "reviewStudio.reviewSection", lineClass: "line-long" }
 ];
 
 export function ReviewStudioPage() {
@@ -31,7 +29,6 @@ export function ReviewStudioPage() {
         <SettingsSectionNav sections={reviewSections} ariaLabel={t("reviewStudio.sectionNavLabel")} />
         <div className="review-studio-stack">
           <PipelineSettingsPanel />
-          <TaxonomyManager />
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 # MCP Reference
 
-The MCP service exposes structured Noosphere operations over SSE at `http://localhost:8080/sse`. It uses the same application service, database, article workspaces, taxonomy, and settings as the web interface and CLI.
+The MCP service exposes structured Noosphere operations over SSE at `http://localhost:8080/sse`. It uses the same application service, database, article workspaces, Collections, and settings as the web interface and CLI.
 
 ## Tool Groups
 
@@ -29,21 +29,23 @@ Content updates affect editable prose; Noosphere restores protected source metad
 
 ### Knowledge organization
 
-- `list_taxonomy`
-- `create_taxonomy_category`
-- `update_taxonomy_category`
-- `delete_taxonomy_category`
-- `restore_taxonomy_category`
-- `classify_article`
+- `list_collections`
+- `create_collection`
+- `update_collection`
+- `delete_collection`
+- `restore_collection`
+- `place_article`
 
-Safe classification flow:
+Safe organization flow:
 
-1. Call `list_taxonomy` using the preferred locale.
-2. If the intended category is missing, create it explicitly with `create_taxonomy_category`; pass a top-level `parent_id` only for the optional second level.
-3. Select an active `tag_id` and optional `subtag_id`.
-4. Call `classify_article` with the stable IDs.
+1. Call `list_collections`.
+2. Create missing structure explicitly with `create_collection`; `parent_id` may identify a Collection at any depth.
+3. Select one active `collection_id`.
+4. Call `place_article`, or omit `collection_id` to place the article at the Collection root.
 
-Use `update_taxonomy_category` to localize, rename, or describe a category. Use `delete_taxonomy_category` for a recoverable deletion and `restore_taxonomy_category` to bring it back. The lower-level `retired` update field remains available for backward compatibility. Localized names are presentation data, not category identities.
+Use `update_collection` to rename or describe a Collection. `delete_collection` and `restore_collection` operate recoverably on the complete descendant subtree. Automatic AI placement is closed-set: it may select an existing active ID but never create, rename, or propose a Collection.
+
+When a user explicitly names a missing destination, an MCP client may instead pass `collection_path`, `create_missing=true`, and a non-empty `collection_description` to `place_article`. Noosphere creates only the final path segment; every parent segment must already exist. The creation flag is never inferred from an AI classification result.
 
 ### Review design
 
@@ -69,23 +71,35 @@ Secrets are masked and cannot be revealed through MCP. An agent may update an ex
 
 Poll `get_job` after a `start_*` call. Repeated starts for the same active article operation return the existing job where the operation is idempotent.
 
-## Article Classification Example
+## Article Placement Example
 
-An MCP client should reason over canonical IDs rather than labels:
+An MCP client should reason over stable IDs rather than names:
 
 ```text
-list_taxonomy(locale="en-US")
-  -> tag_id="USER_CATEGORY_ID"
-  -> subtag_id="USER_SUBCATEGORY_ID"
+list_collections()
+  -> id="AI_ID"
+  -> children[].id="AI_INTERVIEWS_ID"
 
-classify_article(
+place_article(
   article_id="ARTICLE_ID",
-  tag_id="USER_CATEGORY_ID",
-  subtag_id="USER_SUBCATEGORY_ID"
+  collection_id="AI_INTERVIEWS_ID"
 )
 ```
 
-Noosphere does not seed categories. Configure the user-owned taxonomy first, then classify with the returned stable IDs. If the interface later switches to Chinese, the article remains assigned to the same IDs while the returned labels use their Chinese localization.
+Noosphere does not seed Collections. Build the user-owned hierarchy first, then place with returned stable IDs. Calling `place_article(article_id="ARTICLE_ID")` returns the article to the root.
+
+For an explicitly user-directed missing leaf:
+
+```text
+place_article(
+  article_id="ARTICLE_ID",
+  collection_path=["AI 相关", "AI 测评"],
+  create_missing=true,
+  collection_description="以正文中的模型能力、基准测试和真实使用体验为主。"
+)
+```
+
+This call may create `AI 测评` only when `AI 相关` already exists. Without `create_missing=true`, the same missing path is rejected.
 
 ## Long Operations
 

@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2.1] - 2026-07-30
+
+### Added
+
+- Added a user-owned Collection tree with unlimited nesting, inline sidebar creation and rename, recoverable subtree deletion, and direct article entries at every level.
+- Added closed-set AI placement against existing active Collection IDs; unmatched, invalid, or low-confidence results remain at the Collection root.
+- Added one-time migration from legacy two-level taxonomy paths and assignments to equivalent Collections without changing article files.
+- Added shared Collection operations to Web API, MCP, and CLI, including subtree listing, creation, updates, deletion, restoration, manual placement, and root fallback.
+- Added a document-style page for every index node, with an editable introduction and a clickable table of nested indexes and direct articles.
+- Added explicitly authorized path placement to MCP and CLI: agents may create and describe only a user-named missing leaf Collection whose parent path already exists, while automatic AI placement remains closed-set.
+- Added image removal and restoration actions inside the in-app resource preview, reusing the reviewed-draft confirmation and save workflow.
+
+### Changed
+
+- Made article images atomic read-only blocks inside the Markdown editor, moved image management controls outside the editable document DOM, and coalesced image decoration updates so repeated removals no longer freeze the editor or corrupt the article outline.
+- Made headless `follow_ui` review jobs preserve the source article language instead of silently falling back to English.
+- Rebuilt the workspace around a persistent navigation and Collection sidebar, compact Settings/Help/theme/language utilities, and an in-context Capture action.
+- Reworked the article header into a two-level toolbar with save state, clickable Collection breadcrumbs, visible path chips, and a unified collapsible inspection rail.
+- Replaced category management in Review Configuration with in-context Collection organization and updated public documentation to match.
+- Merged Home and processing activity into one compact Workspace, renamed the visible directory area to Knowledge workspace, moved review controls into Settings, and moved supported-source guidance into the Help dialog.
+- Restyled the sidebar as a compact document outline: unfiled articles appear directly at workspace level, index documents use document affordances, and selected paths expand recursively.
+- Consolidated top-level knowledge actions into a three-dot menu and added an article-editing mode with recoverable delete controls at every outline depth.
+- Added direct article drag-and-drop placement onto index documents, clarified index creation with a document-plus affordance, and limited index deletion controls to article-editing mode.
+
+### Fixed
+
+- Fixed the development preview so Vditor runtime assets resolve under `/app`, restoring reviewed article body rendering.
+- Kept the locale switch inside the sidebar utility dock and removed the visible “Collection root” fallback chip and label.
+- Widened article headings and reading content, removed the nested editor-card border and tint in read-only mode, and placed the document directly on the light reading surface.
+- Removed the remaining outer article canvas so the toolbar and document sit directly on the shared application atmosphere, and shifted the desktop Settings composition left to reduce unused margin.
+- Reset index-introduction editing state when navigating between index documents so draft UI and text never carry into another index.
+- Staged article-image removal and restoration with the reviewed draft so image changes enable Save, cannot overwrite concurrent text edits, and never persist editor-only removed-image preview URLs; added a resource-rail toggle for hiding removed images in both the article and asset inventory.
+- Reset every newly opened article to read-only mode and guard all in-app navigation, browser history, refresh, and tab closing when reviewed text or image changes remain unsaved, with explicit save, discard, and continue-editing choices.
+- Made the standalone Docker image default to its writable `/data` runtime directory and constrained the MCP SDK to the compatible 1.x API, preventing permissions and import failures when starting CLI or service entry points outside Docker Compose.
+
 ## [0.3.2] - 2026-07-28
 
 ### Added

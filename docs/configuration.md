@@ -22,7 +22,7 @@ The web settings page and CLI update this configuration through the shared appli
 | `local_archive` | Enable and select a filesystem archive directory. |
 | `ai` | Active text provider, independent image provider, and prompt paths. |
 | `ai_providers` | Named provider profiles and model capabilities. |
-| `pipeline` | Review checkpoint, output language, perspective, and classification prompt. |
+| `pipeline` | Review checkpoint, output language, perspective, and Collection-placement prompt. `follow_ui` follows the request locale in Web and falls back to the source article language in headless CLI/MCP workflows. |
 | `crawler` | Primary and fallback crawler plus Firecrawl settings. |
 | `checkpoint` | SQLite or PostgreSQL LangGraph checkpoint backend. |
 | `smtp` | Optional email delivery configuration. |
@@ -97,7 +97,7 @@ rsync -a --ignore-existing outputs/ .noosphere/articles/
 test -e .noosphere/config.json || cp config.json .noosphere/config.json
 ```
 
-Article Markdown and assets remain files because they are directly inspectable, portable, and easy to back up. Soft-deleted workspaces move beneath `trash/articles/` until restored or permanently removed. PostgreSQL stores shared application state, recycle-bin records, operation history, taxonomy, and workflow checkpoints.
+Article Markdown and assets remain files because they are directly inspectable, portable, and easy to back up. Soft-deleted workspaces move beneath `trash/articles/` until restored or permanently removed. PostgreSQL stores shared application state, recycle-bin records, operation history, Collections, article placements, and workflow checkpoints. On first use, legacy two-level taxonomy rows are copied into equivalent Collection paths once.
 
 ## Environment Overrides
 

@@ -1,10 +1,9 @@
-import { ArrowCounterClockwise, ArrowRight, BookOpenText, CheckSquare, CloudArrowUp, MagnifyingGlass, Path, SpinnerGap, Square, Trash, WarningCircle } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowCounterClockwise, ArrowRight, BookOpenText, CaretDown, CaretUp, Check, CheckSquare, Circle, CloudArrowUp, MagnifyingGlass, Path, SpinnerGap, Square, Trash, WarningCircle } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import { InlineSelect } from "../components/InlineSelect";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { localizedPlatformLabel } from "../localization";
@@ -34,7 +33,7 @@ function ArticleRow({ article, selected, onSelect }: { article: ArticleSummary; 
         <span className="source-monogram" aria-hidden="true">{platformLabel.slice(0, 1).toUpperCase()}</span>
         <span className="article-primary">
           <strong>{article.title}</strong>
-          <span>{article.classification ? [article.classification.tag_name, article.classification.subtag_name].filter(Boolean).join(" / ") : article.author || platformLabel}</span>
+          <span>{article.collection?.collection_path.length ? article.collection.collection_path.map((item) => item.name).join(" / ") : article.author || platformLabel}</span>
         </span>
         <span className="article-source">{platformLabel}</span>
         <span className="article-captured">{relativeTime(article.capturedAt, i18n.resolvedLanguage ?? i18n.language, t("common.unknown"), t("library.justNow"))}</span>
@@ -73,30 +72,24 @@ export function DashboardPage() {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["articles", i18n.resolvedLanguage], queryFn: api.listArticles });
-  const taxonomyQuery = useQuery({ queryKey: ["taxonomy", i18n.resolvedLanguage], queryFn: api.getTaxonomy });
   const trashQuery = useQuery({ queryKey: ["article-trash"], queryFn: api.listTrashedArticles });
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const jobsQuery = useQuery({
+    queryKey: ["capture-jobs"],
+    queryFn: api.listCaptureJobs,
+    refetchInterval: (jobQuery) => jobQuery.state.data?.jobs.some((job) => job.status === "queued" || job.status === "running") ? 1200 : false
+  });
   const [search, setSearch] = useState("");
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [view, setView] = useState<"library" | "trash">("library");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingAction, setPendingAction] = useState<{ action: "trash" | "restore" | "delete"; ids: string[] } | null>(null);
   const articles = query.data?.articles ?? [];
+  const jobs = jobsQuery.data?.jobs ?? [];
   const trashedArticles = trashQuery.data?.articles ?? [];
-  const taxonomyCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const article of articles) {
-      const classification = article.classification;
-      if (!classification) continue;
-      counts.set(classification.tag_id, (counts.get(classification.tag_id) ?? 0) + 1);
-      if (classification.subtag_id) counts.set(classification.subtag_id, (counts.get(classification.subtag_id) ?? 0) + 1);
-    }
-    return counts;
-  }, [articles]);
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const visibleArticles = articles.filter((article) => {
-    const categoryMatches = !categoryFilter || article.classification?.tag_id === categoryFilter || article.classification?.subtag_id === categoryFilter;
     const searchMatches = !normalizedSearch || [article.title, article.author ?? "", article.platformLabel, ...(article.searchTerms ?? [])].join(" ").toLocaleLowerCase().includes(normalizedSearch);
-    return categoryMatches && searchMatches;
+    return searchMatches;
   });
   const reviewed = articles.filter((article) => article.status === "reviewed" || article.status === "uploaded").length;
   const uploaded = articles.filter((article) => article.status === "uploaded").length;
@@ -113,8 +106,15 @@ export function DashboardPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["articles"] }),
         queryClient.invalidateQueries({ queryKey: ["article-trash"] }),
-        queryClient.invalidateQueries({ queryKey: ["taxonomy"] })
+        queryClient.invalidateQueries({ queryKey: ["collections"] })
       ]);
+    }
+  });
+  const retryMutation = useMutation({
+    mutationFn: api.retryCaptureJob,
+    onSuccess: async (job) => {
+      setExpandedJob(job.id);
+      await queryClient.invalidateQueries({ queryKey: ["capture-jobs"] });
     }
   });
   const visibleIds = view === "library" ? visibleArticles.map((article) => article.id) : trashedArticles.map((article) => article.id);
@@ -157,6 +157,70 @@ export function DashboardPage() {
         <div className={needsAttention ? "metric-attention" : ""}><span><strong>{needsAttention}</strong>{t("library.attention")}</span></div>
       </section>
 
+      <section className="workspace-surface dashboard-jobs">
+        <div className="section-heading dashboard-section-heading">
+          <div><h2>{t("pipeline.currentTitle")}</h2><p>{t("pipeline.currentDescription")}</p></div>
+          <span className="dashboard-section-count">{jobs.length}</span>
+        </div>
+        {jobsQuery.isLoading && <LoadingPanel />}
+        {jobsQuery.isError && <ErrorPanel message={(jobsQuery.error as Error).message} />}
+        {!jobsQuery.isLoading && !jobs.length && (
+          <div className="dashboard-jobs-empty"><Check size={17} />{t("pipeline.emptyTitle")}</div>
+        )}
+        {jobs.slice(0, 6).map((job) => {
+          const expanded = expandedJob === job.id;
+          const detail = job.error || job.result?.hpath || (
+            job.status === "recovered"
+              ? t("pipeline.recoveredHelp")
+              : job.status === "awaiting_review"
+                ? t("pipeline.awaitingReviewHelp")
+                : t("pipeline.working")
+          );
+          return (
+            <article className={`dashboard-job${expanded ? " expanded" : ""}`} key={job.id}>
+              <button type="button" aria-expanded={expanded} onClick={() => setExpandedJob(expanded ? null : job.id)}>
+                <span className={`dashboard-job-state dashboard-job-${job.status}`}>
+                  {job.status === "failed"
+                    ? <WarningCircle size={18} />
+                    : ["succeeded", "awaiting_review", "recovered"].includes(job.status)
+                      ? <Check size={17} />
+                      : <Circle size={15} />}
+                </span>
+                <span><strong>{job.url}</strong><small>{detail}</small></span>
+                <em>{t(`status.${job.status}`)}</em>
+                {expanded ? <CaretUp size={15} /> : <CaretDown size={15} />}
+              </button>
+              {expanded && (
+                <div className="dashboard-job-details">
+                  {job.events.slice(-5).map((event) => (
+                    <div key={event.id}><time>{new Date(event.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><span>{t(event.message)}</span></div>
+                  ))}
+                  <div className="dashboard-job-actions">
+                    {job.status === "failed" && (
+                      <button
+                        className="button-primary compact-button"
+                        type="button"
+                        disabled={retryMutation.isPending}
+                        onClick={() => retryMutation.mutate(job.id)}
+                      >
+                        {retryMutation.isPending && retryMutation.variables === job.id
+                          ? <SpinnerGap className="spin" size={15} />
+                          : <ArrowClockwise size={15} />}
+                        {t("pipeline.retry")}
+                      </button>
+                    )}
+                    {job.articleId && <Link to={`/articles/${encodeURIComponent(job.articleId)}`}>{t("pipeline.openArticle")}<ArrowRight size={15} /></Link>}
+                  </div>
+                  {retryMutation.isError && retryMutation.variables === job.id && (
+                    <p className="job-action-error" role="alert">{(retryMutation.error as Error).message}</p>
+                  )}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </section>
+
       <section className="workspace-surface recent-section">
         <div className="section-heading">
           <div><h2>{t("library.recentTitle")}</h2><p>{t("library.recentDescription")}</p></div>
@@ -165,24 +229,6 @@ export function DashboardPage() {
             <button type="button" role="tab" aria-selected={view === "trash"} className={view === "trash" ? "active" : ""} onClick={() => switchView("trash")}><Trash size={14} />{t("library.recycleBin")}<small>{trashedArticles.length}</small></button>
           </div>
         </div>
-        {view === "library" && taxonomyQuery.data?.tags.length ? <div className="taxonomy-shelf" aria-label={t("library.taxonomy")}>
-          <button type="button" className={!categoryFilter ? "active taxonomy-all" : "taxonomy-all"} onClick={() => setCategoryFilter("")}><span>{t("library.allTags")}</span><small>{articles.length}</small></button>
-          {taxonomyQuery.data.tags.map((tag) => {
-            const familyValues = new Set([tag.id, ...tag.children.map((child) => child.id)]);
-            const selected = familyValues.has(categoryFilter) ? categoryFilter : tag.id;
-            return <div className={`taxonomy-family${familyValues.has(categoryFilter) ? " active" : ""}`} key={tag.id} title={tag.description}>
-              <InlineSelect
-                value={selected}
-                ariaLabel={tag.name}
-                onChange={setCategoryFilter}
-                options={[
-                  { value: tag.id, label: <span className="taxonomy-option-label"><span>{tag.name}</span><small>{taxonomyCounts.get(tag.id) ?? 0}</small></span>, description: tag.description },
-                  ...tag.children.map((child) => ({ value: child.id, label: <span className="taxonomy-option-label"><span>{child.name}</span><small>{taxonomyCounts.get(child.id) ?? 0}</small></span>, description: child.description }))
-                ]}
-              />
-            </div>;
-          })}
-        </div> : null}
         <div className="library-selection-bar">
           <button type="button" className="selection-toggle" onClick={() => setSelectedIds(allVisibleSelected ? new Set() : new Set(visibleIds))}>
             {allVisibleSelected ? <CheckSquare size={18} weight="fill" /> : <Square size={18} />}
@@ -230,11 +276,6 @@ export function DashboardPage() {
         ))}
       </section>
 
-      <section className="pipeline-callout">
-        <div className="pipeline-symbol"><Path size={28} /></div>
-        <div><h2>{t("library.activityTitle")}</h2><p>{needsAttention ? t("library.activityIssues", { count: needsAttention }) : t("library.activityClear")}</p></div>
-        <Link to="/pipeline" className="button-secondary">{t("library.viewPipeline")} <ArrowRight size={17} /></Link>
-      </section>
       {pendingAction && (
         <div className="dialog-layer" role="presentation" onMouseDown={() => !mutation.isPending && setPendingAction(null)}>
           <section className="article-confirm-dialog library-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="library-confirm-title" onMouseDown={(event) => event.stopPropagation()}>

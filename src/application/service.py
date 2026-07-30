@@ -24,7 +24,7 @@ def list_articles(
     locale: str = "en-US",
     query: str = "",
     status: str = "",
-    tag_id: str = "",
+    collection_id: str = "",
 ) -> list[dict[str, Any]]:
     """Return localized article summaries with optional lightweight filters."""
     web = _web_helpers()
@@ -37,7 +37,7 @@ def list_articles(
                 articles.append(summary)
     normalized_query = query.strip().casefold()
     normalized_status = status.strip().casefold()
-    normalized_tag = tag_id.strip()
+    normalized_collection = collection_id.strip()
     if normalized_query:
         articles = [
             article
@@ -46,14 +46,14 @@ def list_articles(
         ]
     if normalized_status:
         articles = [article for article in articles if str(article.get("status") or "").casefold() == normalized_status]
-    if normalized_tag:
+    if normalized_collection:
         articles = [
             article
             for article in articles
-            if normalized_tag
+            if normalized_collection
             in {
-                str((article.get("classification") or {}).get("tag_id") or ""),
-                str((article.get("classification") or {}).get("subtag_id") or ""),
+                str(item.get("id") or "")
+                for item in (article.get("collection") or {}).get("collection_path") or []
             }
         ]
     articles.sort(key=lambda item: str(item.get("capturedAt") or ""), reverse=True)
@@ -61,7 +61,7 @@ def list_articles(
 
 
 def get_article(article_id: str, *, locale: str = "en-US", include_content: bool = True) -> dict[str, Any]:
-    """Return one article with its classification, activity, and image inventory."""
+    """Return one article with its collection placement, activity, and images."""
     web = _web_helpers()
     article_dir = web._safe_article_dir(article_id)
     manifest_path = article_dir / "manifest.json"
@@ -247,7 +247,7 @@ def permanently_delete_trashed_articles(article_ids: list[str]) -> list[str]:
     if not article_ids:
         raise ValueError("At least one article id is required")
     from src.core.activity import ArticleActivityStore
-    from src.core.catalog import CatalogStore
+    from src.core.collections import CollectionStore
     from src.core.trash import ArticleTrashStore
 
     trash_store = ArticleTrashStore()
@@ -260,34 +260,146 @@ def permanently_delete_trashed_articles(article_ids: list[str]) -> list[str]:
         trash_dir = _article_trash_dir(article_id)
         if trash_dir.is_dir():
             shutil.rmtree(trash_dir)
-        CatalogStore().delete_assignment(article_id)
+        CollectionStore().delete_assignment(article_id)
         ArticleActivityStore().delete_article(article_id)
         trash_store.remove(article_id)
         deleted.append(article_id)
     return deleted
 
 
-def save_reviewed_markdown(article_id: str, reviewed_markdown: str) -> dict[str, Any]:
-    """Atomically update reviewed.md while preserving raw.md."""
+def save_reviewed_markdown(
+    article_id: str,
+    reviewed_markdown: str,
+    *,
+    image_states: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Atomically update reviewed.md and staged image states while preserving raw.md."""
     if not isinstance(reviewed_markdown, str):
         raise ValueError("reviewed_markdown must be a string")
     if len(reviewed_markdown.encode("utf-8")) > 10 * 1024 * 1024:
         raise ValueError("Reviewed Markdown exceeds the 10 MB limit")
+    if image_states is None:
+        image_states = {}
+    if not isinstance(image_states, dict):
+        raise ValueError("image_states must be an object")
     web = _web_helpers()
     article_dir = web._safe_article_dir(article_id)
-    manifest = web._read_json(article_dir / "manifest.json")
+    manifest_path = article_dir / "manifest.json"
+    reviewed_path = article_dir / "reviewed.md"
+    manifest = web._read_json(manifest_path)
     raw_path = article_dir / "raw.md"
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
+    assets_dir = article_dir / "assets"
     removed_dir = article_dir / "removed"
-    removed_names = {path.name for path in removed_dir.iterdir() if path.is_file()} if removed_dir.is_dir() else set()
+    assets_dir.mkdir(exist_ok=True)
+    removed_dir.mkdir(exist_ok=True)
+    normalized_states: dict[str, str] = {}
+    moves: list[tuple[Path, Path]] = []
+    removed_names = {path.name for path in removed_dir.iterdir() if path.is_file()}
+    for raw_name, raw_state in image_states.items():
+        asset_name = str(raw_name).strip()
+        state = str(raw_state).strip()
+        if not asset_name or Path(asset_name).name != asset_name:
+            raise ValueError("Invalid asset name")
+        if state not in {"active", "removed"}:
+            raise ValueError("Image state must be active or removed")
+        active_path = assets_dir / asset_name
+        removed_path = removed_dir / asset_name
+        if active_path.is_file() and removed_path.is_file():
+            raise ValueError(f"Image exists in both active and removed states: {asset_name}")
+        if not active_path.is_file() and not removed_path.is_file():
+            raise ValueError(f"Image asset not found: {asset_name}")
+        normalized_states[asset_name] = state
+        if state == "removed":
+            removed_names.add(asset_name)
+            if active_path.is_file():
+                moves.append((active_path, removed_path))
+        else:
+            removed_names.discard(asset_name)
+            if removed_path.is_file():
+                moves.append((removed_path, active_path))
+
     from src.core.article_metadata import render_protected_review, strip_editor_artifacts
 
-    protected_markdown = render_protected_review(strip_editor_artifacts(reviewed_markdown), manifest, raw_markdown)
-    web._atomic_write_text(
-        article_dir / "reviewed.md",
-        web._persistable_reviewed_markdown(protected_markdown, removed_names),
-    )
-    return {"ok": True, "article_id": article_id}
+    normalized_markdown = strip_editor_artifacts(reviewed_markdown)
+    for asset_name, state in normalized_states.items():
+        if state == "removed":
+            normalized_markdown = web._replace_image_target(normalized_markdown, asset_name, None)
+            continue
+        normalized_markdown = web._replace_image_target(
+            normalized_markdown,
+            asset_name,
+            f"assets/{asset_name}",
+        )
+        present = {
+            web._markdown_image_name(match.group(2))
+            for match in web.MARKDOWN_IMAGE_RE.finditer(normalized_markdown)
+        }
+        if asset_name not in present:
+            from src.core.review.image_filter import _restore_images_to_original_positions
+
+            normalized_markdown = _restore_images_to_original_positions(
+                normalized_markdown,
+                raw_markdown,
+                {f"assets/{asset_name}"},
+            )
+            present = {
+                web._markdown_image_name(match.group(2))
+                for match in web.MARKDOWN_IMAGE_RE.finditer(normalized_markdown)
+            }
+            if asset_name not in present:
+                normalized_markdown = (
+                    normalized_markdown.rstrip()
+                    + f"\n\n![{Path(asset_name).stem}](assets/{asset_name})\n"
+                )
+
+    image_filter = manifest.setdefault("image_filter", {})
+    manual_removed = set(image_filter.get("manual_removed_images") or [])
+    removed_files = set(image_filter.get("removed_files") or [])
+    promotion_images = set(image_filter.get("promotion_images") or [])
+    for asset_name, state in normalized_states.items():
+        relative_asset = f"assets/{asset_name}"
+        relative_removed = f"removed/{asset_name}"
+        if state == "removed":
+            manual_removed.add(relative_asset)
+            removed_files.add(relative_removed)
+        else:
+            manual_removed.discard(relative_asset)
+            removed_files.discard(relative_removed)
+            promotion_images.discard(relative_asset)
+    image_filter["manual_removed_images"] = sorted(manual_removed)
+    image_filter["removed_files"] = sorted(removed_files)
+    image_filter["promotion_images"] = sorted(promotion_images)
+
+    protected_markdown = render_protected_review(normalized_markdown, manifest, raw_markdown)
+    persisted_markdown = web._persistable_reviewed_markdown(protected_markdown, removed_names)
+    original_reviewed = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else None
+    original_manifest = manifest_path.read_text(encoding="utf-8") if manifest_path.is_file() else None
+    completed_moves: list[tuple[Path, Path]] = []
+    try:
+        for source, destination in moves:
+            source.rename(destination)
+            completed_moves.append((source, destination))
+        web._atomic_write_text(reviewed_path, persisted_markdown)
+        if normalized_states:
+            web._atomic_write_text(
+                manifest_path,
+                json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            )
+    except OSError:
+        for source, destination in reversed(completed_moves):
+            if destination.exists() and not source.exists():
+                destination.rename(source)
+        if original_reviewed is not None:
+            web._atomic_write_text(reviewed_path, original_reviewed)
+        if original_manifest is not None:
+            web._atomic_write_text(manifest_path, original_manifest)
+        raise
+    return {
+        "ok": True,
+        "article_id": article_id,
+        "image_states": normalized_states,
+    }
 
 
 def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -370,89 +482,37 @@ def set_article_image_state(
     reviewed_path = article_dir / "reviewed.md"
     if reviewed_markdown is None:
         reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
-    if len(reviewed_markdown.encode("utf-8")) > 10 * 1024 * 1024:
-        raise ValueError("Reviewed Markdown exceeds the 10 MB limit")
-    from src.core.article_metadata import strip_editor_artifacts
-
-    reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
-    assets_dir = article_dir / "assets"
-    removed_dir = article_dir / "removed"
-    assets_dir.mkdir(exist_ok=True)
-    removed_dir.mkdir(exist_ok=True)
-    source = assets_dir / asset_name if state == "removed" else removed_dir / asset_name
-    destination = removed_dir / asset_name if state == "removed" else assets_dir / asset_name
-    if not source.is_file():
-        if destination.is_file():
-            return {"ok": True, "article_id": article_id, "name": asset_name, "state": state}
-        raise ValueError("Image asset not found")
-    if destination.exists():
-        raise ValueError("An image with this name already exists in the target state")
-    raw_path = article_dir / "raw.md"
-    raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
-    if state == "removed":
-        persisted_markdown = web._replace_image_target(reviewed_markdown, asset_name, None)
-    else:
-        persisted_markdown = web._replace_image_target(reviewed_markdown, asset_name, f"assets/{asset_name}")
-        present = {web._markdown_image_name(match.group(2)) for match in web.MARKDOWN_IMAGE_RE.finditer(persisted_markdown)}
-        if asset_name not in present:
-            from src.core.review.image_filter import _restore_images_to_original_positions
-
-            persisted_markdown = _restore_images_to_original_positions(
-                persisted_markdown,
-                raw_markdown,
-                {f"assets/{asset_name}"},
-            )
-            present = {web._markdown_image_name(match.group(2)) for match in web.MARKDOWN_IMAGE_RE.finditer(persisted_markdown)}
-            if asset_name not in present:
-                persisted_markdown = persisted_markdown.rstrip() + f"\n\n![{Path(asset_name).stem}](assets/{asset_name})\n"
-    manifest_path = article_dir / "manifest.json"
-    manifest = web._read_json(manifest_path)
-    image_filter = manifest.setdefault("image_filter", {})
-    manual_removed = set(image_filter.get("manual_removed_images") or [])
-    removed_files = set(image_filter.get("removed_files") or [])
-    relative_asset = f"assets/{asset_name}"
-    relative_removed = f"removed/{asset_name}"
-    if state == "removed":
-        manual_removed.add(relative_asset)
-        removed_files.add(relative_removed)
-    else:
-        manual_removed.discard(relative_asset)
-        removed_files.discard(relative_removed)
-        promotion_images = set(image_filter.get("promotion_images") or [])
-        promotion_images.discard(relative_asset)
-        image_filter["promotion_images"] = sorted(promotion_images)
-    image_filter["manual_removed_images"] = sorted(manual_removed)
-    image_filter["removed_files"] = sorted(removed_files)
-    from src.core.article_metadata import render_protected_review
-
-    persisted_markdown = render_protected_review(persisted_markdown, manifest, raw_markdown)
-    try:
-        source.rename(destination)
-        web._atomic_write_text(reviewed_path, persisted_markdown.rstrip() + "\n")
-        web._atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-    except OSError:
-        if destination.exists() and not source.exists():
-            destination.rename(source)
-        raise
+    save_reviewed_markdown(
+        article_id,
+        reviewed_markdown,
+        image_states={asset_name: state},
+    )
     return {"ok": True, "article_id": article_id, "name": asset_name, "state": state}
 
 
-def list_taxonomy(*, locale: str = "en-US", include_retired: bool = False) -> list[dict[str, Any]]:
-    from src.core.catalog import CatalogStore
+def list_collections(
+    *,
+    include_deleted: bool = False,
+    locale: str | None = None,
+) -> list[dict[str, Any]]:
+    from src.core.collections import CollectionStore
 
-    return CatalogStore().list_tree(locale, include_retired=include_retired)
+    return CollectionStore().list_tree(
+        include_retired=include_deleted,
+        locale=locale,
+    )
 
 
-def create_taxonomy_category(
+def create_collection(
     *,
     name: str,
     description: str = "",
     parent_id: str | None = None,
-    locale: str = "en-US",
+    locale: str | None = None,
 ) -> dict[str, Any]:
-    from src.core.catalog import CatalogStore
+    from src.core.collections import CollectionStore
 
-    return CatalogStore().create_category(
+    return CollectionStore().create_collection(
         name=name,
         description=description,
         parent_id=parent_id,
@@ -460,18 +520,18 @@ def create_taxonomy_category(
     )
 
 
-def update_taxonomy_category(
-    tag_id: str,
+def update_collection(
+    collection_id: str,
     *,
     name: str | None = None,
     description: str | None = None,
     retired: bool | None = None,
-    locale: str = "en-US",
+    locale: str | None = None,
 ) -> dict[str, Any]:
-    from src.core.catalog import CatalogStore
+    from src.core.collections import CollectionStore
 
-    return CatalogStore().update_category(
-        tag_id,
+    return CollectionStore().update_collection(
+        collection_id,
         name=name,
         description=description,
         retired=retired,
@@ -479,32 +539,71 @@ def update_taxonomy_category(
     )
 
 
-def classify_article(
+def place_article(
     article_id: str,
     *,
-    tag_id: str | None = None,
-    subtag_id: str | None = None,
-    tag_name: str = "",
-    subtag_name: str = "",
-    tag_description: str = "",
-    subtag_description: str = "",
-    tag_localizations: dict[str, dict[str, Any]] | None = None,
-    subtag_localizations: dict[str, dict[str, Any]] | None = None,
-    locale: str = "en-US",
+    collection_id: str | None = None,
+    collection_path: list[str] | None = None,
+    create_missing: bool = False,
+    collection_description: str = "",
 ) -> dict[str, Any]:
-    """Assign an article by stable, user-configured taxonomy IDs."""
+    """Place an article by stable ID or an explicitly authorized path."""
     _web_helpers()._safe_article_dir(article_id)
-    from src.core.catalog import CatalogStore
+    from src.core.collections import CollectionStore
 
-    if not tag_id:
-        raise ValueError("A configured top-level category ID is required")
-    return CatalogStore().assign_existing(
-        article_id,
-        tag_id=tag_id,
-        subtag_id=subtag_id,
-        reason="Manual assignment",
-        locale=locale,
+    store = CollectionStore()
+    normalized_id = str(collection_id or "").strip() or None
+    normalized_path = (
+        [str(segment).strip() for segment in collection_path]
+        if collection_path is not None
+        else None
     )
+    if normalized_id and normalized_path:
+        raise ValueError("Provide either collection_id or collection_path, not both")
+    if normalized_path is not None and (
+        not normalized_path or any(not segment for segment in normalized_path)
+    ):
+        raise ValueError("collection_path must contain at least one non-empty name")
+    if create_missing and normalized_path is None:
+        raise ValueError("create_missing requires an explicit collection_path")
+    if collection_description.strip() and normalized_path is None:
+        raise ValueError("collection_description requires an explicit collection_path")
+
+    created_collections: list[dict[str, Any]] = []
+    if normalized_path is not None:
+        target = store.get_collection_by_path(normalized_path)
+        if target is None:
+            if not create_missing:
+                raise ValueError(
+                    "Collection path does not exist; explicitly allow creation to create its final segment"
+                )
+            description = collection_description.strip()
+            if not description:
+                raise ValueError(
+                    "A non-empty collection_description is required when creating a missing collection"
+                )
+            parent = None
+            if len(normalized_path) > 1:
+                parent = store.get_collection_by_path(normalized_path[:-1])
+                if parent is None:
+                    raise ValueError(
+                        "Only the final collection path segment may be created; its parent path must already exist"
+                    )
+            target = store.create_collection(
+                name=normalized_path[-1],
+                description=description,
+                parent_id=str(parent["id"]) if parent else None,
+            )
+            created_collections.append(target)
+        normalized_id = str(target["id"])
+
+    assignment = store.assign_article(
+        article_id,
+        collection_id=normalized_id,
+        reason="Explicit path placement" if normalized_path is not None else "Manual placement",
+    )
+    assignment["created_collections"] = created_collections
+    return assignment
 
 
 def get_settings() -> dict[str, Any]:

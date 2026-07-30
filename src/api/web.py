@@ -154,16 +154,16 @@ async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective:
                 issues = "; ".join(issue.message for issue in validation.issues[:6])
                 raise ValueError(issues or "AI review validation failed")
             try:
-                from src.core.catalog import classify_reviewed_article
+                from src.core.collections import place_reviewed_article
 
                 _add_job_event(job, "classification", "pipeline.events.classificationStarted")
                 from src.core.localization import resolve_output_language
                 classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
-                assignment = await classify_reviewed_article(reviewed_path.parent.name, reviewed_path, classification_language)
-                if assignment.get("classified") is False:
+                assignment = await place_reviewed_article(reviewed_path.parent.name, reviewed_path, classification_language)
+                if not assignment.get("collection_id"):
                     _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(assignment.get("reason") or ""))
                 else:
-                    label = assignment.get("subtag_name") or assignment.get("tag_name") or ""
+                    label = assignment.get("collection_name") or ""
                     _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
             except Exception as exc:
                 _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
@@ -311,14 +311,14 @@ async def _run_article_review_job(job_id: str, article_id: str, perspective: str
 
         job.update(stage="classification", progress=90)
         try:
-            from src.core.catalog import classify_reviewed_article
+            from src.core.collections import place_reviewed_article
             from src.core.localization import resolve_output_language
             classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
-            assignment = await classify_reviewed_article(article_id, reviewed_path, classification_language)
-            if assignment.get("classified") is False:
+            assignment = await place_reviewed_article(article_id, reviewed_path, classification_language)
+            if not assignment.get("collection_id"):
                 _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(assignment.get("reason") or ""))
             else:
-                label = assignment.get("subtag_name") or assignment.get("tag_name") or ""
+                label = assignment.get("collection_name") or ""
                 _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
         except Exception as exc:
             _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
@@ -431,8 +431,8 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
 
     protected_metadata = article_metadata_state(manifest, raw_markdown)
     article_id = str(manifest.get("article_id") or manifest_path.parent.name)
-    classification = None
-    catalog_search_terms: list[str] = []
+    collection = None
+    collection_search_terms: list[str] = []
     operations = {
         "captureCount": 0,
         "reviewCount": 0,
@@ -441,13 +441,13 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         "events": [],
     }
     try:
-        from src.core.catalog import CatalogStore
+        from src.core.collections import CollectionStore
 
-        catalog = CatalogStore()
-        classification = catalog.get_assignment(article_id, locale)
-        catalog_search_terms = catalog.get_search_terms(article_id)
+        collection_store = CollectionStore()
+        collection = collection_store.get_assignment(article_id, locale=locale)
+        collection_search_terms = collection_store.get_search_terms(article_id, locale=locale)
     except Exception as exc:
-        logger.warning("Article taxonomy unavailable for %s: %s", article_id, _exception_message(exc))
+        logger.warning("Article collection unavailable for %s: %s", article_id, _exception_message(exc))
     try:
         from src.core.activity import ArticleActivityStore
 
@@ -466,9 +466,9 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         "capturedAt": article.get("captured_at"),
         "status": _article_status(manifest_path.parent, manifest),
         "assetsCount": len(downloaded),
-        "classification": classification,
+        "collection": collection,
         "operationSummary": operations,
-        "searchTerms": [value for value in [display_title, article.get("title"), protected_metadata["author"]["value"], article.get("platform_label"), (classification or {}).get("tag_name"), (classification or {}).get("subtag_name"), *catalog_search_terms] if value],
+        "searchTerms": [value for value in [display_title, article.get("title"), protected_metadata["author"]["value"], article.get("platform_label"), *collection_search_terms] if value],
     }
 
 
@@ -740,8 +740,8 @@ async def get_article(request: Request) -> JSONResponse:
 
     protected_metadata = article_metadata_state(manifest, raw_markdown)
 
-    from src.core.catalog import CatalogStore
-    classification = summary.get("classification") or await asyncio.to_thread(CatalogStore().get_assignment, request.path_params["article_id"], locale)
+    from src.core.collections import CollectionStore
+    collection = summary.get("collection") or await asyncio.to_thread(CollectionStore().get_assignment, request.path_params["article_id"])
     active_upload = _active_job_for_article(_upload_jobs, request.path_params["article_id"])
     active_review = _active_job_for_article(_review_jobs, request.path_params["article_id"])
 
@@ -761,7 +761,7 @@ async def get_article(request: Request) -> JSONResponse:
         "activeReview": active_review,
         "assets": assets,
         "removedAssets": removed_assets,
-        "classification": classification,
+        "collection": collection,
         "operationSummary": summary["operationSummary"],
     })
 
@@ -808,13 +808,23 @@ async def update_article(request: Request) -> JSONResponse:
     reviewed_markdown = payload.get("reviewedMarkdown") if isinstance(payload, dict) else None
     if not isinstance(reviewed_markdown, str):
         return JSONResponse({"error": "reviewedMarkdown must be a string"}, status_code=400)
+    image_states = payload.get("imageStates", {}) if isinstance(payload, dict) else {}
+    if not isinstance(image_states, dict):
+        return JSONResponse({"error": "imageStates must be an object"}, status_code=400)
     try:
         from src.application.service import save_reviewed_markdown
 
-        result = await asyncio.to_thread(save_reviewed_markdown, request.path_params["article_id"], reviewed_markdown)
+        result = await asyncio.to_thread(
+            save_reviewed_markdown,
+            request.path_params["article_id"],
+            reviewed_markdown,
+            image_states={str(name): str(state) for name, state in image_states.items()},
+        )
     except ValueError as exc:
         status_code = 413 if "10 MB" in str(exc) else 400
         return JSONResponse({"error": str(exc)}, status_code=status_code)
+    except OSError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
     return JSONResponse(result)
 
 
@@ -1112,31 +1122,30 @@ async def update_pipeline_settings(request: Request) -> JSONResponse:
     return JSONResponse(persisted)
 
 
-async def get_taxonomy(request: Request) -> JSONResponse:
-    from src.application.service import list_taxonomy
+async def get_collections(request: Request) -> JSONResponse:
+    from src.application.service import list_collections
 
-    locale = _request_language(request)
-    include_retired = request.query_params.get("includeRetired", "").casefold() == "true"
+    include_deleted = request.query_params.get("includeDeleted", "").casefold() == "true"
     tree = await asyncio.to_thread(
-        list_taxonomy,
-        locale=locale,
-        include_retired=include_retired,
+        list_collections,
+        include_deleted=include_deleted,
+        locale=_request_language(request),
     )
-    return JSONResponse({"tags": tree})
+    return JSONResponse({"collections": tree})
 
 
-async def create_taxonomy_category(request: Request) -> JSONResponse:
+async def create_collection(request: Request) -> JSONResponse:
     try:
         payload = await request.json()
     except json.JSONDecodeError:
         return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
     if not isinstance(payload, dict):
-        return JSONResponse({"error": "Category payload must be an object"}, status_code=400)
+        return JSONResponse({"error": "Collection payload must be an object"}, status_code=400)
     try:
-        from src.application.service import create_taxonomy_category as create_category
+        from src.application.service import create_collection as create_collection_operation
 
-        category = await asyncio.to_thread(
-            create_category,
+        collection = await asyncio.to_thread(
+            create_collection_operation,
             name=str(payload.get("name") or ""),
             description=str(payload.get("description") or ""),
             parent_id=str(payload.get("parentId") or "") or None,
@@ -1144,25 +1153,25 @@ async def create_taxonomy_category(request: Request) -> JSONResponse:
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
-    return JSONResponse({"category": category}, status_code=201)
+    return JSONResponse({"collection": collection}, status_code=201)
 
 
-async def update_taxonomy_category(request: Request) -> JSONResponse:
+async def update_collection(request: Request) -> JSONResponse:
     try:
         payload = await request.json()
     except json.JSONDecodeError:
         return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
     if not isinstance(payload, dict):
-        return JSONResponse({"error": "Category payload must be an object"}, status_code=400)
+        return JSONResponse({"error": "Collection payload must be an object"}, status_code=400)
     retired = payload.get("retired")
     if retired is not None and not isinstance(retired, bool):
         return JSONResponse({"error": "retired must be a boolean"}, status_code=400)
     try:
-        from src.application.service import update_taxonomy_category as update_category
+        from src.application.service import update_collection as update_collection_operation
 
-        category = await asyncio.to_thread(
-            update_category,
-            request.path_params["tag_id"],
+        collection = await asyncio.to_thread(
+            update_collection_operation,
+            request.path_params["collection_id"],
             name=str(payload["name"]) if "name" in payload else None,
             description=str(payload["description"]) if "description" in payload else None,
             retired=retired,
@@ -1170,10 +1179,10 @@ async def update_taxonomy_category(request: Request) -> JSONResponse:
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
-    return JSONResponse({"category": category})
+    return JSONResponse({"collection": collection})
 
 
-async def update_article_classification(request: Request) -> JSONResponse:
+async def update_article_collection(request: Request) -> JSONResponse:
     try:
         article_dir = _safe_article_dir(request.path_params["article_id"])
         del article_dir
@@ -1183,16 +1192,14 @@ async def update_article_classification(request: Request) -> JSONResponse:
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=404)
     if not isinstance(payload, dict):
-        return JSONResponse({"error": "Classification payload must be an object"}, status_code=400)
+        return JSONResponse({"error": "Article placement payload must be an object"}, status_code=400)
     try:
-        from src.application.service import classify_article
+        from src.application.service import place_article
 
         assignment = await asyncio.to_thread(
-            classify_article,
+            place_article,
             request.path_params["article_id"],
-            locale=_request_language(request),
-            tag_id=str(payload.get("tagId") or "") or None,
-            subtag_id=str(payload.get("subtagId") or "") or None,
+            collection_id=str(payload.get("collectionId") or "") or None,
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)

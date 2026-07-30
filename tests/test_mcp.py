@@ -7,19 +7,19 @@ from types import SimpleNamespace
 import pytest
 
 from src.mcp.server import (
-    classify_article,
-    create_taxonomy_category,
-    delete_taxonomy_category,
+    create_collection,
+    delete_collection,
     get_job,
     list_articles,
-    list_taxonomy,
+    list_collections,
     list_review_perspectives,
+    place_article,
     _validate_article_id,
     _validate_upload_target,
     review_article,
-    restore_taxonomy_category,
+    restore_collection,
     run_pipeline,
-    update_taxonomy_category,
+    update_collection,
 )
 
 
@@ -113,86 +113,105 @@ async def test_list_articles_returns_structured_pagination(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_classify_article_prefers_canonical_ids(monkeypatch) -> None:
+async def test_place_article_uses_existing_collection_id(monkeypatch) -> None:
     received: dict[str, object] = {}
 
-    def fake_classify(article_id: str, **kwargs):
+    def fake_place(article_id: str, **kwargs):
         received.update(article_id=article_id, **kwargs)
-        return {"tag_id": kwargs["tag_id"], "subtag_id": kwargs["subtag_id"]}
+        return {"collection_id": kwargs["collection_id"]}
 
-    monkeypatch.setattr("src.application.service.classify_article", fake_classify)
+    monkeypatch.setattr("src.application.service.place_article", fake_place)
 
-    result = await classify_article("article", tag_id="tag-1", subtag_id="subtag-1", locale="zh-CN")
+    result = await place_article("article", collection_id="collection-1")
 
-    assert result["classification"] == {"tag_id": "tag-1", "subtag_id": "subtag-1"}
-    assert received["tag_id"] == "tag-1"
-    assert received["subtag_id"] == "subtag-1"
-    assert received["locale"] == "zh-CN"
+    assert result["collection"] == {"collection_id": "collection-1"}
+    assert received["collection_id"] == "collection-1"
 
 
 @pytest.mark.asyncio
-async def test_list_taxonomy_returns_user_owned_categories(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "src.application.service.list_taxonomy",
-        lambda **kwargs: [{"id": "category-1", "locale": kwargs["locale"]}],
+async def test_place_article_forwards_explicit_leaf_creation_authority(monkeypatch) -> None:
+    received: dict[str, object] = {}
+
+    def fake_place(article_id: str, **kwargs):
+        received.update(article_id=article_id, **kwargs)
+        return {"collection_id": "evaluation", "created_collections": [{"id": "evaluation"}]}
+
+    monkeypatch.setattr("src.application.service.place_article", fake_place)
+
+    result = await place_article(
+        "article",
+        collection_path=["AI 相关", "AI 测评"],
+        create_missing=True,
+        collection_description="以正文中的模型能力与实测结果为主。",
     )
 
-    result = await list_taxonomy("zh-CN")
-
-    assert "profile" not in result
-    assert result["tags"] == [{"id": "category-1", "locale": "zh-CN"}]
+    assert result["collection"]["collection_id"] == "evaluation"
+    assert received["collection_path"] == ["AI 相关", "AI 测评"]
+    assert received["create_missing"] is True
+    assert received["collection_description"] == "以正文中的模型能力与实测结果为主。"
 
 
 @pytest.mark.asyncio
-async def test_taxonomy_management_tools_delegate_to_application(monkeypatch) -> None:
+async def test_list_collections_returns_user_owned_tree(monkeypatch) -> None:
     monkeypatch.setattr(
-        "src.application.service.create_taxonomy_category",
+        "src.application.service.list_collections",
+        lambda **kwargs: [{"id": "collection-1", "deleted": kwargs["include_deleted"]}],
+    )
+
+    result = await list_collections()
+
+    assert "profile" not in result
+    assert result["collections"] == [{"id": "collection-1", "deleted": False}]
+
+
+@pytest.mark.asyncio
+async def test_collection_management_tools_delegate_to_application(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.application.service.create_collection",
         lambda **kwargs: {"id": "new", **kwargs},
     )
     monkeypatch.setattr(
-        "src.application.service.update_taxonomy_category",
-        lambda tag_id, **kwargs: {"id": tag_id, **kwargs},
+        "src.application.service.update_collection",
+        lambda collection_id, **kwargs: {"id": collection_id, **kwargs},
     )
 
-    created = await create_taxonomy_category(
+    created = await create_collection(
         "Engineering",
         "Software practices",
-        locale="en-US",
     )
-    updated = await update_taxonomy_category(
+    updated = await update_collection(
         "new",
         name="软件工程",
         retired=True,
-        locale="zh-CN",
     )
 
-    assert created["category"]["id"] == "new"
-    assert created["category"]["name"] == "Engineering"
-    assert updated["category"]["id"] == "new"
-    assert updated["category"]["name"] == "软件工程"
-    assert updated["category"]["retired"] is True
+    assert created["collection"]["id"] == "new"
+    assert created["collection"]["name"] == "Engineering"
+    assert updated["collection"]["id"] == "new"
+    assert updated["collection"]["name"] == "软件工程"
+    assert updated["collection"]["retired"] is True
 
 
 @pytest.mark.asyncio
-async def test_taxonomy_delete_and_restore_tools_are_recoverable(monkeypatch) -> None:
-    calls: list[tuple[str, bool, str]] = []
+async def test_collection_delete_and_restore_tools_are_recoverable(monkeypatch) -> None:
+    calls: list[tuple[str, bool]] = []
 
-    def fake_update(tag_id: str, *, retired: bool, locale: str):
-        calls.append((tag_id, retired, locale))
-        return {"id": tag_id, "retired": retired}
+    def fake_update(collection_id: str, *, retired: bool):
+        calls.append((collection_id, retired))
+        return {"id": collection_id, "retired": retired}
 
-    monkeypatch.setattr("src.application.service.update_taxonomy_category", fake_update)
+    monkeypatch.setattr("src.application.service.update_collection", fake_update)
 
-    deleted = await delete_taxonomy_category("category-1", locale="zh-CN")
-    restored = await restore_taxonomy_category("category-1", locale="zh-CN")
+    deleted = await delete_collection("collection-1")
+    restored = await restore_collection("collection-1")
 
     assert deleted["deleted"] is True
     assert deleted["recoverable"] is True
     assert restored["deleted"] is False
     assert restored["recoverable"] is True
     assert calls == [
-        ("category-1", True, "zh-CN"),
-        ("category-1", False, "zh-CN"),
+        ("collection-1", True),
+        ("collection-1", False),
     ]
 
 

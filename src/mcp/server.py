@@ -197,12 +197,12 @@ async def run_pipeline(url: str, *, auto_confirm: bool = True, perspective: str 
 async def list_articles(
     query: str = "",
     status: str = "",
-    tag_id: str = "",
+    collection_id: str = "",
     locale: str = "en-US",
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """List articles with localized taxonomy and optional search filters."""
+    """List articles with collection paths and optional search filters."""
     from src.application.service import list_articles as application_list_articles
 
     items = await _to_thread(
@@ -210,7 +210,7 @@ async def list_articles(
         locale=locale,
         query=query,
         status=status,
-        tag_id=tag_id,
+        collection_id=collection_id,
     )
     safe_offset = max(0, offset)
     safe_limit = min(200, max(1, limit))
@@ -225,7 +225,7 @@ async def list_articles(
 
 @mcp.tool()
 async def get_article(article_id: str, locale: str = "en-US", include_content: bool = True) -> dict[str, Any]:
-    """Get article metadata, activity, classification, assets, and reviewed content."""
+    """Get article metadata, activity, collection path, assets, and reviewed content."""
     from src.application.service import get_article as application_get_article
 
     article = await _to_thread(application_get_article, article_id, locale=locale, include_content=include_content)
@@ -258,136 +258,117 @@ async def update_missing_article_metadata(
 
 
 @mcp.tool()
-async def list_taxonomy(locale: str = "en-US", include_retired: bool = False) -> dict[str, Any]:
-    """Return the user-owned two-level taxonomy without creating categories."""
-    from src.application.service import list_taxonomy as application_list_taxonomy
+async def list_collections(include_deleted: bool = False) -> dict[str, Any]:
+    """Return the complete user-owned collection tree at arbitrary depth."""
+    from src.application.service import list_collections as application_list_collections
 
-    tags = await _to_thread(
-        application_list_taxonomy,
-        locale=locale,
-        include_retired=include_retired,
+    collections = await _to_thread(
+        application_list_collections,
+        include_deleted=include_deleted,
     )
-    return {"ok": True, "tags": tags}
+    return {"ok": True, "collections": collections}
 
 
 @mcp.tool()
-async def create_taxonomy_category(
+async def create_collection(
     name: str,
     description: str = "",
     parent_id: str = "",
-    locale: str = "en-US",
 ) -> dict[str, Any]:
-    """Create a user-owned top-level category or one child category."""
-    from src.application.service import create_taxonomy_category as create_category
+    """Create a collection at the root or inside any existing collection."""
+    from src.application.service import create_collection as create_collection_operation
 
-    category = await _to_thread(
-        create_category,
+    collection = await _to_thread(
+        create_collection_operation,
         name=name,
         description=description,
         parent_id=parent_id or None,
-        locale=locale,
     )
-    return {"ok": True, "category": category}
+    return {"ok": True, "collection": collection}
 
 
 @mcp.tool()
-async def update_taxonomy_category(
-    tag_id: str,
+async def update_collection(
+    collection_id: str,
     name: str | None = None,
     description: str | None = None,
     retired: bool | None = None,
-    locale: str = "en-US",
 ) -> dict[str, Any]:
-    """Rename, describe, retire, or restore one user-owned category."""
-    from src.application.service import update_taxonomy_category as update_category
+    """Rename, describe, delete, or restore one collection subtree."""
+    from src.application.service import update_collection as update_collection_operation
 
-    category = await _to_thread(
-        update_category,
-        tag_id,
+    collection = await _to_thread(
+        update_collection_operation,
+        collection_id,
         name=name,
         description=description,
         retired=retired,
-        locale=locale,
     )
-    return {"ok": True, "category": category}
+    return {"ok": True, "collection": collection}
 
 
 @mcp.tool()
-async def delete_taxonomy_category(
-    tag_id: str,
-    locale: str = "en-US",
+async def delete_collection(
+    collection_id: str,
 ) -> dict[str, Any]:
-    """Recoverably delete one category; deleting a parent also hides its children."""
-    from src.application.service import update_taxonomy_category as update_category
+    """Recoverably delete one collection and its complete descendant subtree."""
+    from src.application.service import update_collection as update_collection_operation
 
-    category = await _to_thread(
-        update_category,
-        tag_id,
+    collection = await _to_thread(
+        update_collection_operation,
+        collection_id,
         retired=True,
-        locale=locale,
     )
     return {
         "ok": True,
         "deleted": True,
         "recoverable": True,
-        "category": category,
-        "next_actions": ["restore_taxonomy_category", "list_taxonomy"],
+        "collection": collection,
+        "next_actions": ["restore_collection", "list_collections"],
     }
 
 
 @mcp.tool()
-async def restore_taxonomy_category(
-    tag_id: str,
-    locale: str = "en-US",
+async def restore_collection(
+    collection_id: str,
 ) -> dict[str, Any]:
-    """Restore a recoverably deleted category and its children."""
-    from src.application.service import update_taxonomy_category as update_category
+    """Restore a recoverably deleted collection and its descendants."""
+    from src.application.service import update_collection as update_collection_operation
 
-    category = await _to_thread(
-        update_category,
-        tag_id,
+    collection = await _to_thread(
+        update_collection_operation,
+        collection_id,
         retired=False,
-        locale=locale,
     )
     return {
         "ok": True,
         "deleted": False,
         "recoverable": True,
-        "category": category,
-        "next_actions": ["list_taxonomy", "classify_article"],
+        "collection": collection,
+        "next_actions": ["list_collections", "place_article"],
     }
 
 
 @mcp.tool()
-async def classify_article(
+async def place_article(
     article_id: str,
-    tag_id: str = "",
-    subtag_id: str = "",
-    tag_name: str = "",
-    subtag_name: str = "",
-    tag_description: str = "",
-    subtag_description: str = "",
-    tag_localizations: dict[str, dict[str, Any]] | None = None,
-    subtag_localizations: dict[str, dict[str, Any]] | None = None,
-    locale: str = "en-US",
+    collection_id: str = "",
+    collection_path: list[str] | None = None,
+    create_missing: bool = False,
+    collection_description: str = "",
 ) -> dict[str, Any]:
-    """Move an article to a canonical tag path, preferring stable IDs."""
-    from src.application.service import classify_article as application_classify_article
+    """Move an article by ID or explicit path; optionally create only a missing leaf."""
+    from src.application.service import place_article as application_place_article
 
     assignment = await _to_thread(
-        application_classify_article,
+        application_place_article,
         article_id,
-        tag_id=tag_id or None,
-        subtag_id=subtag_id or None,
-        tag_name=tag_name,
-        subtag_name=subtag_name,
-        tag_description=tag_description,
-        subtag_description=subtag_description,
-        tag_localizations=tag_localizations,
-        subtag_localizations=subtag_localizations,
-        locale=locale,
+        collection_id=collection_id or None,
+        collection_path=collection_path,
+        create_missing=create_missing,
+        collection_description=collection_description,
     )
-    return {"ok": True, "article_id": article_id, "classification": assignment}
+    return {"ok": True, "article_id": article_id, "collection": assignment}
 
 
 @mcp.tool()
@@ -570,7 +551,7 @@ def create_app() -> Starlette:
         batch_trash_articles,
         create_capture,
         create_article_review,
-        create_taxonomy_category as create_taxonomy_category_route,
+        create_collection as create_collection_route,
         get_article,
         get_article_asset,
         get_article_review_job,
@@ -578,7 +559,7 @@ def create_app() -> Starlette:
         get_removed_article_asset,
         get_pipeline_settings,
         get_settings,
-        get_taxonomy,
+        get_collections,
         get_upload_job,
         list_article_trash,
         list_capture_jobs,
@@ -591,9 +572,9 @@ def create_app() -> Starlette:
         update_article,
         update_article_metadata,
         update_article_image,
-        update_article_classification,
+        update_article_collection,
         update_pipeline_settings,
-        update_taxonomy_category as update_taxonomy_category_route,
+        update_collection as update_collection_route,
         upload_web_article,
         reveal_settings_secret,
         test_settings_service,
@@ -619,7 +600,7 @@ def create_app() -> Starlette:
         Route("/api/v1/articles/{article_id}/assets/{asset_name}", get_article_asset, methods=["GET"]),
         Route("/api/v1/articles/{article_id}/removed/{asset_name}", get_removed_article_asset, methods=["GET"]),
         Route("/api/v1/articles/{article_id}/images/{asset_name}", update_article_image, methods=["PATCH"]),
-        Route("/api/v1/articles/{article_id}/classification", update_article_classification, methods=["PATCH"]),
+        Route("/api/v1/articles/{article_id}/collection", update_article_collection, methods=["PATCH"]),
         Route("/api/v1/uploads/{job_id}", get_upload_job, methods=["GET"]),
         Route("/api/v1/reviews/{job_id}", get_article_review_job, methods=["GET"]),
         Route("/api/v1/jobs", list_web_jobs, methods=["GET"]),
@@ -634,9 +615,9 @@ def create_app() -> Starlette:
         Route("/api/v1/settings/test", test_settings_service, methods=["POST"]),
         Route("/api/v1/pipeline/settings", get_pipeline_settings, methods=["GET"]),
         Route("/api/v1/pipeline/settings", update_pipeline_settings, methods=["PATCH"]),
-        Route("/api/v1/taxonomy", get_taxonomy, methods=["GET"]),
-        Route("/api/v1/taxonomy/categories", create_taxonomy_category_route, methods=["POST"]),
-        Route("/api/v1/taxonomy/categories/{tag_id}", update_taxonomy_category_route, methods=["PATCH"]),
+        Route("/api/v1/collections", get_collections, methods=["GET"]),
+        Route("/api/v1/collections", create_collection_route, methods=["POST"]),
+        Route("/api/v1/collections/{collection_id}", update_collection_route, methods=["PATCH"]),
     ]
     frontend_dist = project_root() / "frontend" / "dist"
     if frontend_dist.is_dir():

@@ -1,5 +1,5 @@
 import i18n from "./i18n";
-import type { ArticleDetail, ArticleSummary, CaptureJob, OutputLanguage, PipelineSettings, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TaxonomyTag, TrashedArticle, UploadJob } from "./types";
+import type { ArticleDetail, ArticleSummary, CaptureJob, CollectionNode, OutputLanguage, PipelineSettings, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TrashedArticle, UploadJob } from "./types";
 
 function locale() { return i18n.resolvedLanguage?.startsWith("zh") ? "zh-CN" : "en-US"; }
 function localized(path: string) { return `${path}${path.includes("?") ? "&" : "?"}locale=${encodeURIComponent(locale())}`; }
@@ -41,10 +41,14 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ articleIds, action: "delete" })
   }),
-  saveReviewedMarkdown: (articleId: string, reviewedMarkdown: string) =>
-    request<{ ok: boolean }>(`/api/v1/articles/${encodeURIComponent(articleId)}`, {
+  saveReviewedMarkdown: (
+    articleId: string,
+    reviewedMarkdown: string,
+    imageStates: Record<string, "active" | "removed"> = {}
+  ) =>
+    request<{ ok: boolean; image_states: Record<string, "active" | "removed"> }>(`/api/v1/articles/${encodeURIComponent(articleId)}`, {
       method: "PATCH",
-      body: JSON.stringify({ reviewedMarkdown })
+      body: JSON.stringify({ reviewedMarkdown, imageStates })
     }),
   updateArticleMetadata: (articleId: string, updates: { author?: string; publishedAt?: string }) =>
     request<{ ok: boolean; metadata: ArticleDetail["metadata"] }>(`/api/v1/articles/${encodeURIComponent(articleId)}/metadata`, {
@@ -69,22 +73,22 @@ export const api = {
     method: "PATCH",
     body: JSON.stringify(settings)
   }),
-  getTaxonomy: () => request<{ tags: TaxonomyTag[] }>(localized("/api/v1/taxonomy")),
-  getManagedTaxonomy: () => request<{ tags: TaxonomyTag[] }>(localized("/api/v1/taxonomy?includeRetired=true")),
-  createTaxonomyCategory: (payload: { name: string; description: string; parentId?: string }) =>
-    request<{ category: TaxonomyTag }>(localized("/api/v1/taxonomy/categories"), {
+  getCollections: () => request<{ collections: CollectionNode[] }>(localized("/api/v1/collections")),
+  getManagedCollections: () => request<{ collections: CollectionNode[] }>(localized("/api/v1/collections?includeDeleted=true")),
+  createCollection: (payload: { name: string; description?: string; parentId?: string }) =>
+    request<{ collection: CollectionNode }>(localized("/api/v1/collections"), {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  updateTaxonomyCategory: (tagId: string, payload: { name?: string; description?: string; retired?: boolean }) =>
-    request<{ category: TaxonomyTag }>(localized(`/api/v1/taxonomy/categories/${encodeURIComponent(tagId)}`), {
+  updateCollection: (collectionId: string, payload: { name?: string; description?: string; retired?: boolean }) =>
+    request<{ collection: CollectionNode }>(localized(`/api/v1/collections/${encodeURIComponent(collectionId)}`), {
       method: "PATCH",
       body: JSON.stringify(payload)
     }),
-  updateArticleClassification: (articleId: string, tagId: string, subtagId?: string) =>
-    request(localized(`/api/v1/articles/${encodeURIComponent(articleId)}/classification`), {
+  updateArticleCollection: (articleId: string, collectionId?: string) =>
+    request(`/api/v1/articles/${encodeURIComponent(articleId)}/collection`, {
       method: "PATCH",
-      body: JSON.stringify({ tagId, subtagId })
+      body: JSON.stringify({ collectionId: collectionId || null })
     }),
   getSettings: () => request<SettingsData>("/api/v1/settings"),
   updateSettings: (settings: SettingsUpdate) =>
