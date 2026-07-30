@@ -44,7 +44,7 @@ export interface ArticleSummary {
   capturedAt: string | null;
   status: ArticleStatus;
   assetsCount: number;
-  classification: ArticleClassification | null;
+  collection: ArticleCollection | null;
   operationSummary: ArticleOperationSummary;
   searchTerms: string[];
 }
@@ -95,7 +95,7 @@ export interface ArticleDetail extends ArticleSummary {
   activeReview: ReviewJob | null;
   assets: Array<{ name: string; url: string }>;
   removedAssets: Array<{ name: string; url: string; reason: string; source: "ai" | "manual" }>;
-  classification: ArticleClassification | null;
+  collection: ArticleCollection | null;
 }
 
 export interface UploadJob {
@@ -121,15 +121,15 @@ export interface ReviewJob {
   error: string | null;
 }
 
-export interface ArticleClassification {
+export interface ArticleCollection {
   article_id: string;
   reason: string;
-  tag_id: string;
-  tag_name: string;
-  subtag_id: string | null;
-  subtag_name: string | null;
+  collection_id: string | null;
+  collection_name: string | null;
+  collection_path: Array<{ id: string; name: string }>;
   confidence: number;
   source: "ai" | "manual" | string;
+  updated_at: string | null;
 }
 
 export interface ArticleOperationSummary {
@@ -140,14 +140,15 @@ export interface ArticleOperationSummary {
   events: Array<{ id: string; type: "capture" | "review" | "upload"; at: string; details: Record<string, unknown> }>;
 }
 
-export interface TaxonomyTag {
+export interface CollectionNode {
   id: string;
   name: string;
   description: string;
-  aliases: string[];
   parent_id: string | null;
   retired: boolean;
-  children: TaxonomyTag[];
+  direct_article_count: number;
+  article_count: number;
+  children: CollectionNode[];
 }
 
 export interface PipelinePerspective {

@@ -5,10 +5,13 @@ import pytest
 
 from src.integrations.ai_client import (
     AIClient,
+    AIOutputTruncatedError,
     AISettings,
+    _raise_if_output_truncated,
     anthropic_messages_endpoint,
     openai_chat_endpoint,
     openai_responses_endpoint,
+    output_truncation_reason,
 )
 
 
@@ -65,3 +68,44 @@ async def test_custom_named_provider_dispatches_by_api_format(monkeypatch) -> No
     assert captured["endpoint"].endswith("/v1/chat/completions")
     assert captured["payload"]["messages"][1]["content"] == "user"
     assert captured["headers"]["Authorization"] == "Bearer test-secret"
+
+
+@pytest.mark.parametrize(
+    ("data", "reason"),
+    [
+        ({"stop_reason": "max_tokens"}, "max_tokens"),
+        ({"type": "message_delta", "delta": {"stop_reason": "max_tokens"}}, "max_tokens"),
+        ({"choices": [{"finish_reason": "length"}]}, "length"),
+        (
+            {
+                "status": "incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"},
+            },
+            "max_output_tokens",
+        ),
+        (
+            {
+                "type": "response.incomplete",
+                "response": {
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                },
+            },
+            "max_output_tokens",
+        ),
+    ],
+)
+def test_output_truncation_reason_supports_provider_formats(data, reason) -> None:
+    assert output_truncation_reason(data) == reason
+
+
+def test_output_truncation_raises_specific_provider_error() -> None:
+    with pytest.raises(AIOutputTruncatedError, match=r"Vendor API output was truncated \(length\)"):
+        _raise_if_output_truncated(
+            {"choices": [{"finish_reason": "length"}]},
+            "Vendor",
+        )
+
+
+def test_normal_completion_is_not_treated_as_truncation() -> None:
+    assert output_truncation_reason({"choices": [{"finish_reason": "stop"}]}) is None

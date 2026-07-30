@@ -1,12 +1,13 @@
 import { BookOpenText } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 
 export function KnowledgePage() {
   const { t, i18n } = useTranslation();
+  const [searchParams] = useSearchParams();
   const articleQuery = useQuery({
     queryKey: ["articles", i18n.resolvedLanguage],
     queryFn: api.listArticles
@@ -19,7 +20,12 @@ export function KnowledgePage() {
     return <div className="page library-entry-page"><ErrorPanel message={(articleQuery.error as Error).message} /></div>;
   }
 
-  const firstArticle = articleQuery.data?.articles[0];
+  const collectionId = searchParams.get("collection") ?? "";
+  const firstArticle = collectionId
+    ? articleQuery.data?.articles.find((article) =>
+      article.collection?.collection_path.some((item) => item.id === collectionId)
+    )
+    : articleQuery.data?.articles[0];
   if (firstArticle) {
     return <Navigate to={`/articles/${encodeURIComponent(firstArticle.id)}`} replace />;
   }

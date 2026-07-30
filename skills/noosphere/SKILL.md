@@ -11,7 +11,7 @@ Extract web articles, clean them with AI-assisted copy-editing, and import them 
 
 - The user shares a URL from a supported platform (WeChat, Zhihu, Xiaoheihe, X) and wants it saved as clean Markdown.
 - The user asks to run `extract`, `ai-review`, `upload`, or `run` with Noosphere.
-- The user wants to batch-process URLs, classify articles, manage review perspectives, or review removed images.
+- The user wants to batch-process URLs, organize articles in Collections, manage review perspectives, or review removed images.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ npx skills add https://github.com/BorisZhangYYY/Noosphere --skill noosphere-setu
 
 1. Extracts one or more article URLs via `nsphr extract`.
 2. Runs the AI review workflow when requested; AI fills typed content slots and Noosphere assembles the final Markdown structure.
-3. Organizes articles with canonical bilingual tag IDs and aliases.
+3. Organizes articles with stable, user-owned Collection IDs at arbitrary depth.
 4. Uploads or archives the reviewed Markdown via the configured adapter.
 5. Explains the output files and how to recover incorrectly removed images.
 
@@ -77,10 +77,12 @@ See `references/workflow_reference.md` for details on each phase and the output 
 
 | Command | Description |
 |---|---|
-| `nsphr articles list --json` | List article metadata and classifications. |
+| `nsphr articles list --json` | List article metadata and Collection paths. |
 | `nsphr articles show ID --json` | Read one workspace and its operation history. |
-| `nsphr taxonomy list --locale en-US --json` | List canonical tag and subtag IDs. |
-| `nsphr taxonomy move ID --tag-id TAG --subtag-id SUBTAG` | Move an article using stable IDs. |
+| `nsphr collections list --json` | List the complete Collection tree and stable IDs. |
+| `nsphr collections create --name NAME --parent-id ID` | Create a Collection beneath any existing Collection. |
+| `nsphr collections place ARTICLE_ID --collection-id ID` | Move an article using a stable Collection ID. |
+| `nsphr collections place ARTICLE_ID` | Keep an article at the Collection root. |
 | `nsphr images list ID --json` | List active and removed article images. |
 | `nsphr images set ID IMAGE --state active` | Restore a removed image. |
 | `nsphr perspectives list --json` | Inspect built-in and custom review contracts. |

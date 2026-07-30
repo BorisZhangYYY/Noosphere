@@ -16,6 +16,63 @@ class AIProviderError(RuntimeError):
     pass
 
 
+class AIOutputTruncatedError(AIProviderError):
+    """Raised when a provider explicitly reports an output-token cutoff."""
+
+
+def output_truncation_reason(data: dict[str, Any]) -> str | None:
+    """Return a provider-neutral truncation reason from response or stream data."""
+    containers = [data]
+    response = data.get("response")
+    if isinstance(response, dict):
+        containers.append(response)
+
+    for container in containers:
+        stop_reason = container.get("stop_reason")
+        if isinstance(stop_reason, str) and stop_reason.casefold() in {
+            "max_tokens",
+            "max_output_tokens",
+            "length",
+        }:
+            return stop_reason
+
+        delta = container.get("delta")
+        if isinstance(delta, dict):
+            stop_reason = delta.get("stop_reason")
+            if isinstance(stop_reason, str) and stop_reason.casefold() in {
+                "max_tokens",
+                "max_output_tokens",
+                "length",
+            }:
+                return stop_reason
+
+        if str(container.get("status") or "").casefold() == "incomplete":
+            details = container.get("incomplete_details")
+            if isinstance(details, dict) and details.get("reason"):
+                return str(details["reason"])
+            return "incomplete"
+
+        choices = container.get("choices")
+        if isinstance(choices, list):
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+                finish_reason = choice.get("finish_reason")
+                if isinstance(finish_reason, str) and finish_reason.casefold() in {
+                    "length",
+                    "max_tokens",
+                    "max_output_tokens",
+                }:
+                    return finish_reason
+    return None
+
+
+def _raise_if_output_truncated(data: dict[str, Any], provider: str) -> None:
+    reason = output_truncation_reason(data)
+    if reason:
+        raise AIOutputTruncatedError(f"{provider} API output was truncated ({reason})")
+
+
 @dataclass(frozen=True)
 class AISettings:
     provider: str
@@ -178,11 +235,13 @@ class AIClient:
                     data = await response.json()
                     if not isinstance(data, dict):
                         raise AIProviderError(f"{self.settings.provider} API returned an invalid response")
+                    _raise_if_output_truncated(data, self.settings.provider)
                     text = parse_fallback(data)
                     if text:
                         await emit_event("ai_output_delta", "", text)
                     return text
 
+                truncation_reason: str | None = None
                 async for raw_line in response.content:
                     line = raw_line.decode("utf-8", errors="replace").strip()
                     if not line.startswith("data:"):
@@ -196,10 +255,15 @@ class AIClient:
                         continue
                     if not isinstance(data, dict):
                         continue
+                    truncation_reason = truncation_reason or output_truncation_reason(data)
                     delta = extract_delta(data)
                     if delta:
                         chunks.append(delta)
                         await emit_event("ai_output_delta", "", delta)
+        if truncation_reason:
+            raise AIOutputTruncatedError(
+                f"{self.settings.provider} API output was truncated ({truncation_reason})"
+            )
         text = "".join(chunks)
         if not text.strip():
             raise AIProviderError(f"{self.settings.provider} API returned an empty streamed response")
@@ -406,6 +470,7 @@ class AIClient:
                 data = await response.json()
         if not isinstance(data, dict):
             raise AIProviderError(f"{self.settings.provider} API returned a non-object response")
+        _raise_if_output_truncated(data, self.settings.provider)
         return data
 
 

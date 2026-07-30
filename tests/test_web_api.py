@@ -110,17 +110,17 @@ def web_client(monkeypatch, tmp_path: Path):
     clear_config_cache()
 
 
-def _create_category_path(client: TestClient, root_name: str, child_name: str | None = None) -> tuple[str, str | None]:
+def _create_collection_path(client: TestClient, root_name: str, child_name: str | None = None) -> tuple[str, str | None]:
     root_response = client.post(
-        "/api/v1/taxonomy/categories",
+        "/api/v1/collections",
         json={"name": root_name, "description": f"{root_name} description"},
     )
     assert root_response.status_code == 201
-    root_id = root_response.json()["category"]["id"]
+    root_id = root_response.json()["collection"]["id"]
     if child_name is None:
         return root_id, None
     child_response = client.post(
-        "/api/v1/taxonomy/categories",
+        "/api/v1/collections",
         json={
             "name": child_name,
             "description": f"{child_name} description",
@@ -128,7 +128,7 @@ def _create_category_path(client: TestClient, root_name: str, child_name: str | 
         },
     )
     assert child_response.status_code == 201
-    return root_id, child_response.json()["category"]["id"]
+    return root_id, child_response.json()["collection"]["id"]
 
 
 def test_list_and_read_article(web_client) -> None:
@@ -156,7 +156,7 @@ def test_article_listing_degrades_when_database_metadata_is_unavailable(web_clie
         del args, kwargs
         raise ConnectionError("database offline")
 
-    monkeypatch.setattr("src.core.catalog.CatalogStore.get_assignment", unavailable)
+    monkeypatch.setattr("src.core.collections.CollectionStore.get_assignment", unavailable)
     monkeypatch.setattr("src.core.activity.ArticleActivityStore.backfill_workspace", unavailable)
 
     response = client.get("/api/v1/articles")
@@ -164,7 +164,7 @@ def test_article_listing_degrades_when_database_metadata_is_unavailable(web_clie
     assert response.status_code == 200
     article = response.json()["articles"][0]
     assert article["id"] == article_id
-    assert article["classification"] is None
+    assert article["collection"] is None
     assert article["operationSummary"]["captureCount"] == 0
 
 
@@ -179,10 +179,10 @@ def test_articles_support_batch_trash_restore_and_permanent_delete(web_client) -
     second_manifest["article_id"] = second_id
     second_manifest["article"]["title"] = "Second article"
     second_manifest_path.write_text(json.dumps(second_manifest), encoding="utf-8")
-    tag_id, subtag_id = _create_category_path(client, "Release QA", "Deletion")
+    _, collection_id = _create_collection_path(client, "Release QA", "Deletion")
     assert client.patch(
-        f"/api/v1/articles/{article_id}/classification",
-        json={"tagId": tag_id, "subtagId": subtag_id},
+        f"/api/v1/articles/{article_id}/collection",
+        json={"collectionId": collection_id},
     ).status_code == 200
     assert client.get(f"/api/v1/articles/{article_id}").json()["operationSummary"]["captureCount"] == 1
 
@@ -210,10 +210,10 @@ def test_articles_support_batch_trash_restore_and_permanent_delete(web_client) -
     assert client.get(f"/api/v1/articles/{article_id}").status_code == 404
     assert client.get("/api/v1/trash/articles").json()["articles"] == []
     from src.core.activity import ArticleActivityStore
-    from src.core.catalog import CatalogStore
+    from src.core.collections import CollectionStore
     from src.core.trash import ArticleTrashStore
 
-    assert CatalogStore().get_assignment(article_id) is None
+    assert CollectionStore().get_assignment(article_id) is None
     assert ArticleActivityStore().summary(article_id)["captureCount"] == 0
     assert ArticleTrashStore().get(article_id) is None
 
@@ -378,182 +378,172 @@ def test_frontend_client_routes_serve_spa_entry(web_client) -> None:
     assert asset.content == b"not-a-real-png"
 
 
-def test_article_can_be_assigned_to_two_level_taxonomy(web_client) -> None:
+def test_article_can_be_placed_in_a_deep_collection(web_client) -> None:
     client, _, article_id = web_client
-    tag_id, subtag_id = _create_category_path(client, "AI", "Agent")
+    root_id, child_id = _create_collection_path(client, "AI", "Agent")
+    deep = client.post(
+        "/api/v1/collections",
+        json={"name": "Interviews", "parentId": child_id},
+    )
+    assert deep.status_code == 201
+    deep_id = deep.json()["collection"]["id"]
 
     assigned = client.patch(
-        f"/api/v1/articles/{article_id}/classification",
-        json={"tagId": tag_id, "subtagId": subtag_id},
+        f"/api/v1/articles/{article_id}/collection",
+        json={"collectionId": deep_id},
     )
 
     assert assigned.status_code == 200
-    assert assigned.json()["tag_name"] == "AI"
-    assert assigned.json()["subtag_name"] == "Agent"
-    taxonomy = client.get("/api/v1/taxonomy").json()["tags"]
-    ai = next(item for item in taxonomy if item["id"] == assigned.json()["tag_id"])
+    assert assigned.json()["collection_name"] == "Interviews"
+    assert [item["name"] for item in assigned.json()["collection_path"]] == ["AI", "Agent", "Interviews"]
+    collections = client.get("/api/v1/collections").json()["collections"]
+    ai = next(item for item in collections if item["id"] == root_id)
     assert ai["name"] == "AI"
     assert ai["children"][0]["name"] == "Agent"
+    assert ai["children"][0]["children"][0]["name"] == "Interviews"
     detail = client.get(f"/api/v1/articles/{article_id}").json()
-    assert detail["classification"]["subtag_name"] == "Agent"
+    assert detail["collection"]["collection_id"] == deep_id
 
 
-def test_taxonomy_categories_can_be_managed_and_retired(web_client) -> None:
+def test_collection_subtrees_can_be_managed_deleted_and_restored(web_client) -> None:
     client, _, article_id = web_client
-    root_id, child_id = _create_category_path(client, "Engineering", "Testing")
+    root_id, child_id = _create_collection_path(client, "Engineering", "Testing")
     assert child_id is not None
     assigned = client.patch(
-        f"/api/v1/articles/{article_id}/classification",
-        json={"tagId": root_id, "subtagId": child_id},
+        f"/api/v1/articles/{article_id}/collection",
+        json={"collectionId": child_id},
     )
     assert assigned.status_code == 200
 
-    too_deep = client.post(
-        "/api/v1/taxonomy/categories",
+    deeper = client.post(
+        "/api/v1/collections",
         json={"name": "Unit tests", "parentId": child_id},
     )
-    assert too_deep.status_code == 400
-    assert "two levels" in too_deep.json()["error"]
+    assert deeper.status_code == 201
 
     renamed = client.patch(
-        f"/api/v1/taxonomy/categories/{child_id}",
+        f"/api/v1/collections/{child_id}",
         json={"name": "Software Testing", "description": "Verification practices"},
     )
     assert renamed.status_code == 200
-    assert renamed.json()["category"]["name"] == "Software Testing"
+    assert renamed.json()["collection"]["name"] == "Software Testing"
 
     retired = client.patch(
-        f"/api/v1/taxonomy/categories/{root_id}",
+        f"/api/v1/collections/{root_id}",
         json={"retired": True},
     )
     assert retired.status_code == 200
-    assert retired.json()["category"]["retired"] is True
-    assert client.get("/api/v1/taxonomy").json()["tags"] == []
-    managed = client.get("/api/v1/taxonomy?includeRetired=true").json()["tags"]
+    assert retired.json()["collection"]["retired"] is True
+    assert client.get("/api/v1/collections").json()["collections"] == []
+    managed = client.get("/api/v1/collections?includeDeleted=true").json()["collections"]
     assert managed[0]["retired"] is True
     assert managed[0]["children"][0]["retired"] is True
-    assert client.get("/api/v1/articles").json()["articles"][0]["classification"] is None
-    assert client.get(f"/api/v1/articles/{article_id}").json()["classification"] is None
+    assert client.get("/api/v1/articles").json()["articles"][0]["collection"]["collection_id"] is None
+    assert client.get(f"/api/v1/articles/{article_id}").json()["collection"]["collection_id"] is None
     rejected = client.patch(
-        f"/api/v1/articles/{article_id}/classification",
-        json={"tagId": root_id, "subtagId": child_id},
+        f"/api/v1/articles/{article_id}/collection",
+        json={"collectionId": child_id},
     )
     assert rejected.status_code == 400
-    assert "retired" in rejected.json()["error"]
+    assert "Active collection" in rejected.json()["error"]
 
     restored = client.patch(
-        f"/api/v1/taxonomy/categories/{root_id}",
+        f"/api/v1/collections/{root_id}",
         json={"retired": False},
     )
     assert restored.status_code == 200
-    assert client.get(f"/api/v1/articles/{article_id}").json()["classification"]["subtag_id"] == child_id
+    assert client.get(f"/api/v1/articles/{article_id}").json()["collection"]["collection_id"] == child_id
 
 
-def test_web_mcp_and_cli_share_canonical_taxonomy_ids(web_client, capsys) -> None:
+def test_web_mcp_and_cli_share_collection_ids(web_client, capsys) -> None:
     client, _, article_id = web_client
     from src.cli import _main_async, parse_args
-    from src.mcp.server import classify_article as mcp_classify_article
+    from src.mcp.server import place_article as mcp_place_article
 
     root = client.post(
-        "/api/v1/taxonomy/categories?locale=en-US",
+        "/api/v1/collections",
         json={"name": "AI", "description": "Artificial intelligence"},
-    ).json()["category"]
+    ).json()["collection"]
     child = client.post(
-        "/api/v1/taxonomy/categories?locale=en-US",
+        "/api/v1/collections",
         json={"name": "Agents", "description": "Autonomous AI systems", "parentId": root["id"]},
-    ).json()["category"]
-    assert client.patch(
-        f"/api/v1/taxonomy/categories/{root['id']}?locale=zh-CN",
-        json={"name": "人工智能", "description": "人工智能相关内容"},
-    ).status_code == 200
-    assert client.patch(
-        f"/api/v1/taxonomy/categories/{child['id']}?locale=zh-CN",
-        json={"name": "智能体", "description": "自主智能系统"},
-    ).status_code == 200
+    ).json()["collection"]
     web_assignment = client.patch(
-        f"/api/v1/articles/{article_id}/classification",
-        json={"tagId": root["id"], "subtagId": child["id"]},
+        f"/api/v1/articles/{article_id}/collection",
+        json={"collectionId": child["id"]},
     ).json()
 
     mcp_result = asyncio.run(
-        mcp_classify_article(
+        mcp_place_article(
             article_id,
-            tag_id=web_assignment["tag_id"],
-            subtag_id=web_assignment["subtag_id"],
-            locale="en-US",
+            collection_id=web_assignment["collection_id"],
         )
     )
-    assert mcp_result["classification"]["tag_id"] == web_assignment["tag_id"]
-    assert mcp_result["classification"]["subtag_id"] == web_assignment["subtag_id"]
+    assert mcp_result["collection"]["collection_id"] == web_assignment["collection_id"]
 
     exit_code = asyncio.run(_main_async(parse_args([
-        "taxonomy", "move", article_id,
-        "--tag-id", web_assignment["tag_id"],
-        "--subtag-id", web_assignment["subtag_id"],
-        "--locale", "zh-CN",
+        "collections", "move", article_id,
+        "--collection-id", web_assignment["collection_id"],
         "--json",
     ])))
     assert exit_code == 0
     cli_payload = json.loads(capsys.readouterr().out)
-    assert cli_payload["classification"]["tag_id"] == web_assignment["tag_id"]
-    assert cli_payload["classification"]["subtag_id"] == web_assignment["subtag_id"]
-
-    chinese = client.get(f"/api/v1/articles/{article_id}?locale=zh-CN").json()["classification"]
-    assert chinese["tag_name"] == "人工智能"
-    assert chinese["subtag_name"] == "智能体"
+    assert cli_payload["collection"]["collection_id"] == web_assignment["collection_id"]
 
 
-def test_taxonomy_localizes_and_merges_aliases(web_client) -> None:
+def test_mcp_and_cli_can_create_only_an_explicit_missing_collection_leaf(
+    web_client,
+    capsys,
+) -> None:
     client, _, article_id = web_client
-    from src.core.catalog import CatalogStore
+    from src.cli import _main_async, parse_args
+    from src.mcp.server import place_article as mcp_place_article
 
-    store = CatalogStore()
-    first = store.assign(
-        article_id,
-        tag_name="AI Agents",
-        locale="en-US",
-        tag_localizations={
-            "en-US": {"name": "AI Agents", "description": "Autonomous AI systems and workflows.", "aliases": ["Agents"]},
-            "zh-CN": {"name": "智能体", "description": "自主智能系统及其工作流。", "aliases": ["AI 智能体"]},
-        },
-    )
-    second = store.assign(
-        "another-article",
-        tag_name="Agents",
-        locale="en-US",
-        tag_localizations={
-            "en-US": {"name": "Agents", "description": "", "aliases": ["AI Agents"]},
-            "zh-CN": {"name": "智能体", "description": "", "aliases": []},
-        },
+    root = client.post(
+        "/api/v1/collections",
+        json={"name": "AI 相关", "description": "人工智能主题内容"},
+    ).json()["collection"]
+    mcp_result = asyncio.run(
+        mcp_place_article(
+            article_id,
+            collection_path=["AI 相关", "AI 测评"],
+            create_missing=True,
+            collection_description="以模型能力、基准测试和真实体验为主的评估内容。",
+        )
     )
 
-    assert first["tag_id"] == second["tag_id"]
-    english = next(
-        item
-        for item in client.get("/api/v1/taxonomy?locale=en-US").json()["tags"]
-        if item["id"] == first["tag_id"]
-    )
-    chinese = next(
-        item
-        for item in client.get("/api/v1/taxonomy?locale=zh-CN").json()["tags"]
-        if item["id"] == first["tag_id"]
-    )
-    assert english["name"] == "AI Agents"
-    assert "Agents" in english["aliases"]
-    assert chinese["name"] == "智能体"
-    assert chinese["description"] == "自主智能系统及其工作流。"
+    assert [item["name"] for item in mcp_result["collection"]["collection_path"]] == [
+        "AI 相关",
+        "AI 测评",
+    ]
+    assert len(mcp_result["collection"]["created_collections"]) == 1
+
+    exit_code = asyncio.run(_main_async(parse_args([
+        "collections", "place", article_id,
+        "--collection-path", "AI 相关 / AI 基准",
+        "--create-missing",
+        "--description", "以模型基准测试与可复现实验为主。",
+        "--json",
+    ])))
+
+    assert exit_code == 0
+    cli_payload = json.loads(capsys.readouterr().out)
+    assert [item["name"] for item in cli_payload["collection"]["collection_path"]] == [
+        "AI 相关",
+        "AI 基准",
+    ]
+    tree = client.get("/api/v1/collections").json()["collections"]
+    persisted_root = next(item for item in tree if item["id"] == root["id"])
+    assert {item["name"] for item in persisted_root["children"]} == {"AI 测评", "AI 基准"}
 
 
-def test_taxonomy_does_not_seed_product_categories(web_client) -> None:
+def test_collections_do_not_seed_product_owned_nodes(web_client) -> None:
     client, _, _ = web_client
 
-    english = client.get("/api/v1/taxonomy?locale=en-US").json()
-    chinese = client.get("/api/v1/taxonomy?locale=zh-CN").json()
+    payload = client.get("/api/v1/collections").json()
 
-    assert "profile" not in english
-    assert "profile" not in chinese
-    assert all(not tag["id"].startswith("builtin-") for tag in english["tags"])
-    assert all(not tag["id"].startswith("builtin-") for tag in chinese["tags"])
+    assert "profile" not in payload
+    assert all(not item["id"].startswith("builtin-") for item in payload["collections"])
 
 
 def test_pipeline_defaults_are_localized_and_read_only(web_client) -> None:
@@ -863,12 +853,12 @@ def test_article_can_be_re_reviewed_from_current_reviewed_markdown(web_client, m
         path.write_text("# AI reviewed\n\nRewritten.\n", encoding="utf-8")
         return SimpleNamespace(ok=True, issues=[])
 
-    async def fake_classify(classified_article_id: str, path: Path, locale: str):
-        assert classified_article_id == article_id
-        return {"tag_name": "AI", "subtag_name": None}
+    async def fake_place(placed_article_id: str, path: Path, locale: str):
+        assert placed_article_id == article_id
+        return {"collection_id": "ai", "collection_name": "AI"}
 
     monkeypatch.setattr("src.graph.graph.run_ai_review_graph", fake_review)
-    monkeypatch.setattr("src.core.catalog.classify_reviewed_article", fake_classify)
+    monkeypatch.setattr("src.core.collections.place_reviewed_article", fake_place)
     response = client.post(f"/api/v1/articles/{article_id}/review", json={"perspective": "original"})
     assert response.status_code == 202
 
@@ -902,14 +892,14 @@ def test_capture_ai_then_manual_runs_review_and_pauses(web_client, monkeypatch) 
         assert perspective == "original"
         return SimpleNamespace(ok=True, issues=[])
 
-    async def fake_classify(classified_article_id: str, path: Path, locale: str):
-        assert classified_article_id == article_id
+    async def fake_place(placed_article_id: str, path: Path, locale: str):
+        assert placed_article_id == article_id
         assert path == reviewed_path
-        return {"tag_name": "AI", "subtag_name": "Agent"}
+        return {"collection_id": "agent", "collection_name": "Agent"}
 
     monkeypatch.setattr("src.graph.graph.run_extract_graph", fake_extract)
     monkeypatch.setattr("src.graph.graph.run_ai_review_graph", fake_review)
-    monkeypatch.setattr("src.core.catalog.classify_reviewed_article", fake_classify)
+    monkeypatch.setattr("src.core.collections.place_reviewed_article", fake_place)
     response = client.post("/api/v1/captures", json={"url": "https://example.com/article", "reviewMode": "ai_then_manual", "perspective": "original"})
     assert response.status_code == 202
 
@@ -935,12 +925,12 @@ def test_capture_waits_for_human_review_by_default(web_client, monkeypatch) -> N
     async def fake_review(path: Path, *, perspective: str, output_language: str):
         return SimpleNamespace(ok=True, issues=[])
 
-    async def fake_classify(classified_article_id: str, path: Path, locale: str):
-        return {"tag_name": "AI", "subtag_name": None}
+    async def fake_place(placed_article_id: str, path: Path, locale: str):
+        return {"collection_id": "ai", "collection_name": "AI"}
 
     monkeypatch.setattr("src.graph.graph.run_extract_graph", fake_extract)
     monkeypatch.setattr("src.graph.graph.run_ai_review_graph", fake_review)
-    monkeypatch.setattr("src.core.catalog.classify_reviewed_article", fake_classify)
+    monkeypatch.setattr("src.core.collections.place_reviewed_article", fake_place)
     response = client.post("/api/v1/captures", json={"url": "https://example.com/article"})
 
     deadline = time.monotonic() + 1
@@ -963,8 +953,8 @@ def test_capture_auto_upload_runs_without_human_checkpoint(web_client, monkeypat
     async def fake_review(path: Path, *, perspective: str, output_language: str):
         return SimpleNamespace(ok=True, issues=[])
 
-    async def fake_classify(classified_article_id: str, path: Path, locale: str):
-        return {"tag_name": "AI", "subtag_name": None}
+    async def fake_place(placed_article_id: str, path: Path, locale: str):
+        return {"collection_id": "ai", "collection_name": "AI"}
 
     async def fake_upload(path: Path, target: str):
         assert path == reviewed_path
@@ -974,7 +964,7 @@ def test_capture_auto_upload_runs_without_human_checkpoint(web_client, monkeypat
     monkeypatch.setattr("src.graph.graph.run_extract_graph", fake_extract)
     monkeypatch.setattr("src.graph.graph.run_ai_review_graph", fake_review)
     monkeypatch.setattr("src.graph.graph.run_upload_graph", fake_upload)
-    monkeypatch.setattr("src.core.catalog.classify_reviewed_article", fake_classify)
+    monkeypatch.setattr("src.core.collections.place_reviewed_article", fake_place)
     response = client.post(
         "/api/v1/captures?locale=en-US",
         json={"url": "https://example.com/automatic", "reviewMode": "auto_upload", "perspective": "original", "outputLanguage": "follow_ui"},
@@ -1142,6 +1132,58 @@ def test_article_image_can_be_removed_and_restored_without_mutating_raw(web_clie
     assert detail["removedAssets"] == []
     assert "assets/image.png" in detail["reviewedMarkdown"]
     assert client.get(f"{article_url}/assets/image.png").status_code == 200
+
+
+def test_article_save_applies_staged_image_changes_without_persisting_removed_previews(web_client) -> None:
+    client, config_path, article_id = web_client
+    article_dir = config_path.parent / "articles" / article_id
+    second_name = "image-02.png"
+    (article_dir / "assets" / second_name).write_bytes(b"second-image")
+    with (article_dir / "raw.md").open("a", encoding="utf-8") as file:
+        file.write(f"\n\n![second](assets/{second_name})\n")
+    with (article_dir / "reviewed.md").open("a", encoding="utf-8") as file:
+        file.write(f"\n\n![second](assets/{second_name})\n")
+
+    article_url = f"/api/v1/articles/{article_id}"
+    initial = client.get(article_url).json()
+    first_removal = client.patch(
+        f"{article_url}/images/image.png",
+        json={"state": "removed", "reviewedMarkdown": initial["editableMarkdown"]},
+    )
+    assert first_removal.status_code == 200
+
+    after_first = client.get(article_url).json()
+    assert "/removed/image.png?state=removed" in after_first["editableMarkdown"]
+    staged_save = client.patch(
+        article_url,
+        json={
+            "reviewedMarkdown": after_first["editableMarkdown"] + "\n\nSaved with image changes.\n",
+            "imageStates": {second_name: "removed"},
+        },
+    )
+    assert staged_save.status_code == 200
+    assert staged_save.json()["image_states"] == {second_name: "removed"}
+
+    after_save = client.get(article_url).json()
+    assert {asset["name"] for asset in after_save["removedAssets"]} == {"image.png", second_name}
+    assert "/removed/" not in after_save["reviewedMarkdown"]
+    assert "assets/image.png" not in after_save["reviewedMarkdown"]
+    assert f"assets/{second_name}" not in after_save["reviewedMarkdown"]
+    assert "Saved with image changes." in after_save["reviewedMarkdown"]
+
+    staged_restore = client.patch(
+        article_url,
+        json={
+            "reviewedMarkdown": after_save["editableMarkdown"],
+            "imageStates": {"image.png": "active"},
+        },
+    )
+    assert staged_restore.status_code == 200
+    restored = client.get(article_url).json()
+    assert {asset["name"] for asset in restored["assets"]} == {"image.png"}
+    assert {asset["name"] for asset in restored["removedAssets"]} == {second_name}
+    assert "assets/image.png" in restored["reviewedMarkdown"]
+    assert "/removed/" not in restored["reviewedMarkdown"]
 
 
 def test_mcp_and_cli_share_article_image_state(web_client, capsys) -> None:

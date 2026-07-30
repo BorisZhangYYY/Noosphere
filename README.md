@@ -13,7 +13,7 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 - Extract articles and local assets from supported platforms with configurable primary and fallback crawlers.
 - Review, translate, and restructure content through built-in or custom perspectives.
 - Keep source metadata and final Markdown structure deterministic instead of relying on the model to reproduce a fragile document skeleton.
-- Organize articles with a user-defined bilingual taxonomy of at most two levels; new workspaces start without product-owned categories.
+- Organize articles in a user-owned Knowledge workspace of clickable index documents with arbitrary nesting; articles may also remain directly at the workspace level.
 - Review images independently, then remove or restore them without changing `raw.md`.
 - Archive locally or upload reviewed content to SiYuan.
 - Use the same data, configuration, and business rules through the web app, MCP service, or CLI.
@@ -36,7 +36,7 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 
 ## Three Ways to Install and Use Noosphere
 
-All three entry points share article workspaces, configuration, taxonomy, review perspectives, and operation history. Choose the interface that fits the operator; do not deploy a separate database for each interface.
+All three entry points share article workspaces, configuration, collections, review perspectives, and operation history. Choose the interface that fits the operator; do not deploy a separate database for each interface.
 
 ### 1. CLI
 
@@ -77,7 +77,7 @@ docker compose up -d --build
 open http://localhost:8080/app/
 ```
 
-The web workspace separates the operational Overview from an immersive Library mode. Entering the Library transforms the primary sidebar into a category-and-article tree and opens the selected article directly in its workbench. The workbench combines an article outline, editor, and collapsible inspection rail for classification, image recovery, review, and upload.
+The web workspace keeps navigation and the Collection tree together in one persistent sidebar. Collections can be created, renamed, deleted recoverably, and nested in place; their direct articles appear beneath them like a document directory and can be dragged onto another index to move them. The article workbench combines clickable Collection breadcrumbs, save state, an outline, editor, and collapsible inspection rail for placement, image recovery, review, and upload.
 
 To install the optional Codex/Claude-compatible Noosphere skill:
 
@@ -91,7 +91,7 @@ For deployment layout, environment variables, and persistent storage, see [Insta
 
 ### One shared application layer
 
-The web API, MCP tools, and CLI call the same application service. Interface-specific code translates inputs and outputs; it does not reimplement classification, image state, settings, or article rules.
+The web API, MCP tools, and CLI call the same application service. Interface-specific code translates inputs and outputs; it does not reimplement Collection placement, image state, settings, or article rules.
 
 ### Raw and reviewed boundaries
 
@@ -101,9 +101,11 @@ Each article workspace keeps the original extraction in `raw.md` and the canonic
 
 AI fills typed content slots. Noosphere assembles the final metadata block, headings, sections, and retained image references. When Author or Published is absent, review may submit a candidate only with a short exact excerpt from the captured article; Noosphere verifies both evidence and value before accepting it and records accepted or reverted attempts with provider provenance. Validation can diagnose malformed content, but it is not an AI retry loop or a prerequisite for producing the document.
 
-### Canonical bilingual taxonomy
+### Hierarchical Collections
 
-Classification follows `category → optional subcategory → article`, with at most two directory levels. New workspaces start empty. Users create and describe category boundaries in Review Configuration; both manual moves and AI organization use only active, stable category IDs. AI results below the confidence threshold remain explicitly unclassified instead of inventing a directory.
+Organization follows `index document → nested index document → … → article` at arbitrary depth. Every index is itself a page with a title, introduction, and clickable contents. Users build the hierarchy directly in the sidebar and can keep articles at any index level or unfiled at the workspace level. Manual moves and AI placement use stable active Collection IDs internally. AI cannot create or rename indexes; an unknown or low-confidence match remains unfiled.
+
+Existing two-level taxonomy records are migrated once into equivalent Collection paths and assignments. The original article files are not changed by this migration.
 
 ### Independent image review
 
@@ -115,7 +117,7 @@ The text-review provider and image-review provider are configured independently.
 |---|---|---|---|
 | Extract, review, upload, full pipeline | Background actions | Synchronous tools and `start_*` jobs | Foreground commands with JSON output |
 | Article list, protected metadata, and prose update | Library and editor | `list_articles`, `get_article`, `update_article_content`, `update_missing_article_metadata` | `articles list/show/update/metadata` |
-| Two-level bilingual taxonomy | Review Configuration category controls | `list_taxonomy`, `create_taxonomy_category`, `update_taxonomy_category`, `delete_taxonomy_category`, `restore_taxonomy_category`, `classify_article` | `taxonomy list/create/update/delete/restore/assign/move` |
+| Arbitrary-depth Collections and article placement | Persistent sidebar and article rail | `list_collections`, `create_collection`, `update_collection`, `delete_collection`, `restore_collection`, `place_article` | `collections list/create/update/delete/restore/place` |
 | Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
 | Review perspectives and templates | Review Configuration | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
 | Provider, crawler, and archive settings | Settings page | Masked get/update/activate/test tools | `config show/apply/activate/test` |
@@ -125,7 +127,7 @@ Secrets are masked by default everywhere. Only the local CLI has an explicit `co
 
 ## Portable Data
 
-Docker Compose keeps configuration, article workspaces, assets, archives, crawler cache, logs, backups, taxonomy and activity state, and PostgreSQL data under one host directory. The default is `.noosphere/`; override it without editing Compose:
+Docker Compose keeps configuration, article workspaces, assets, archives, crawler cache, logs, backups, Collection and activity state, and PostgreSQL data under one host directory. The default is `.noosphere/`; override it without editing Compose:
 
 ```bash
 NOOSPHERE_DATA_DIR=/path/to/noosphere-data docker compose up -d --build
@@ -170,9 +172,11 @@ Noosphere/
 
 Use the web app for interactive reading and review, MCP for agent-driven workflows, and the CLI for scripts and local maintenance. They share the same business state.
 
+MCP and CLI agents normally place articles only into existing Collections. When you explicitly name a missing destination, they can create and describe its final path segment with a separate creation flag; parent Collections must already exist, so automatic classification cannot silently expand the workspace.
+
 ### Does switching the interface language rewrite existing articles?
 
-No. The interface locale controls display labels and can be used as the default output language for a new review. Existing reviewed content is not rewritten automatically.
+No. The interface locale controls display labels and can be used as the default output language for a new review. Existing reviewed content is not rewritten automatically. When `follow_ui` is used from CLI, MCP, or another entry point without an interface locale, Noosphere follows the source article language instead of assuming English.
 
 ### What happens when image review is unavailable?
 

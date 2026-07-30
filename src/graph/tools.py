@@ -27,7 +27,7 @@ from src.core.review.prompt_metadata import parse_prompt
 from src.core.review.review_validation import ValidationResult, validate_reviewed_markdown
 from src.core.upload.factory import create_adapter
 from src.extractor_registry import classify_url as _classify_url, extract_one
-from src.integrations.ai_client import AIClient, resolve_ai_settings
+from src.integrations.ai_client import AIClient, AIOutputTruncatedError, resolve_ai_settings
 from src.integrations.assets import download_images as _download_images
 from src.integrations.assets import DownloadedImage
 from src.integrations.assets import MARKDOWN_IMAGE_RE, split_image_target
@@ -36,7 +36,7 @@ from src.graph.state import Asset
 
 LONG_REVIEW_THRESHOLD = 18000
 REVIEW_CHUNK_SIZE = 4800
-REVIEW_CHUNK_PROTOCOL_VERSION = "2"
+REVIEW_CHUNK_PROTOCOL_VERSION = "3"
 
 
 @tool
@@ -308,12 +308,20 @@ async def _review_long_article(
 
     chunk_protocol = (
         "\n\n# Long article chunk protocol\n\n"
-        "Review only the supplied part. Return exactly one JSON object with two string fields: "
-        "`content` (the complete reviewed Markdown for this part) and `summary` (a compact factual summary "
-        "used later to create the article-level summary), plus optional `metadata_candidates` for a missing "
-        "author or publication time only when this part contains a short exact evidence excerpt. "
-        "Do not add JSON fences or any text outside JSON. "
-        "Keep every local image Markdown reference exactly. Do not add H1 or H2 headings; use H3 or deeper."
+        "Review only the supplied part. Use the following delimiter protocol exactly:\n"
+        "<reviewed_content>\n"
+        "Complete reviewed Markdown for this part\n"
+        "</reviewed_content>\n"
+        "<summary>\n"
+        "A compact factual summary used later to create the article-level summary\n"
+        "</summary>\n"
+        "<metadata_candidates>\n"
+        '{"author": null, "published_at": null}\n'
+        "</metadata_candidates>\n"
+        "Do not JSON-escape the Markdown and do not add text outside these tags. "
+        "Keep every local image Markdown reference exactly. Do not add H1 or H2 headings; use H3 or deeper. "
+        "Metadata candidates are optional. Only replace a null with an object containing `value` and an exact "
+        "`evidence` excerpt when that captured field is missing and this part explicitly states it; never infer."
     )
     semaphore = asyncio.Semaphore(2)
 
@@ -329,19 +337,11 @@ async def _review_long_article(
                     system_prompt + chunk_protocol,
                     f"Article part {part_label} of {len(chunks)}:\n\n{chunk}",
                 )
-            data = parse_json_object(response.text)
-            raw_slots = data.get("slots")
-            slot_content = next(iter(raw_slots.values()), "") if isinstance(raw_slots, dict) else ""
-            content = sanitize_slot_markdown(str(
-                data.get("content") or data.get("body") or data.get("reviewed_content") or slot_content or ""
-            ))
+            content, summary, candidates = _parse_long_review_chunk_response(response.text)
             if not content:
                 raise ValueError(
-                    f"AI returned no content for long article part {part_label}; "
-                    f"fields: {', '.join(sorted(data))}"
+                    f"AI returned no content for long article part {part_label}"
                 )
-            summary = str(data.get("summary") or "").strip() or _fallback_chunk_summary(content)
-            candidates = parse_metadata_candidates(data)
             return content, summary, candidates, response
         except Exception as exc:
             if depth >= 2 or len(chunk) < 2200:
@@ -420,30 +420,105 @@ async def _review_long_article(
             "Based only on the part summaries, return exactly one JSON object with `title` and `slots`. "
             f"The `slots` object must contain these string fields: {fields}. Do not add JSON fences or prose outside JSON."
         )
-        response = await client.generate_text(
-            system_prompt + synthesis_protocol,
+        synthesis_input = (
             "Original title:\n"
             + original_title
             + "\n\nPart summaries:\n"
-            + "\n".join(f"{index}. {summary}" for index, summary in enumerate(chunk_summaries, start=1)),
+            + "\n".join(f"{index}. {summary}" for index, summary in enumerate(chunk_summaries, start=1))
         )
-        last_response = response
-        data = parse_json_object(response.text)
-        title = str(data.get("title") or original_title).strip()
-        raw_slots = data.get("slots")
-        if not isinstance(raw_slots, dict):
-            raise ValueError("AI long-article synthesis is missing the `slots` object")
-        for name in non_body_sections:
-            value = sanitize_slot_markdown(str(raw_slots.get(name) or ""))
-            if not value:
-                raise ValueError(f"AI long-article synthesis has an empty slot: {name}")
-            slots[name] = value
+        synthesis_error: Exception | None = None
+        for attempt in range(2):
+            retry_instruction = (
+                "\n\nThe previous response was invalid or incomplete. Return one complete JSON object only."
+                if attempt
+                else ""
+            )
+            try:
+                response = await client.generate_text(
+                    system_prompt + synthesis_protocol + retry_instruction,
+                    synthesis_input,
+                )
+                last_response = response
+                data = parse_json_object(response.text)
+                candidate_title = str(data.get("title") or original_title).strip()
+                raw_slots = data.get("slots")
+                if not isinstance(raw_slots, dict):
+                    raise ValueError("AI long-article synthesis is missing the `slots` object")
+                candidate_slots: dict[str, str] = {}
+                for name in non_body_sections:
+                    value = sanitize_slot_markdown(str(raw_slots.get(name) or ""))
+                    if not value:
+                        raise ValueError(f"AI long-article synthesis has an empty slot: {name}")
+                    candidate_slots[name] = value
+                title = candidate_title
+                slots.update(candidate_slots)
+                synthesis_error = None
+                break
+            except (ValueError, AIOutputTruncatedError) as exc:
+                synthesis_error = exc
+                await emit_event(
+                    "ai_review",
+                    "pipeline.events.aiReviewSynthesisRetry",
+                    f"attempt {attempt + 1} · {exc}",
+                )
+        if synthesis_error is not None:
+            raise synthesis_error
     else:
         title = original_title
 
     if last_response is None:
         raise ValueError("Long article contains no reviewable content")
     return ReviewPayload(title=title, slots=slots, metadata_candidates=metadata_candidates), last_response
+
+
+def _parse_long_review_chunk_response(response_text: str):
+    """Parse delimiter-based chunk output, accepting legacy JSON cache-era output."""
+    from src.core.review.output_contract import (
+        parse_json_object,
+        parse_metadata_candidates,
+        sanitize_slot_markdown,
+    )
+
+    content_match = re.search(
+        r"<reviewed_content>\s*(.*?)\s*</reviewed_content>",
+        response_text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if content_match:
+        content = sanitize_slot_markdown(content_match.group(1))
+        summary_match = re.search(
+            r"<summary>\s*(.*?)\s*</summary>",
+            response_text,
+            re.DOTALL | re.IGNORECASE,
+        )
+        summary = (
+            summary_match.group(1).strip()
+            if summary_match
+            else _fallback_chunk_summary(content)
+        )
+        metadata_match = re.search(
+            r"<metadata_candidates>\s*(.*?)\s*</metadata_candidates>",
+            response_text,
+            re.DOTALL | re.IGNORECASE,
+        )
+        candidates = {}
+        if metadata_match:
+            try:
+                candidates = parse_metadata_candidates(
+                    {"metadata_candidates": json.loads(metadata_match.group(1))}
+                )
+            except (json.JSONDecodeError, TypeError):
+                candidates = {}
+        return content, summary or _fallback_chunk_summary(content), candidates
+
+    data = parse_json_object(response_text)
+    raw_slots = data.get("slots")
+    slot_content = next(iter(raw_slots.values()), "") if isinstance(raw_slots, dict) else ""
+    content = sanitize_slot_markdown(str(
+        data.get("content") or data.get("body") or data.get("reviewed_content") or slot_content or ""
+    ))
+    summary = str(data.get("summary") or "").strip() or _fallback_chunk_summary(content)
+    return content, summary, parse_metadata_candidates(data)
 
 
 def _article_body(markdown: str) -> str:

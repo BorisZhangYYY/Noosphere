@@ -54,6 +54,12 @@ RUN set -e; \
 USER noosphere
 RUN playwright install chromium
 
+# Keep every direct-image entry point on the writable runtime volume, not the
+# read-only application directory. Docker Compose already supplies these
+# values, while standalone `docker run` calls need safe defaults as well.
+ENV NOOSPHERE_HOME=/data \
+    NOOSPHERE_CONFIG=/data/config.json
+
 WORKDIR /app
 
 # The entrypoint starts the MCP server by default.

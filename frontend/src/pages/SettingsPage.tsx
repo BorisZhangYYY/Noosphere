@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "re
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import { InlineSelect, type InlineSelectOption } from "../components/InlineSelect";
+import { PipelineSettingsPanel } from "../components/PipelineSettingsPanel";
 import { SettingsSectionNav } from "../components/SettingsSectionNav";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import type { AIApiFormat, AIProviderSettings, AIProviderType, SettingsUpdate } from "../types";
@@ -395,6 +396,8 @@ export function SettingsPage() {
       </header>
       <div className="settings-content-layout">
       <SettingsSectionNav />
+      <div className="settings-stack">
+        <PipelineSettingsPanel />
       <form className="settings-form" onSubmit={submit}>
         <section className="settings-group provider-settings-group" id="settings-ai">
           <div className="group-heading group-heading-action">
@@ -709,6 +712,7 @@ export function SettingsPage() {
         {saveMutation.isSuccess && <p className="save-message success-message" role="status"><CheckCircle size={18} />{t("settings.saved")}</p>}
         {saveMutation.isError && <p className="save-message error-message" role="alert"><WarningCircle size={18} />{(saveMutation.error as Error).message}</p>}
       </form>
+      </div>
       </div>
     </div>
   );

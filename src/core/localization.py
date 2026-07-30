@@ -22,6 +22,7 @@ def detect_text_language(text: str) -> str:
 
 
 def resolve_output_language(requested: str | None, text: str = "") -> str:
-    if (requested or "").strip().casefold() == "source":
+    mode = (requested or "").strip().casefold().replace("-", "_")
+    if mode in {"source", "follow_ui"}:
         return detect_text_language(text)
     return normalize_language(requested)

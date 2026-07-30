@@ -4,7 +4,7 @@ CLI command definitions and entry points. Currently supported:
 - upload: Upload a Markdown file to Siyuan.
 - ai-review: AI-assisted content review and deterministic Markdown assembly.
 - run: Pipeline of extract -> ai-review -> upload.
-- articles/taxonomy/images: Manage the shared knowledge workspace.
+- articles/collections/images: Manage the shared knowledge workspace.
 - perspectives/config/jobs: Manage review contracts, runtime settings, and jobs.
 - email: Send Markdown-styled emails via SMTP.
 - mcp: Start an MCP server for AI clients.
@@ -117,13 +117,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     articles_parser = subparsers.add_parser("articles", help="Inspect and edit article workspaces.")
     articles_subparsers = articles_parser.add_subparsers(dest="articles_command", required=True)
-    articles_list = articles_subparsers.add_parser("list", help="List articles with search and taxonomy filters.")
+    articles_list = articles_subparsers.add_parser("list", help="List articles with search and collection filters.")
     articles_list.add_argument("--query", default="")
     articles_list.add_argument("--status", choices=["captured", "reviewed", "uploaded", "failed"], default="")
-    articles_list.add_argument("--tag-id", default="")
+    articles_list.add_argument("--collection-id", default="")
     articles_list.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
     articles_list.add_argument("--json", action="store_true")
-    articles_show = articles_subparsers.add_parser("show", help="Show article metadata, classification, and content.")
+    articles_show = articles_subparsers.add_parser("show", help="Show article metadata, collection path, and content.")
     articles_show.add_argument("article_id")
     articles_show.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
     articles_show.add_argument("--no-content", action="store_true")
@@ -138,47 +138,50 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     articles_metadata.add_argument("--published-at")
     articles_metadata.add_argument("--json", action="store_true")
 
-    taxonomy_parser = subparsers.add_parser("taxonomy", help="Inspect taxonomy and move articles by stable IDs.")
-    taxonomy_subparsers = taxonomy_parser.add_subparsers(dest="taxonomy_command", required=True)
-    taxonomy_list = taxonomy_subparsers.add_parser("list", help="List the canonical two-level taxonomy.")
-    taxonomy_list.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
-    taxonomy_list.add_argument("--include-retired", action="store_true")
-    taxonomy_list.add_argument("--json", action="store_true")
-    taxonomy_create = taxonomy_subparsers.add_parser("create", help="Create a top-level category or one child category.")
-    taxonomy_create.add_argument("--name", required=True)
-    taxonomy_create.add_argument("--description", default="")
-    taxonomy_create.add_argument("--parent-id", default="")
-    taxonomy_create.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
-    taxonomy_create.add_argument("--json", action="store_true")
-    taxonomy_update = taxonomy_subparsers.add_parser("update", help="Rename or describe a category; legacy retire/restore flags remain supported.")
-    taxonomy_update.add_argument("tag_id")
-    taxonomy_update.add_argument("--name")
-    taxonomy_update.add_argument("--description")
-    retirement = taxonomy_update.add_mutually_exclusive_group()
+    collections_parser = subparsers.add_parser("collections", help="Manage the hierarchical collection tree.")
+    collections_subparsers = collections_parser.add_subparsers(dest="collections_command", required=True)
+    collections_list = collections_subparsers.add_parser("list", help="List the arbitrary-depth collection tree.")
+    collections_list.add_argument("--include-deleted", action="store_true")
+    collections_list.add_argument("--json", action="store_true")
+    collections_create = collections_subparsers.add_parser("create", help="Create a root collection or a child at any depth.")
+    collections_create.add_argument("--name", required=True)
+    collections_create.add_argument("--description", default="")
+    collections_create.add_argument("--parent-id", default="")
+    collections_create.add_argument("--json", action="store_true")
+    collections_update = collections_subparsers.add_parser("update", help="Rename or describe a collection.")
+    collections_update.add_argument("collection_id")
+    collections_update.add_argument("--name")
+    collections_update.add_argument("--description")
+    retirement = collections_update.add_mutually_exclusive_group()
     retirement.add_argument("--retire", action="store_true")
     retirement.add_argument("--restore", action="store_true")
-    taxonomy_update.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
-    taxonomy_update.add_argument("--json", action="store_true")
-    taxonomy_delete = taxonomy_subparsers.add_parser("delete", help="Recoverably delete a category and hide it from classification.")
-    taxonomy_delete.add_argument("tag_id")
-    taxonomy_delete.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
-    taxonomy_delete.add_argument("--json", action="store_true")
-    taxonomy_restore = taxonomy_subparsers.add_parser("restore", help="Restore a recoverably deleted category.")
-    taxonomy_restore.add_argument("tag_id")
-    taxonomy_restore.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
-    taxonomy_restore.add_argument("--json", action="store_true")
-    taxonomy_assign = taxonomy_subparsers.add_parser("assign", aliases=["move"], help="Assign an article to a tag path.")
-    taxonomy_assign.add_argument("article_id")
-    taxonomy_assign.add_argument("--tag-id")
-    taxonomy_assign.add_argument("--subtag-id")
-    taxonomy_assign.add_argument("--tag-name", default="")
-    taxonomy_assign.add_argument("--subtag-name", default="")
-    taxonomy_assign.add_argument("--tag-description", default="")
-    taxonomy_assign.add_argument("--subtag-description", default="")
-    taxonomy_assign.add_argument("--tag-localizations", default="", help="JSON object containing zh-CN/en-US names, descriptions, and aliases.")
-    taxonomy_assign.add_argument("--subtag-localizations", default="", help="JSON object containing zh-CN/en-US names, descriptions, and aliases.")
-    taxonomy_assign.add_argument("--locale", choices=["zh-CN", "en-US"], default="en-US")
-    taxonomy_assign.add_argument("--json", action="store_true")
+    collections_update.add_argument("--json", action="store_true")
+    collections_delete = collections_subparsers.add_parser("delete", help="Recoverably delete a collection subtree.")
+    collections_delete.add_argument("collection_id")
+    collections_delete.add_argument("--json", action="store_true")
+    collections_restore = collections_subparsers.add_parser("restore", help="Restore a recoverably deleted collection subtree.")
+    collections_restore.add_argument("collection_id")
+    collections_restore.add_argument("--json", action="store_true")
+    collections_place = collections_subparsers.add_parser("place", aliases=["move"], help="Place an article in a collection or at the root.")
+    collections_place.add_argument("article_id")
+    collection_target = collections_place.add_mutually_exclusive_group()
+    collection_target.add_argument("--collection-id", default="", help="Stable ID of an existing Collection.")
+    collection_target.add_argument(
+        "--collection-path",
+        default="",
+        help='Explicit slash-delimited path, for example "AI / Evaluation".',
+    )
+    collections_place.add_argument(
+        "--create-missing",
+        action="store_true",
+        help="Create the final path segment when its parent already exists.",
+    )
+    collections_place.add_argument(
+        "--description",
+        default="",
+        help="Required description for a Collection created by --create-missing.",
+    )
+    collections_place.add_argument("--json", action="store_true")
 
     images_parser = subparsers.add_parser("images", help="Inspect, remove, and restore article images.")
     images_subparsers = images_parser.add_subparsers(dest="images_command", required=True)
@@ -459,7 +462,7 @@ async def _main_async(args: argparse.Namespace) -> int:
                         locale=args.locale,
                         query=args.query,
                         status=args.status,
-                        tag_id=args.tag_id,
+                        collection_id=args.collection_id,
                     )
                 }
             elif args.articles_command == "show":
@@ -480,74 +483,69 @@ async def _main_async(args: argparse.Namespace) -> int:
             console.print(f"[red]Error: {exc}[/red]")
             return 1
 
-    if args.command == "taxonomy":
+    if args.command == "collections":
         from src.application.service import (
-            classify_article,
-            create_taxonomy_category,
-            list_taxonomy,
-            update_taxonomy_category,
+            create_collection,
+            list_collections,
+            place_article,
+            update_collection,
         )
 
         try:
-            if args.taxonomy_command == "list":
+            if args.collections_command == "list":
                 payload = {
-                    "tags": list_taxonomy(
-                        locale=args.locale,
-                        include_retired=args.include_retired,
+                    "collections": list_collections(
+                        include_deleted=args.include_deleted,
                     )
                 }
-            elif args.taxonomy_command == "create":
+            elif args.collections_command == "create":
                 payload = {
-                    "category": create_taxonomy_category(
+                    "collection": create_collection(
                         name=args.name,
                         description=args.description,
                         parent_id=args.parent_id or None,
-                        locale=args.locale,
                     )
                 }
-            elif args.taxonomy_command == "update":
+            elif args.collections_command == "update":
                 if args.name is None and args.description is None and not args.retire and not args.restore:
                     raise ValueError("Provide a name, description, --retire, or --restore")
                 payload = {
-                    "category": update_taxonomy_category(
-                        args.tag_id,
+                    "collection": update_collection(
+                        args.collection_id,
                         name=args.name,
                         description=args.description,
                         retired=True if args.retire else False if args.restore else None,
-                        locale=args.locale,
                     )
                 }
-            elif args.taxonomy_command in {"delete", "restore"}:
-                deleted = args.taxonomy_command == "delete"
+            elif args.collections_command in {"delete", "restore"}:
+                deleted = args.collections_command == "delete"
                 payload = {
                     "deleted": deleted,
                     "recoverable": True,
-                    "category": update_taxonomy_category(
-                        args.tag_id,
+                    "collection": update_collection(
+                        args.collection_id,
                         retired=deleted,
-                        locale=args.locale,
                     ),
                 }
             else:
-                if not args.tag_id:
-                    raise ValueError("Provide --tag-id for a configured category")
+                collection_path = None
+                if args.collection_path:
+                    collection_path = [
+                        segment.strip()
+                        for segment in args.collection_path.split("/")
+                    ]
                 payload = {
-                    "classification": classify_article(
+                    "collection": place_article(
                         args.article_id,
-                        tag_id=args.tag_id,
-                        subtag_id=args.subtag_id,
-                        tag_name=args.tag_name,
-                        subtag_name=args.subtag_name,
-                        tag_description=args.tag_description,
-                        subtag_description=args.subtag_description,
-                        tag_localizations=json.loads(args.tag_localizations) if args.tag_localizations else None,
-                        subtag_localizations=json.loads(args.subtag_localizations) if args.subtag_localizations else None,
-                        locale=args.locale,
+                        collection_id=args.collection_id or None,
+                        collection_path=collection_path,
+                        create_missing=args.create_missing,
+                        collection_description=args.description,
                     )
                 }
             _emit_payload(payload, as_json=args.json)
             return 0
-        except (ValueError, json.JSONDecodeError) as exc:
+        except ValueError as exc:
             console.print(f"[red]Error: {exc}[/red]")
             return 1
 

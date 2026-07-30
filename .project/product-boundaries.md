@@ -2,15 +2,17 @@
 
 ## Role
 
-Noosphere is an article-processing and knowledge-organization service exposed through MCP, CLI, and a focused web workspace. It owns capture, asset handling, AI review, validation, article classification, operational history, and delivery through configured adapters.
+Noosphere is an article-processing and knowledge-organization service exposed through MCP, CLI, and a focused web workspace. It owns capture, asset handling, AI review, validation, article placement, operational history, and delivery through configured adapters.
 
 The web workspace is an operational surface for those capabilities. It is not the start of a general-purpose note-taking application.
 
 ## Knowledge Organization
 
-- A processing profile is a product-owned classification policy, not a personal dossier.
-- Profiles may contain stable organization preferences such as preferred domains, category definitions, label facets, and confidence rules.
-- Noosphere may emit structured category, label, and metadata results for downstream tools.
+- Collection index nodes organize captured articles; they are not general editable note documents.
+- Collections are user-owned, arbitrarily nested, and identified by stable IDs.
+- Automatic AI placement may choose only an existing active Collection and must keep uncertain articles at the root.
+- An agent acting on an explicit user-named path may create only its missing final Collection when the caller separately authorizes creation and supplies its description; missing parent paths remain an error.
+- Noosphere may emit structured Collection, label-facet, and metadata results for downstream tools.
 - Noosphere must remain usable without any particular downstream knowledge-management project.
 
 ## Out of Scope

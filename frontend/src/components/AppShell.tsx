@@ -1,19 +1,19 @@
 import {
-  ArrowLeft,
-  BookOpenText,
+  Bird,
+  ChatCircleText,
   Gear,
+  Globe,
   House,
   Moon,
-  MagicWand,
-  Path,
+  Newspaper,
   Plus,
+  Question,
   SidebarSimple,
   Sun,
   Translate,
-  UploadSimple,
   X
 } from "@phosphor-icons/react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -22,22 +22,26 @@ import { Atmosphere } from "./Atmosphere";
 import { useTheme } from "../theme";
 import { InlineSelect } from "./InlineSelect";
 import { KnowledgeSidebar } from "./KnowledgeSidebar";
-import type { OutputLanguage, ReviewMode } from "../types";
+import type { CaptureJob, OutputLanguage, ReviewMode } from "../types";
 
 const navItems = [
-  { to: "/", labelKey: "nav.overview", icon: House },
-  { to: "/library", labelKey: "nav.library", icon: BookOpenText },
-  { to: "/pipeline", labelKey: "nav.pipeline", icon: Path },
-  { to: "/sources", labelKey: "nav.sources", icon: UploadSimple },
-  { to: "/review-studio", labelKey: "nav.reviewStudio", icon: MagicWand },
-  { to: "/settings", labelKey: "nav.settings", icon: Gear }
+  { to: "/", labelKey: "nav.workspace", icon: House }
+];
+
+const helpSources = [
+  { nameKey: "sources.wechat", host: "mp.weixin.qq.com", icon: ChatCircleText },
+  { nameKey: "sources.zhihu", host: "zhuanlan.zhihu.com", icon: Newspaper },
+  { nameKey: "sources.xiaoheihe", host: "xiaoheihe.cn", icon: Globe },
+  { nameKey: "X", host: "x.com", icon: Bird }
 ];
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [captureUrl, setCaptureUrl] = useState("");
   const { t, i18n } = useTranslation();
+  const queryClient = useQueryClient();
   const pipelineSettings = useQuery({ queryKey: ["pipeline-settings", i18n.resolvedLanguage], queryFn: api.getPipelineSettings });
   const [reviewMode, setReviewMode] = useState<ReviewMode>("ai_then_manual");
   const [perspective, setPerspective] = useState("original");
@@ -45,13 +49,19 @@ export function AppShell() {
   const { resolvedTheme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  const libraryMode = location.pathname === "/library" || location.pathname.startsWith("/articles/");
+  const knowledgeMode = location.pathname === "/library"
+    || location.pathname.startsWith("/articles/")
+    || location.pathname.startsWith("/collections/");
   const captureMutation = useMutation({
     mutationFn: api.createCapture,
-    onSuccess: () => {
+    onSuccess: async (job) => {
+      queryClient.setQueryData<{ jobs: CaptureJob[] }>(["capture-jobs"], (current) => ({
+        jobs: [job, ...(current?.jobs ?? []).filter((item) => item.id !== job.id)]
+      }));
       setCaptureOpen(false);
       setCaptureUrl("");
-      navigate("/pipeline");
+      navigate("/");
+      await queryClient.invalidateQueries({ queryKey: ["capture-jobs"] });
     }
   });
 
@@ -63,12 +73,12 @@ export function AppShell() {
   }, [pipelineSettings.data]);
 
   return (
-    <div className={`app-root${libraryMode ? " library-mode-active" : ""}`}>
+    <div className={`app-root${knowledgeMode ? " library-mode-active" : ""}`}>
       <Atmosphere />
       <button className="mobile-menu" aria-label={t("nav.open")} onClick={() => setMobileOpen(true)}>
         <SidebarSimple size={21} />
       </button>
-      <aside className={`sidebar${libraryMode ? " library-sidebar-mode" : ""}${mobileOpen ? " sidebar-open" : ""}`}>
+      <aside className={`sidebar${mobileOpen ? " sidebar-open" : ""}`}>
         <div className="brand-row">
           <NavLink to="/" className="brand" onClick={() => setMobileOpen(false)}>
             <img className="brand-mark" src="/app/noosphere-mark.svg" alt="" />
@@ -84,8 +94,9 @@ export function AppShell() {
             <NavLink
               key={to}
               to={to}
+              end
               onClick={() => setMobileOpen(false)}
-              className={({ isActive }) => `nav-item nav-item-${to === "/" ? "overview" : to.slice(1)} ${(isActive || (to === "/library" && libraryMode)) ? "nav-item-active" : ""}`}
+              className={({ isActive }) => `nav-item nav-item-workspace ${isActive ? "nav-item-active" : ""}`}
             >
               <Icon size={20} weight="regular" />
               <span>{t(labelKey)}</span>
@@ -93,32 +104,55 @@ export function AppShell() {
           ))}
         </nav>
 
-        <KnowledgeSidebar active={libraryMode} />
+        <KnowledgeSidebar onCapture={() => setCaptureOpen(true)} />
 
-        <div className="sidebar-footer sidebar-footer-default">
+        <div className="sidebar-footer">
+          <NavLink className={({ isActive }) => `sidebar-utility-button${isActive ? " active" : ""}`} to="/settings" aria-label={t("nav.settings")} title={t("nav.settings")} onClick={() => setMobileOpen(false)}>
+            <Gear size={18} />
+          </NavLink>
+          <button className={`sidebar-utility-button${helpOpen ? " active" : ""}`} onClick={() => setHelpOpen((open) => !open)} aria-label={t("help.title")} title={t("help.title")}>
+            <Question size={18} />
+          </button>
           <button className="theme-button" onClick={toggleTheme} aria-label={t("controls.toggleTheme")}>
             {resolvedTheme === "dark" ? <Sun size={19} /> : <Moon size={19} />}
-            <span>{resolvedTheme === "dark" ? t("controls.lightMode") : t("controls.darkMode")}</span>
           </button>
           <button className="language-button" onClick={() => void i18n.changeLanguage(i18n.resolvedLanguage === "zh" ? "en" : "zh")} aria-label={t("controls.switchLanguage")}>
             <Translate size={19} />
-            <span>{t("controls.language")}</span>
-          </button>
-          <button className="capture-button" onClick={() => setCaptureOpen(true)}>
-            <Plus size={18} weight="bold" />
-            <span>{t("capture.button")}</span>
-          </button>
-        </div>
-        <div className="sidebar-footer sidebar-footer-library">
-          <button className="library-return-button" type="button" onClick={() => navigate("/")}>
-            <ArrowLeft size={18} />
-            <span>{t("knowledge.returnToMain")}</span>
+            <span>{i18n.resolvedLanguage === "zh" ? "EN" : "中"}</span>
           </button>
         </div>
       </aside>
 
       {mobileOpen && <button className="sidebar-scrim" aria-label={t("nav.close")} onClick={() => setMobileOpen(false)} />}
-      <main className={`content-shell${libraryMode ? " library-content-shell" : ""}`}><Outlet /></main>
+      <main className="content-shell"><Outlet /></main>
+
+      {helpOpen && (
+        <div className="dialog-layer help-dialog-layer" role="presentation" onMouseDown={() => setHelpOpen(false)}>
+          <section className="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header>
+              <div><p>{t("help.eyebrow")}</p><h2 id="help-dialog-title">{t("help.title")}</h2></div>
+              <button type="button" onClick={() => setHelpOpen(false)} aria-label={t("nav.close")}><X size={18} /></button>
+            </header>
+            <p className="help-dialog-description">{t("help.description")}</p>
+            <div className="help-steps">
+              <div><span>01</span><p>{t("help.capture")}</p></div>
+              <div><span>02</span><p>{t("help.organize")}</p></div>
+              <div><span>03</span><p>{t("help.review")}</p></div>
+            </div>
+            <section className="help-sources">
+              <div><h3>{t("sources.platformTitle")}</h3><small>{t("sources.platformCount", { count: helpSources.length })}</small></div>
+              <div className="help-source-list">
+                {helpSources.map(({ nameKey, host, icon: Icon }) => (
+                  <article key={host}>
+                    <Icon size={19} />
+                    <span><strong>{nameKey === "X" ? "X" : t(nameKey)}</strong><small>{host}</small></span>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </section>
+        </div>
+      )}
 
       {captureOpen && (
         <div className="dialog-layer" role="presentation" onMouseDown={() => setCaptureOpen(false)}>

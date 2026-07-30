@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "noosphere"
-version = "0.3.2"
+version = "0.3.2.1"
 description = "Article extraction, AI review, and note-import tool"
 readme = "README.md"
 license = {text = "MIT"}
@@ -19,7 +19,7 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.0.0",
     "langgraph-checkpoint-sqlite>=3.0.0",
     "markdown>=3.4",
-    "mcp>=1.0.0",
+    "mcp>=1.0.0,<2.0.0",
     "psycopg[binary]>=3.1.0",
     "psycopg-pool>=3.1.0",
     "pydantic>=2.0",
