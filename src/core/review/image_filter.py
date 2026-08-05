@@ -400,12 +400,21 @@ def _restore_images_to_original_positions(
 ) -> str:
     """Restore missing images to positions in reviewed_md that match their raw_md context."""
     result = reviewed_md
+    last_anchor_pos: int | None = None
+    last_insert_end: int | None = None
 
     for img in sorted(missing_images):
         insert_pos = _find_image_insertion_point(result, raw_md, img)
         if insert_pos is not None:
+            if last_anchor_pos is not None and insert_pos == last_anchor_pos and last_insert_end is not None:
+                # Multiple images anchored to the same context: append after the
+                # previously inserted image so their original order is preserved.
+                insert_pos = last_insert_end
+            else:
+                last_anchor_pos = insert_pos
             image_line = f"\n\n![{Path(img).stem.replace('_', ' ').replace('-', ' ')}]({img})\n"
             result = result[:insert_pos] + image_line + result[insert_pos:]
+            last_insert_end = insert_pos + len(image_line)
 
     present = {
         split_image_target(match.group(2))[0].lstrip("./")
@@ -418,15 +427,70 @@ def _restore_images_to_original_positions(
     return result
 
 
+def _fenced_code_regions(markdown: str) -> list[tuple[int, int]]:
+    """Return (start, end) character ranges of fenced code blocks.
+
+    An unclosed opening fence extends its region to the end of the document,
+    matching how Markdown renderers treat it.
+    """
+    regions: list[tuple[int, int]] = []
+    in_fence = False
+    fence = ""
+    start = 0
+    offset = 0
+    for line in markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        match = re.match(r"^\s{0,3}(```|~~~)", line)
+        if match:
+            if not in_fence:
+                in_fence, fence, start = True, match.group(1), offset
+            elif line.strip().startswith(fence):
+                regions.append((start, offset + len(line)))
+                in_fence, fence = False, ""
+        offset += len(line) + 1
+    if in_fence:
+        regions.append((start, offset))
+    return regions
+
+
+def _fenced_line_indices(lines: list[str], regions: list[tuple[int, int]]) -> set[int]:
+    """Return indices of lines that fall inside fenced code regions."""
+    fenced: set[int] = set()
+    offset = 0
+    for index, line in enumerate(lines):
+        if any(start <= offset <= end for start, end in regions):
+            fenced.add(index)
+        offset += len(line) + 1
+    return fenced
+
+
 def _find_image_insertion_point(reviewed_md: str, raw_md: str, image_path: str) -> int | None:
     """Anchor an image after nearby surviving prose, or before following prose."""
-    lines = raw_md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    normalized_raw = raw_md.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized_raw.split("\n")
     image_index = next(
         (index for index, line in enumerate(lines) if image_path in line or Path(image_path).name in line),
         None,
     )
     if image_index is None:
         return None
+
+    # Anchors and insertion points inside fenced code blocks render as literal
+    # text, so they must never be used to position restored images.
+    fenced_lines = _fenced_line_indices(lines, _fenced_code_regions(normalized_raw))
+    reviewed_regions = _fenced_code_regions(reviewed_md)
+
+    def _locate(context: str | None, *, after: bool = True) -> int | None:
+        if not context:
+            return None
+        return _find_context_in_reviewed(reviewed_md, context, after=after, exclude_regions=reviewed_regions)
+
+    # Prefer prose that precedes the image on its own raw line; it is the
+    # closest possible context for images embedded inside a paragraph.
+    if image_index not in fenced_lines:
+        for candidate in _anchor_tail_candidates(_usable_inline_image_anchor(lines[image_index], image_path)):
+            position = _locate(candidate)
+            if position is not None:
+                return position
 
     preceding_rule = next(
         (
@@ -446,20 +510,45 @@ def _find_image_insertion_point(reviewed_md: str, raw_md: str, image_path: str) 
 
     for distance in range(1, 41):
         previous = image_index - distance
-        if previous >= 0:
-            context = _usable_image_anchor(lines[previous])
-            if context:
-                position = _find_context_in_reviewed(reviewed_md, context)
-                if position is not None:
-                    return position
+        if previous >= 0 and previous not in fenced_lines:
+            position = _locate(_usable_image_anchor(lines[previous]))
+            if position is not None:
+                return position
         following = image_index + distance
-        if following < len(lines):
-            context = _usable_image_anchor(lines[following])
-            if context:
-                position = _find_context_in_reviewed(reviewed_md, context, after=False)
-                if position is not None:
-                    return position
+        if following < len(lines) and following not in fenced_lines:
+            position = _locate(_usable_image_anchor(lines[following]), after=False)
+            if position is not None:
+                return position
     return None
+
+
+def _usable_inline_image_anchor(line: str, image_path: str) -> str | None:
+    """Use prose that precedes the image on its own raw line as an anchor."""
+    name = Path(image_path).name
+    for match in MARKDOWN_IMAGE_RE.finditer(line):
+        if image_path not in match.group(0) and name not in match.group(0):
+            continue
+        prefix = MARKDOWN_IMAGE_RE.sub("", line[: match.start()])
+        return _usable_image_anchor(prefix)
+    return None
+
+
+def _anchor_tail_candidates(anchor: str | None) -> list[str]:
+    """Return an anchor plus progressively shorter tails of it.
+
+    Reviewers often insert line breaks mid-paragraph, so a long anchor may not
+    match verbatim; the sentences closest to the image are the most likely to
+    survive review intact.
+    """
+    if not anchor:
+        return []
+    candidates = [anchor]
+    for size in (80, 40):
+        if len(anchor) > size:
+            tail = anchor[-size:].lstrip("，。、；：,.;:!? \t")
+            if len(tail) >= 18:
+                candidates.append(tail)
+    return candidates
 
 
 def _usable_image_anchor(line: str) -> str | None:
@@ -490,21 +579,42 @@ def _find_image_context_in_raw(raw_md: str, image_path: str) -> str | None:
     return None
 
 
-def _find_context_in_reviewed(reviewed_md: str, context_text: str, *, after: bool = True) -> int | None:
-    """Find the position of the context text in reviewed markdown."""
+def _find_context_in_reviewed(
+    reviewed_md: str,
+    context_text: str,
+    *,
+    after: bool = True,
+    exclude_regions: list[tuple[int, int]] | None = None,
+) -> int | None:
+    """Find the position of the context text in reviewed markdown.
+
+    Occurrences whose resulting position falls inside an excluded region
+    (e.g. a fenced code block) are skipped in favor of later matches.
+    """
     if not context_text:
         return None
+
+    def _find_usable(value: str) -> int | None:
+        start = 0
+        while True:
+            pos = reviewed_md.find(value, start)
+            if pos == -1:
+                return None
+            candidate = pos + len(value) if after else pos
+            if not exclude_regions or not any(start <= candidate <= end for start, end in exclude_regions):
+                return candidate
+            start = pos + 1
+
     # Try exact match first
     variants = [context_text, context_text.replace("\u00a0", " "), re.sub(r"\s+", " ", context_text)]
-    pos = next((reviewed_md.find(value) for value in variants if reviewed_md.find(value) != -1), -1)
-    if pos != -1:
-        return pos + len(context_text) if after else pos
+    for value in variants:
+        position = _find_usable(value)
+        if position is not None:
+            return position
     # Try a shorter substring (first 50 chars) for fuzzy matching
     short = context_text[:50]
     if len(short) > 10:
-        pos = reviewed_md.find(short)
-        if pos != -1:
-            return pos + len(short) if after else pos
+        return _find_usable(short)
     return None
 
 
