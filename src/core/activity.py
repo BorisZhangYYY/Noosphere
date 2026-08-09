@@ -101,7 +101,7 @@ class ArticleActivityStore:
                 f"SELECT id, event_type, created_at, details_json FROM noosphere_article_events WHERE article_id = {marker} ORDER BY created_at DESC",
                 (article_id,),
             ).fetchall()]
-        counts = {"capture": 0, "review": 0, "upload": 0}
+        counts = {"capture": 0, "review": 0, "upload": 0, "reflect": 0}
         events: list[dict[str, Any]] = []
         for row in rows:
             event_type = str(row["event_type"])
@@ -118,6 +118,7 @@ class ArticleActivityStore:
             "reviewCount": counts["review"],
             "rereviewCount": max(0, counts["review"] - 1),
             "uploadCount": counts["upload"],
+            "reflectCount": counts["reflect"],
             "events": events,
         }
 

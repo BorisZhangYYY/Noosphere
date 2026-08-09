@@ -49,6 +49,7 @@
     "image_provider": null,
     "max_attempts": 2,
     "rewrite_prompt_path": "prompts/edit_article.md",
+    "reflection_prompt_path": "prompts/reflect_article.md",
     "platform_prompts": {
       "x": {
         "rewrite_prompt_path": "prompts/rewrite_social_post.md"

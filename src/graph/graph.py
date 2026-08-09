@@ -17,7 +17,8 @@ from src.core.review.image_filter import (
     remove_promotion_images_from_markdown,
     update_manifest_with_image_filter,
 )
-from src.core.review.review_report import inferred_manifest_path
+from src.core.reflection import read_reflection
+from src.core.review.review_report import inferred_manifest_path, read_review_ai_settings
 from src.core.review.review_validation import ValidationResult
 from src.graph.state import ArticleState
 from src.graph.tools import (
@@ -26,6 +27,7 @@ from src.graph.tools import (
     download_images,
     edit_article,
     filter_images,
+    polish_reflection,
     upload_article,
 )
 
@@ -491,6 +493,39 @@ def build_ai_review_graph() -> StateGraph:
     return builder
 
 
+async def _reflect_node(state: ArticleState) -> dict[str, object]:
+    """Polish a reflection without applying it to the workspace."""
+    from src.core.localization import detect_text_language
+
+    reflection = state.get("reflection_markdown", "")
+    reviewed = state.get("reviewed_markdown", "")
+    language_source = reflection if any(character.isalpha() for character in reflection) else reviewed
+    result = await polish_reflection.ainvoke(
+        {
+            "reviewed_markdown": reviewed,
+            "reflection_markdown": reflection,
+            "language": detect_text_language(language_source),
+            "provider": state.get("reflect_provider", ""),
+            "model": state.get("reflect_model", ""),
+        }
+    )
+    return {
+        "polished_reflection": result["markdown"],
+        "reflect_model": result.get("model", ""),
+        "reflect_provider": result.get("provider", ""),
+        "status": "reflected",
+    }
+
+
+def build_reflection_graph() -> StateGraph:
+    """Return the manually triggered reflection-polish graph."""
+    builder = StateGraph(ArticleState)
+    builder.add_node("reflect", _reflect_node)
+    builder.add_edge(START, "reflect")
+    builder.add_edge("reflect", END)
+    return builder
+
+
 def build_upload_graph() -> StateGraph:
     """Return the upload-only graph: upload → export_upload."""
     builder = StateGraph(ArticleState)
@@ -602,6 +637,10 @@ def _default_initial_state() -> ArticleState:
         "review_provider": "",
         "review_perspective": "",
         "metadata_enrichment_outcomes": [],
+        "reflection_markdown": "",
+        "polished_reflection": "",
+        "reflect_model": "",
+        "reflect_provider": "",
         "upload_target": None,
         "removed_files": [],
         "upload_result": None,
@@ -697,7 +736,74 @@ async def run_ai_review_graph(
     return ValidationResult(reviewed_path, [])
 
 
-async def run_upload_graph(reviewed_path: Path, target: str | None = None) -> UploadResult:
+async def run_reflection_graph(
+    reviewed_path: Path,
+    *,
+    reflection: str | None = None,
+) -> dict[str, str]:
+    """Polish a reflection and return preview Markdown plus model provenance."""
+    import hashlib
+    import logging
+
+    reviewed_path = Path(reviewed_path)
+    if not reviewed_path.is_file():
+        raise ValueError(f"Reviewed Markdown not found: {reviewed_path}")
+    article_dir = reviewed_path.parent
+    reflection_markdown = reflection if reflection is not None else read_reflection(article_dir)
+    if not reflection_markdown.strip():
+        raise ValueError("Reflection is empty; write a reflection before polishing")
+    reviewed_markdown = reviewed_path.read_text(encoding="utf-8")
+    ai_settings = read_review_ai_settings(reviewed_path) or ("", "")
+
+    initial_state = _default_initial_state()
+    initial_state.update(
+        {
+            "article_id": article_dir.name,
+            "reviewed_path": str(reviewed_path),
+            "reviewed_markdown": reviewed_markdown,
+            "reflection_markdown": reflection_markdown,
+            "reflect_provider": ai_settings[0],
+            "reflect_model": ai_settings[1],
+        }
+    )
+    digest = hashlib.sha256(
+        (reviewed_markdown + "\0" + reflection_markdown).encode("utf-8")
+    ).hexdigest()[:12]
+    checkpointer, close_cb = await _get_checkpointer()
+    try:
+        graph = build_reflection_graph().compile(checkpointer=checkpointer)
+        final_state = await graph.ainvoke(
+            initial_state,
+            config={"configurable": {"thread_id": f"reflect:{reviewed_path}:{digest}"}},
+        )
+    finally:
+        await close_cb()
+    if final_state.get("status") != "reflected":
+        raise RuntimeError(str(final_state.get("error") or "Reflection graph did not complete"))
+    try:
+        from src.core.activity import ArticleActivityStore
+
+        ArticleActivityStore().record(
+            article_dir.name,
+            "reflect",
+            model=final_state.get("reflect_model", ""),
+            provider=final_state.get("reflect_provider", ""),
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Failed to record reflection activity: %s", exc)
+    return {
+        "markdown": str(final_state["polished_reflection"]),
+        "model": str(final_state.get("reflect_model") or ""),
+        "provider": str(final_state.get("reflect_provider") or ""),
+    }
+
+
+async def run_upload_graph(
+    reviewed_path: Path,
+    target: str | None = None,
+    *,
+    include_reflection: bool | None = None,
+) -> UploadResult:
     """Run the upload graph starting from an existing reviewed.md path.
 
     When a manifest.json exists alongside *reviewed_path*, article metadata
@@ -706,11 +812,19 @@ async def run_upload_graph(reviewed_path: Path, target: str | None = None) -> Up
     """
     import json
 
+    import tempfile
+
     reviewed_path = Path(reviewed_path)
+    if not reviewed_path.is_file():
+        raise ValueError(f"Reviewed Markdown not found: {reviewed_path}")
     manifest_path = reviewed_path.with_name("manifest.json")
+    effective_path = reviewed_path
+    merged_temp: Path | None = None
 
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            raise ValueError(f"Article manifest is invalid: {manifest_path}")
         article_data = manifest.get("article", {})
         paths_data = manifest.get("paths", {})
         assets_rel = paths_data.get("assets", "assets")
@@ -725,7 +839,7 @@ async def run_upload_graph(reviewed_path: Path, target: str | None = None) -> Up
                 "content_type": article_data.get("content_type", "article"),
                 "title": article_data.get("title", ""),
                 "output_dir": str(manifest_path.parent.parent),
-                "reviewed_path": str(reviewed_path),
+                "reviewed_path": str(effective_path),
                 "assets_dir": assets_dir,
                 "upload_target": target,
             }
@@ -742,21 +856,61 @@ async def run_upload_graph(reviewed_path: Path, target: str | None = None) -> Up
                 "content_type": "article",
                 "title": reviewed_path.stem,
                 "output_dir": str(reviewed_path.parent.parent),
-                "reviewed_path": str(reviewed_path),
+                "reviewed_path": str(effective_path),
                 "assets_dir": assets_dir,
                 "upload_target": target,
             }
         )
 
-    checkpointer, close_cb = await _get_checkpointer()
+    checkpointer = None
+    close_cb = None
     try:
+        if manifest_path.exists():
+            from src.core.localization import detect_text_language
+            from src.core.reflection import merge_reflection, read_upload_enabled
+
+            should_include = (
+                read_upload_enabled(manifest_path)
+                if include_reflection is None
+                else include_reflection
+            )
+            reflection_markdown = read_reflection(manifest_path.parent)
+            if should_include and reflection_markdown.strip():
+                language_source = (
+                    reflection_markdown
+                    if any(character.isalpha() for character in reflection_markdown)
+                    else reviewed_path.read_text(encoding="utf-8")
+                )
+                merged = merge_reflection(
+                    reviewed_path.read_text(encoding="utf-8"),
+                    reflection_markdown,
+                    language=detect_text_language(language_source),
+                )
+                temporary = tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=manifest_path.parent,
+                    prefix=".upload-merged-",
+                    suffix=".md",
+                    delete=False,
+                )
+                with temporary:
+                    temporary.write(merged)
+                merged_temp = Path(temporary.name)
+                effective_path = merged_temp
+                initial_state["reviewed_path"] = str(effective_path)
+
+        checkpointer, close_cb = await _get_checkpointer()
         graph = build_upload_graph().compile(checkpointer=checkpointer)
         final_state = await graph.ainvoke(
             initial_state,
-            config={"configurable": {"thread_id": f"upload:{reviewed_path}"}},
+            config={"configurable": {"thread_id": f"upload:{effective_path}"}},
         )
     finally:
-        await close_cb()
+        if close_cb is not None:
+            await close_cb()
+        if merged_temp is not None:
+            merged_temp.unlink(missing_ok=True)
     upload_result = final_state.get("upload_result")
     if upload_result is None:
         raise RuntimeError("Upload graph did not produce an upload result")

@@ -402,6 +402,49 @@ def save_reviewed_markdown(
     }
 
 
+def get_reflection(article_id: str) -> dict[str, Any]:
+    """Return reflection Markdown and its persisted upload preference."""
+    web = _web_helpers()
+    article_dir = web._safe_article_dir(article_id)
+    from src.core.reflection import read_reflection, read_upload_enabled
+
+    markdown = read_reflection(article_dir)
+    return {
+        "articleId": article_id,
+        "markdown": markdown,
+        "uploadEnabled": read_upload_enabled(article_dir / "manifest.json"),
+        "exists": bool(markdown.strip()),
+    }
+
+
+def save_reflection(
+    article_id: str,
+    markdown: str | None = None,
+    *,
+    upload_enabled: bool | None = None,
+) -> dict[str, Any]:
+    """Update reflection Markdown and/or its upload preference."""
+    if markdown is not None:
+        if not isinstance(markdown, str):
+            raise ValueError("reflection_markdown must be a string")
+        if len(markdown.encode("utf-8")) > 10 * 1024 * 1024:
+            raise ValueError("Reflection Markdown exceeds the 10 MB limit")
+    if upload_enabled is not None and not isinstance(upload_enabled, bool):
+        raise ValueError("upload_enabled must be a boolean")
+    if markdown is None and upload_enabled is None:
+        raise ValueError("Provide markdown, upload_enabled, or both")
+
+    web = _web_helpers()
+    article_dir = web._safe_article_dir(article_id)
+    from src.core.reflection import set_upload_enabled, write_reflection
+
+    if markdown is not None:
+        write_reflection(article_dir, markdown)
+    if upload_enabled is not None:
+        set_upload_enabled(article_dir / "manifest.json", upload_enabled)
+    return get_reflection(article_id)
+
+
 def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[str, Any]:
     """Update only missing author/publication fields through a controlled boundary."""
     if not isinstance(updates, dict):

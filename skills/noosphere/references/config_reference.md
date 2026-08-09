@@ -25,6 +25,7 @@
     "provider": "anthropic",
     "max_attempts": 2,
     "rewrite_prompt_path": "prompts/edit_article.md",
+    "reflection_prompt_path": "prompts/reflect_article.md",
     "platform_prompts": {
       "x": {
         "rewrite_prompt_path": "prompts/rewrite_social_post.md"
@@ -37,6 +38,7 @@
 - `provider`: one of `openai`, `anthropic`, or `compatible`.
 - `max_attempts`: maximum AI review validation retries.
 - `rewrite_prompt_path`: global prompt for copy-editing articles.
+- `reflection_prompt_path`: prompt for stateless reflection polish. The recorded review provider/model is preferred, with the active provider as fallback.
 - `platform_prompts`: per-platform prompt overrides.
 
 ## Provider compatibility note

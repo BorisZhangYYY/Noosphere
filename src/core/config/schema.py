@@ -28,6 +28,7 @@ class AIConfig(BaseModel):
     max_attempts: int = Field(default=2, ge=1, le=10)
     rewrite_prompt_path: str = "prompts/edit_article.md"
     image_review_prompt_path: str = "prompts/image_review.md"
+    reflection_prompt_path: str = "prompts/reflect_article.md"
     platform_prompts: dict[str, dict[str, str]] = Field(default_factory=dict)
 
     def resolve_prompt(self, key: str, path_key: str, platform: str = "") -> tuple[str, PromptMetadata]:

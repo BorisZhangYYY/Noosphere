@@ -2,6 +2,20 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
+## v0.3.2.2 — Per-article reflections with AI polish
+
+Goal: let users write a personal reflection on each reviewed article, polish it with the reviewing model in a floating dialog, and control whether the reflection travels with the uploaded document.
+
+- [x] **Per-article reflections with AI polish.** Keep reflections out of `reviewed.md` in a sidecar `reflection.md` that is rendered as a dedicated section below the article body, written and polished through a floating dialog triggered from the article inspection rail. The dialog asks the model that performed the AI review (recorded in `review.json`, falling back to the active provider) to polish the reflection using only the article and the user's own reflection as context — preserving the user's understanding, clearly marking any expanded parts, and overwriting the reflection file on confirmation; each polish is stateless (article + current reflection only, no conversation history). An upload switch in the inspection rail decides whether the reflection travels with the document: when enabled, the uploader appends the reflection as a canonical localized section to a copy of `reviewed.md` and uploads that; when disabled, only the untouched `reviewed.md` is uploaded. Deliver the polish action in Web, CLI (`nsphr reflect`), and MCP through a manually triggered LangGraph node after the AI-review stage.
+- [x] **Image-action modal stacking isolation.** Keep image delete and restore confirmation dialogs above the article outline, reader, and inspection rail in every responsive layout so directory/outline chrome never shares or exceeds the modal layer.
+
+### Release gates
+
+- [x] Frontend type-check and production build pass.
+- [x] Python compile, configuration JSON validation, and the complete test suite pass.
+- [x] Visual smoke tests pass for both themes and locales across desktop, tablet, and mobile: writing and polishing a reflection, uploading with and without the reflection section, and confirming `reviewed.md` stays untouched.
+- [x] README, user guides, bundled skill, changelog, and workspace-boundary docs describe the reflection file and workflow.
+
 ## v0.3.2.1 — Hierarchical collections and workspace polish
 
 Goal: replace the detached two-level taxonomy with a document-like collection tree that is created and navigated in context, while bringing the article workspace to the intended persistent three-column design.
@@ -34,3 +48,5 @@ Goal: replace the detached two-level taxonomy with a document-like collection tr
 - [ ] **Semantic knowledge search and RAG Q&A.** Keep the current cross-language search lightweight until the embedding model, vector storage or Elasticsearch strategy, citation model, and re-indexing lifecycle receive a separate design pass.
 
 - [ ] **Self-healing extraction quality loop.** This is a major autonomous extraction-maintenance feature and remains explicitly deferred. Full design: [.project/self-healing-extraction.md](.project/self-healing-extraction.md).
+
+- [ ] **AI evaluation of article reflections.** Deferred: the v0.3.2.2 polish dialog deliberately omits direct model critique and conversation history; a future version may add multi-turn evaluation of the user's reflection.

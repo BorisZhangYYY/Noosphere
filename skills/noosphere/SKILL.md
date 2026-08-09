@@ -11,7 +11,7 @@ Extract web articles, clean them with AI-assisted copy-editing, and import them 
 
 - The user shares a URL from a supported platform (WeChat, Zhihu, Xiaoheihe, X) and wants it saved as clean Markdown.
 - The user asks to run `extract`, `ai-review`, `upload`, or `run` with Noosphere.
-- The user wants to batch-process URLs, organize articles in Collections, manage review perspectives, or review removed images.
+- The user wants to batch-process URLs, organize articles in Collections, manage review perspectives, write or polish article reflections, or review removed images.
 
 ## Prerequisites
 
@@ -29,13 +29,15 @@ npx skills add https://github.com/BorisZhangYYY/Noosphere --skill noosphere-setu
 2. Runs the AI review workflow when requested; AI fills typed content slots and Noosphere assembles the final Markdown structure.
 3. Organizes articles with stable, user-owned Collection IDs at arbitrary depth.
 4. Uploads or archives the reviewed Markdown via the configured adapter.
-5. Explains the output files and how to recover incorrectly removed images.
+5. Saves personal reflections separately, previews optional AI polish, and includes them in uploads only when authorized.
+6. Explains the output files and how to recover incorrectly removed images.
 
 ## Agent Instructions
 
 - **Prefer CLI over direct file edits**: invoke `nsphr extract`, `nsphr ai-review`, and `nsphr upload` and report their results, rather than opening and editing `raw.md`, `reviewed.md`, or `manifest.json` directly.
 - **Report before uploading**: after `ai-review`, summarize important deletions, rewrites, structure changes, and preserved sections; ask the user for confirmation before running `upload`.
 - **`upload` is independent**: `upload` is a manual endpoint and does not require `ai-review`, a completed `review.json`, or validation to pass. You can upload a manually-edited `reviewed.md` directly.
+- **Reflections stay separate**: use `nsphr reflect` instead of editing `reflection.md` or `manifest.json` directly. AI polish is a preview unless the user explicitly asks to apply it. Ask before changing the persistent upload preference or overriding it for an upload.
 
 ## Configuration Reference
 
@@ -51,7 +53,8 @@ See `references/config_reference.md` for the full `config.json` schema. Key poin
 1. **Extract**: `nsphr extract URL` or `nsphr extract --batch urls.txt`
 2. **Optional manual edit**: edit `outputs/<article_id>/reviewed.md`
 3. **AI Review**: `nsphr ai-review <article_id>`
-4. **Upload**: `nsphr upload <article_id>` or `nsphr upload <article_id> --target local`
+4. **Optional reflection**: `nsphr reflect <article_id> --set "..."`, preview with `--polish`, then apply only with `--polish --apply`
+5. **Upload**: `nsphr upload <article_id>` or `nsphr upload <article_id> --target local`; use `--include-reflection` or `--no-include-reflection` only for an explicit one-time override
 
 See `references/workflow_reference.md` for details on each phase and the output directory layout.
 
@@ -67,7 +70,13 @@ See `references/workflow_reference.md` for details on each phase and the output 
 | `nsphr ai-review FILE / DIR / ID` | AI copy-editing and deterministic Markdown assembly. |
 | `nsphr ai-review ID --force` | Re-run AI review even if `review.json` is already completed. |
 | `nsphr ai-review ID --perspective novice` | Review from a configured perspective. |
+| `nsphr reflect ID` | Show the saved reflection and upload preference. |
+| `nsphr reflect ID --set "Markdown"` | Save a personal reflection sidecar. |
+| `nsphr reflect ID --polish` | Preview stateless AI polish without writing it. |
+| `nsphr reflect ID --polish --apply` | Explicitly apply the AI-polished preview. |
+| `nsphr reflect ID --upload-enabled` | Include the reflection in future uploads; use `--no-upload-enabled` to disable it. |
 | `nsphr upload FILE / DIR / ID` | Upload reviewed article to the default target. |
+| `nsphr upload ID --include-reflection` | Include the reflection once, overriding the stored preference. |
 | `nsphr upload ARTICLE_ID --target local` | Save to local archive instead. |
 | `nsphr upload ARTICLE_ID --force` | Re-upload even if the article was already uploaded. |
 | `nsphr run URL` | One-command extract → ai-review → upload. |
@@ -133,6 +142,7 @@ Each article gets a workspace at `outputs/<article_id>/`:
 
 - `raw.md` — original crawler output (do not edit).
 - `reviewed.md` — editable draft / AI-reviewed output.
+- `reflection.md` — optional personal note, kept independent from `reviewed.md`.
 - `manifest.json` — source metadata, paths, crawl status, upload record.
 - `review.json` — AI review status and provider/model info.
 - `assets/` — downloaded images referenced by the article.

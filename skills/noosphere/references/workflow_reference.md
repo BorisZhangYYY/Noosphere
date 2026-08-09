@@ -18,6 +18,7 @@ Outputs in `outputs/<article_id>/`:
 |---|---|
 | `raw.md` | First-round crawler output. Do not edit. |
 | `reviewed.md` | Draft for editing or AI review. |
+| `reflection.md` | Optional personal note, written independently of the reviewed article. |
 | `manifest.json` | Source metadata, paths, crawl status, image download results. |
 | `assets/` | Downloaded images referenced by the article. |
 
@@ -35,14 +36,22 @@ Outputs in `outputs/<article_id>/`:
 
 After `extract`, you can edit `reviewed.md` manually and then run `upload` directly without `ai-review`. This is useful when you want full control over the final content.
 
+## Personal reflection
+
+`nsphr reflect ARTICLE_ID --set "Markdown"`
+
+The reflection is stored in `reflection.md`, not in the reviewed article. `--polish` produces a stateless preview from the current article and reflection; it is saved only with `--polish --apply`. Use `--upload-enabled` or `--no-upload-enabled` to persist whether future uploads include it.
+
 ## Upload
 
 `nsphr upload ARTICLE_ID` or `nsphr upload ARTICLE_ID --target local`
 
-1. The active upload adapter reads `reviewed.md`.
+1. The active upload adapter reads `reviewed.md`. If reflection inclusion is enabled, Noosphere appends a localized reflection section to a temporary copy.
 2. Local asset references are resolved and uploaded or copied.
 3. The document is sent to SiYuan or written to the local archive.
 4. `manifest.json` is updated with the upload result.
+
+Use `--include-reflection` or `--no-include-reflection` for a one-time override. The temporary merged file is removed after success or failure, and the stored `reviewed.md` is never modified.
 
 ## Image recovery
 

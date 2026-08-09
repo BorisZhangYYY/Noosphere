@@ -93,6 +93,8 @@ export interface ArticleDetail extends ArticleSummary {
   hasUploaded: boolean;
   activeUpload: UploadJob | null;
   activeReview: ReviewJob | null;
+  activePolish: PolishJob | null;
+  reflection: { articleId: string; markdown: string; uploadEnabled: boolean; exists: boolean };
   assets: Array<{ name: string; url: string }>;
   removedAssets: Array<{ name: string; url: string; reason: string; source: "ai" | "manual" }>;
   collection: ArticleCollection | null;
@@ -121,6 +123,20 @@ export interface ReviewJob {
   error: string | null;
 }
 
+export interface PolishJob {
+  id: string;
+  articleId: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  stage: "queued" | "polishing" | "completed" | "failed";
+  progress: number;
+  inputDigest: string;
+  polishPreview: string;
+  model: string;
+  provider: string;
+  events: CaptureJobEvent[];
+  error: string | null;
+}
+
 export interface ArticleCollection {
   article_id: string;
   reason: string;
@@ -137,7 +153,8 @@ export interface ArticleOperationSummary {
   reviewCount: number;
   rereviewCount: number;
   uploadCount: number;
-  events: Array<{ id: string; type: "capture" | "review" | "upload"; at: string; details: Record<string, unknown> }>;
+  reflectCount: number;
+  events: Array<{ id: string; type: "capture" | "review" | "upload" | "reflect"; at: string; details: Record<string, unknown> }>;
 }
 
 export interface CollectionNode {

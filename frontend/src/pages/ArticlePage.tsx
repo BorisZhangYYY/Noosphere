@@ -1,8 +1,10 @@
-import { ArrowCounterClockwise, ArrowLeft, ArrowSquareOut, CaretDown, CheckCircle, Eye, EyeSlash, FileText, FloppyDisk, FolderOpen, Image, MagicWand, PencilSimple, SidebarSimple, SpinnerGap, Trash, UploadSimple, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowLeft, ArrowSquareOut, CaretDown, CheckCircle, Eye, EyeSlash, FileText, FloppyDisk, FolderOpen, Image, MagicWand, Notebook, PencilSimple, SidebarSimple, SpinnerGap, Trash, UploadSimple, WarningCircle, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useBeforeUnload, useBlocker, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { ArticleOutline } from "../components/ArticleOutline";
@@ -25,6 +27,12 @@ function collectionOptions(nodes: CollectionNode[], path: string[] = []): Array<
       ...collectionOptions(node.children, currentPath)
     ];
   });
+}
+
+async function digestText(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export function ArticlePage() {
@@ -50,6 +58,11 @@ export function ArticlePage() {
   const [pendingImageStates, setPendingImageStates] = useState<Record<string, "active" | "removed">>({});
   const [showRemovedImages, setShowRemovedImages] = useState(true);
   const [previewAsset, setPreviewAsset] = useState<{ name: string; url: string; removed: boolean; reason?: string } | null>(null);
+  const [reflectionOpen, setReflectionOpen] = useState(false);
+  const [reflectionDraft, setReflectionDraft] = useState("");
+  const [reflectionSavedSnapshot, setReflectionSavedSnapshot] = useState("");
+  const [reflectionDraftDigest, setReflectionDraftDigest] = useState("");
+  const [polishJobId, setPolishJobId] = useState<string | null>(null);
 
   useEffect(() => {
     document.body.classList.add("article-route-active");
@@ -65,7 +78,12 @@ export function ArticlePage() {
     setCollectionId(query.data.collection?.collection_id ?? "");
     setMetadataAuthor(query.data.metadata.author.origin === "missing" ? "" : query.data.metadata.author.value);
     setMetadataPublishedAt(query.data.metadata.publishedAt.origin === "missing" ? "" : query.data.metadata.publishedAt.value);
-  }, [query.data]);
+    if (!reflectionOpen) {
+      setPolishJobId(query.data.activePolish?.id ?? null);
+      setReflectionDraft(query.data.reflection.markdown);
+      setReflectionSavedSnapshot(query.data.reflection.markdown);
+    }
+  }, [query.data, reflectionOpen]);
   useEffect(() => {
     setReadOnly(true);
     setSourceExpanded(false);
@@ -73,7 +91,35 @@ export function ArticlePage() {
     setPendingImageAction(null);
     setPendingImageStates({});
     setShowRemovedImages(true);
+    setReflectionOpen(false);
+    setReflectionDraft("");
+    setReflectionSavedSnapshot("");
   }, [articleId]);
+  useEffect(() => {
+    let current = true;
+    void digestText(reflectionDraft).then((digest) => {
+      if (current) setReflectionDraftDigest(digest);
+    });
+    return () => { current = false; };
+  }, [reflectionDraft]);
+  const reflectionDirty = reflectionDraft !== reflectionSavedSnapshot;
+  const closeReflectionDialog = useCallback(() => {
+    if (reflectionDirty && !window.confirm(t("article.reflectionDiscardChanges"))) return;
+    setReflectionOpen(false);
+  }, [reflectionDirty, t]);
+  useEffect(() => {
+    if (!reflectionOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeReflectionDialog();
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [closeReflectionDialog, reflectionOpen]);
   useEffect(() => {
     if (!previewAsset) return;
     const previousOverflow = document.body.style.overflow;
@@ -126,6 +172,16 @@ export function ArticlePage() {
     enabled: Boolean(reviewJobId),
     refetchInterval: (state) => state.state.data && ["succeeded", "failed"].includes(state.state.data.status) ? false : 700
   });
+  const polishJobQuery = useQuery({
+    queryKey: ["polish-job", polishJobId],
+    queryFn: () => api.getPolishJob(polishJobId!),
+    enabled: Boolean(polishJobId),
+    refetchInterval: (state) => state.state.data && ["succeeded", "failed"].includes(state.state.data.status) ? false : 700
+  });
+  useEffect(() => {
+    if (!polishJobQuery.data || !["succeeded", "failed"].includes(polishJobQuery.data.status)) return;
+    void queryClient.invalidateQueries({ queryKey: ["article", articleId] });
+  }, [articleId, polishJobQuery.data, queryClient]);
   useEffect(() => {
     if (reviewJobQuery.data?.status !== "succeeded") return;
     void queryClient.invalidateQueries({ queryKey: ["article", articleId] });
@@ -163,6 +219,17 @@ export function ArticlePage() {
       await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
     }
   });
+  const saveReflectionMutation = useMutation({
+    mutationFn: (payload: { markdown?: string; uploadEnabled?: boolean }) => api.saveReflection(articleId, payload),
+    onSuccess: async (result, variables) => {
+      if (variables.markdown !== undefined) setReflectionSavedSnapshot(result.markdown);
+      await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
+    }
+  });
+  const polishMutation = useMutation({
+    mutationFn: () => api.polishArticle(articleId, reflectionDraft),
+    onSuccess: (job) => setPolishJobId(job.id)
+  });
   const collectionMutation = useMutation({
     mutationFn: () => api.updateArticleCollection(articleId, collectionId || undefined),
     onSuccess: async () => {
@@ -191,11 +258,19 @@ export function ArticlePage() {
   if (query.isError || !query.data) return <div className="page"><ErrorPanel message={(query.error as Error)?.message ?? t("common.articleNotFound")} /></div>;
 
   const article = query.data;
+  const reflection = article.reflection;
   const platformLabel = localizedPlatformLabel(article.platform, article.platformLabel, t);
   const uploadJob = uploadJobQuery.data ?? article.activeUpload;
   const uploading = Boolean(uploadMutation.isPending || (uploadJobId && (!uploadJob || ["queued", "running"].includes(uploadJob.status))));
   const reviewJob = reviewJobQuery.data ?? article.activeReview;
   const reviewing = reviewMutation.isPending || Boolean(reviewJobId && (!reviewJob || ["queued", "running"].includes(reviewJob.status)));
+  const polishJob = polishJobQuery.data ?? article.activePolish;
+  const polishing = polishMutation.isPending || Boolean(polishJobId && (!polishJob || ["queued", "running"].includes(polishJob.status)));
+  const polishStale = Boolean(
+    polishJob?.status === "succeeded"
+    && reflectionDraftDigest
+    && polishJob.inputDigest !== reflectionDraftDigest
+  );
   const imageInventory = [
     ...article.assets.map((asset) => ({ ...asset, originalState: "active" as const, reason: "", source: "manual" as const })),
     ...article.removedAssets.map((asset) => ({ ...asset, originalState: "removed" as const }))
@@ -207,6 +282,21 @@ export function ArticlePage() {
     (asset) => (pendingImageStates[asset.name] ?? asset.originalState) === "removed"
   );
   const effectiveRemovedAssetNames = effectiveRemovedAssets.map((asset) => asset.name);
+  const openReflectionDialog = () => {
+    setReflectionDraft(reflection.markdown);
+    setReflectionSavedSnapshot(reflection.markdown);
+    setPolishJobId((current) => current ?? article.activePolish?.id ?? null);
+    setReflectionOpen(true);
+  };
+  const applyPolishedReflection = async () => {
+    if (!polishJob?.polishPreview || polishStale) return;
+    const currentDigest = await digestText(reflectionDraft);
+    if (currentDigest !== polishJob.inputDigest) return;
+    const polished = polishJob.polishPreview;
+    setReflectionDraft(polished);
+    setPolishJobId(null);
+    saveReflectionMutation.mutate({ markdown: polished });
+  };
   const stageImageChange = (name: string, state: "active" | "removed") => {
     const originalState = imageInventory.find((asset) => asset.name === name)?.originalState;
     setPendingImageStates((current) => {
@@ -308,6 +398,21 @@ export function ArticlePage() {
             onRestoreImage={(name) => setPendingImageAction({ name, state: "active" })}
             onChange={setDraft}
           />
+          <section className="reflection-section" aria-label={t("article.reflectionTitle")}>
+            <header className="reflection-section-header">
+              <div>
+                <span>{t("article.reflectionEyebrow")}</span>
+                <h2>{t("article.reflectionTitle")}</h2>
+              </div>
+              <button className="button-secondary" type="button" onClick={openReflectionDialog}>
+                <PencilSimple size={15} />
+                {reflection.exists ? t("article.reflectionEdit") : t("article.reflectionWrite")}
+              </button>
+            </header>
+            {reflection.exists
+              ? <div className="reflection-section-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{reflection.markdown}</ReactMarkdown></div>
+              : <p className="reflection-empty-hint">{t("article.reflectionEmptyHint")}</p>}
+          </section>
           {(saveMutation.isError || uploadMutation.isError) && <p className="article-action-error" role="alert">{((saveMutation.error || uploadMutation.error) as Error).message}</p>}
         </article>
 
@@ -383,6 +488,26 @@ export function ArticlePage() {
             </div>
           </section>
 
+          <section className="inspection-section reflection-rail-section">
+            <div className="inspection-title"><Notebook size={19} /><h2>{t("article.reflectionTitle")}</h2></div>
+            <p className="rail-note">{t("article.reflectionRailHelp")}</p>
+            <p className="operation-counts">{t("article.reflectionPolishCount", { count: article.operationSummary.reflectCount })}</p>
+            <label className="reflection-upload-toggle">
+              <input
+                type="checkbox"
+                checked={reflection.uploadEnabled}
+                disabled={saveReflectionMutation.isPending}
+                onChange={(event) => saveReflectionMutation.mutate({ uploadEnabled: event.target.checked })}
+              />
+              <span>{t("article.reflectionUploadToggle")}</span>
+            </label>
+            <button className="button-primary" type="button" onClick={openReflectionDialog}>
+              <PencilSimple size={17} />
+              {reflection.exists ? t("article.reflectionEdit") : t("article.reflectionWrite")}
+            </button>
+            {saveReflectionMutation.isError && <p className="article-action-error" role="alert">{(saveReflectionMutation.error as Error).message}</p>}
+          </section>
+
           <section className="inspection-section">
             <div className="inspection-title">
               <Image size={19} />
@@ -455,8 +580,68 @@ export function ArticlePage() {
           </section>
         </aside>
       </div>
-      {pendingImageAction && (
-        <div className="article-confirm-backdrop" role="presentation" onMouseDown={() => setPendingImageAction(null)}>
+      {reflectionOpen && createPortal(
+        <div className="dialog-layer reflection-dialog-layer" role="presentation" onMouseDown={closeReflectionDialog}>
+          <section
+            className="reflection-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reflection-dialog-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="reflection-dialog-header">
+              <div>
+                <span>{t("article.reflectionEyebrow")}</span>
+                <h2 id="reflection-dialog-title">{t("article.reflectionDialogTitle")}</h2>
+              </div>
+              <button type="button" aria-label={t("article.reflectionClose")} onClick={closeReflectionDialog}><X size={20} /></button>
+            </header>
+            <textarea
+              autoFocus
+              className="reflection-dialog-input"
+              value={reflectionDraft}
+              onChange={(event) => setReflectionDraft(event.target.value)}
+              placeholder={t("article.reflectionPlaceholder")}
+            />
+            {(polishing || polishJob?.status === "succeeded") && (
+              <div className="upload-progress" aria-live="polite">
+                <div><span>{t(`article.polishStages.${polishJob?.stage ?? "queued"}`)}</span><strong>{polishJob?.progress ?? 0}%</strong></div>
+                <progress max="100" value={polishJob?.progress ?? 0} />
+              </div>
+            )}
+            {polishJob?.status === "succeeded" && (
+              <div className={`reflection-preview${polishStale ? " stale" : ""}`}>
+                <header>
+                  <h3>{t("article.reflectionPreview")}</h3>
+                  <span>{[polishJob.provider, polishJob.model].filter(Boolean).join(" · ")}</span>
+                </header>
+                {polishStale && <p className="reflection-stale-warning" role="alert">{t("article.reflectionPreviewStale")}</p>}
+                <div className="reflection-preview-body"><ReactMarkdown remarkPlugins={[remarkGfm]}>{polishJob.polishPreview}</ReactMarkdown></div>
+                <div className="reflection-preview-actions">
+                  <button className="button-secondary" type="button" onClick={() => setPolishJobId(null)}>{t("article.reflectionDiscardPreview")}</button>
+                  <button className="button-primary" type="button" disabled={polishStale} onClick={applyPolishedReflection}>{t("article.reflectionApply")}</button>
+                </div>
+              </div>
+            )}
+            {(polishMutation.isError || polishJob?.status === "failed" || saveReflectionMutation.isError) && (
+              <p className="article-action-error" role="alert">{(polishMutation.error as Error)?.message || polishJob?.error || (saveReflectionMutation.error as Error)?.message}</p>
+            )}
+            <footer className="reflection-dialog-footer">
+              <button className="button-secondary" type="button" onClick={closeReflectionDialog}>{t("common.cancel")}</button>
+              <button className="button-secondary" type="button" onClick={() => polishMutation.mutate()} disabled={polishing || !reflectionDraft.trim()}>
+                <MagicWand size={16} />{polishing ? t("article.reflectionPolishing") : t("article.reflectionPolish")}
+              </button>
+              <button className="button-primary" type="button" onClick={() => saveReflectionMutation.mutate({ markdown: reflectionDraft })} disabled={saveReflectionMutation.isPending || !reflectionDirty}>
+                {saveReflectionMutation.isPending ? <SpinnerGap className="spin" size={16} /> : <FloppyDisk size={16} />}
+                {t("article.reflectionSave")}
+              </button>
+            </footer>
+          </section>
+        </div>,
+        document.body
+      )}
+      {pendingImageAction && createPortal(
+        <div className="article-confirm-backdrop modal-root-layer" role="presentation" onMouseDown={() => setPendingImageAction(null)}>
           <section className="article-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="image-confirm-title" aria-describedby="image-confirm-description" onMouseDown={(event) => event.stopPropagation()}>
             <span className={`article-confirm-icon article-confirm-icon-${pendingImageAction.state}`}><Image size={22} /></span>
             <div>
@@ -470,10 +655,11 @@ export function ArticlePage() {
               </button>
             </div>
           </section>
-        </div>
+        </div>,
+        document.body
       )}
-      {blocker.state === "blocked" && (
-        <div className="article-confirm-backdrop" role="presentation" onMouseDown={cancelLeaving}>
+      {blocker.state === "blocked" && createPortal(
+        <div className="article-confirm-backdrop modal-root-layer" role="presentation" onMouseDown={cancelLeaving}>
           <section
             className="article-confirm-dialog article-leave-dialog"
             role="alertdialog"
@@ -501,7 +687,8 @@ export function ArticlePage() {
               </button>
             </div>
           </section>
-        </div>
+        </div>,
+        document.body
       )}
       {previewAsset && createPortal(
         <div className="asset-lightbox-backdrop" role="presentation" onMouseDown={() => setPreviewAsset(null)}>

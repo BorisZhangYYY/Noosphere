@@ -23,6 +23,30 @@ def test_core_pipeline_commands_support_json_output() -> None:
     assert parse_args(["ai-review", "article-id", "--json"]).json is True
     assert parse_args(["upload", "article-id", "--json"]).json is True
     assert parse_args(["run", "https://example.com", "--json"]).json is True
+    assert parse_args(["reflect", "article-id", "--json"]).json is True
+
+
+def test_reflect_command_and_persistent_upload_preference() -> None:
+    args = parse_args([
+        "reflect",
+        "article-id",
+        "--set",
+        "我的感悟。",
+        "--polish",
+        "--apply",
+        "--upload-enabled",
+    ])
+    assert args.set_text == "我的感悟。"
+    assert args.polish is True
+    assert args.apply is True
+    assert args.upload_enabled is True
+    assert parse_args(["reflect", "article-id", "--no-upload-enabled"]).upload_enabled is False
+
+
+def test_upload_accepts_reflection_override() -> None:
+    assert parse_args(["upload", "article-id", "--include-reflection"]).include_reflection is True
+    assert parse_args(["upload", "article-id", "--no-include-reflection"]).include_reflection is False
+    assert parse_args(["upload", "article-id"]).include_reflection is None
 
 
 def test_article_metadata_command_accepts_only_enrichable_fields() -> None:
