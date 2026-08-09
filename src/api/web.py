@@ -747,9 +747,10 @@ async def get_article(request: Request) -> JSONResponse:
     active_upload = _active_job_for_article(_upload_jobs, request.path_params["article_id"])
     active_review = _active_job_for_article(_review_jobs, request.path_params["article_id"])
     active_polish = _active_job_for_article(_polish_jobs, request.path_params["article_id"])
-    from src.application.service import get_reflection
+    from src.application.service import get_article_annotations, get_reflection
 
     reflection = await asyncio.to_thread(get_reflection, request.path_params["article_id"])
+    annotations = await asyncio.to_thread(get_article_annotations, request.path_params["article_id"])
 
     return JSONResponse({
         **summary,
@@ -767,6 +768,7 @@ async def get_article(request: Request) -> JSONResponse:
         "activeReview": active_review,
         "activePolish": active_polish,
         "reflection": reflection,
+        "annotations": annotations,
         "assets": assets,
         "removedAssets": removed_assets,
         "collection": collection,
@@ -1070,6 +1072,92 @@ async def update_article_reflection(request: Request) -> JSONResponse:
     except OSError as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
     return JSONResponse(result)
+
+
+async def list_article_annotations(request: Request) -> JSONResponse:
+    """Return all quote annotations for one article."""
+    try:
+        _safe_article_dir(request.path_params["article_id"])
+        from src.application.service import get_article_annotations
+
+        result = await asyncio.to_thread(get_article_annotations, request.path_params["article_id"])
+    except ValueError as exc:
+        status_code = 404 if "not found" in str(exc).casefold() else 400
+        return JSONResponse({"error": str(exc)}, status_code=status_code)
+    return JSONResponse(result)
+
+
+async def create_article_annotation(request: Request) -> JSONResponse:
+    """Create a quote anchor with a Markdown interpretation."""
+    try:
+        article_id = request.path_params["article_id"]
+        _safe_article_dir(article_id)
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Annotation must be an object"}, status_code=400)
+    try:
+        from src.application.service import create_article_annotation as create_annotation
+
+        result = await asyncio.to_thread(
+            create_annotation,
+            article_id,
+            quote=payload.get("quote"),
+            prefix=payload.get("prefix", ""),
+            suffix=payload.get("suffix", ""),
+            occurrence=payload.get("occurrence", 0),
+            note=payload.get("note"),
+        )
+    except ValueError as exc:
+        status_code = 413 if "too large" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status_code)
+    return JSONResponse(result, status_code=201)
+
+
+async def update_article_annotation(request: Request) -> JSONResponse:
+    """Update the Markdown interpretation for one quote."""
+    try:
+        article_id = request.path_params["article_id"]
+        annotation_id = request.path_params["annotation_id"]
+        _safe_article_dir(article_id)
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    if not isinstance(payload, dict) or set(payload) != {"note"}:
+        return JSONResponse({"error": "Annotation updates require only note"}, status_code=400)
+    try:
+        from src.application.service import update_article_annotation as update_annotation
+
+        result = await asyncio.to_thread(
+            update_annotation,
+            article_id,
+            annotation_id,
+            note=payload.get("note"),
+        )
+    except ValueError as exc:
+        status_code = 404 if "not found" in str(exc).casefold() else 413 if "too large" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status_code)
+    return JSONResponse(result)
+
+
+async def delete_article_annotation(request: Request) -> JSONResponse:
+    """Delete one quote annotation."""
+    try:
+        article_id = request.path_params["article_id"]
+        annotation_id = request.path_params["annotation_id"]
+        _safe_article_dir(article_id)
+        from src.application.service import delete_article_annotation as delete_annotation
+
+        result = await asyncio.to_thread(delete_annotation, article_id, annotation_id)
+    except ValueError as exc:
+        status_code = 404 if "not found" in str(exc).casefold() else 400
+        return JSONResponse({"error": str(exc)}, status_code=status_code)
+    return JSONResponse({"deleted": True, "annotation": result})
 
 
 async def create_article_polish(request: Request) -> JSONResponse:

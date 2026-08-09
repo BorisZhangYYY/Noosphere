@@ -1,4 +1,4 @@
-import { ArrowCounterClockwise, ArrowLeft, ArrowSquareOut, CaretDown, CheckCircle, Eye, EyeSlash, FileText, FloppyDisk, FolderOpen, Image, MagicWand, Notebook, PencilSimple, SidebarSimple, SpinnerGap, Trash, UploadSimple, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowLeft, ArrowSquareOut, CaretDown, CheckCircle, Eye, EyeSlash, FileText, FloppyDisk, FolderOpen, Image, MagicWand, Notebook, PencilSimple, Quotes, SidebarSimple, SpinnerGap, Trash, UploadSimple, WarningCircle, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +13,7 @@ import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { localizedPlatformLabel } from "../localization";
-import type { CollectionNode, OutputLanguage } from "../types";
+import type { ArticleAnnotation, CollectionNode, OutputLanguage, QuoteAnchorDraft } from "../types";
 
 function collectionOptions(nodes: CollectionNode[], path: string[] = []): Array<{ value: string; label: string; description?: string }> {
   return nodes.flatMap((node) => {
@@ -59,10 +59,18 @@ export function ArticlePage() {
   const [showRemovedImages, setShowRemovedImages] = useState(true);
   const [previewAsset, setPreviewAsset] = useState<{ name: string; url: string; removed: boolean; reason?: string } | null>(null);
   const [reflectionOpen, setReflectionOpen] = useState(false);
+  const [reflectionMode, setReflectionMode] = useState<"edit" | "preview">("edit");
   const [reflectionDraft, setReflectionDraft] = useState("");
   const [reflectionSavedSnapshot, setReflectionSavedSnapshot] = useState("");
   const [reflectionDraftDigest, setReflectionDraftDigest] = useState("");
   const [polishJobId, setPolishJobId] = useState<string | null>(null);
+  const [quoteSelection, setQuoteSelection] = useState<QuoteAnchorDraft | null>(null);
+  const [annotationDialog, setAnnotationDialog] = useState<{ mode: "create" | "view" | "edit"; annotationId?: string } | null>(null);
+  const [annotationDraft, setAnnotationDraft] = useState("");
+  const [annotationMarkdownMode, setAnnotationMarkdownMode] = useState<"edit" | "preview">("edit");
+  const [resolvedAnnotationIds, setResolvedAnnotationIds] = useState<string[]>([]);
+  const [focusAnnotationRequest, setFocusAnnotationRequest] = useState<{ id: string; token: number } | null>(null);
+  const [pendingAnnotationDelete, setPendingAnnotationDelete] = useState<ArticleAnnotation | null>(null);
 
   useEffect(() => {
     document.body.classList.add("article-route-active");
@@ -92,9 +100,22 @@ export function ArticlePage() {
     setPendingImageStates({});
     setShowRemovedImages(true);
     setReflectionOpen(false);
+    setReflectionMode("edit");
     setReflectionDraft("");
     setReflectionSavedSnapshot("");
+    setQuoteSelection(null);
+    setAnnotationDialog(null);
+    setAnnotationDraft("");
+    setResolvedAnnotationIds([]);
+    setFocusAnnotationRequest(null);
+    setPendingAnnotationDelete(null);
   }, [articleId]);
+  useEffect(() => {
+    if (!quoteSelection) return;
+    const clear = () => setQuoteSelection(null);
+    window.addEventListener("scroll", clear, true);
+    return () => window.removeEventListener("scroll", clear, true);
+  }, [quoteSelection]);
   useEffect(() => {
     let current = true;
     void digestText(reflectionDraft).then((digest) => {
@@ -107,6 +128,15 @@ export function ArticlePage() {
     if (reflectionDirty && !window.confirm(t("article.reflectionDiscardChanges"))) return;
     setReflectionOpen(false);
   }, [reflectionDirty, t]);
+  const closeAnnotationDialog = useCallback(() => {
+    if ((annotationDialog?.mode === "create" || annotationDialog?.mode === "edit") && annotationDraft.trim()) {
+      const saved = annotationDialog.mode === "edit"
+        ? query.data?.annotations.items.find((item) => item.id === annotationDialog.annotationId)?.note ?? ""
+        : "";
+      if (annotationDraft !== saved && !window.confirm(t("article.quoteDiscardChanges"))) return;
+    }
+    setAnnotationDialog(null);
+  }, [annotationDialog, annotationDraft, query.data?.annotations.items, t]);
   useEffect(() => {
     if (!reflectionOpen) return;
     const previousOverflow = document.body.style.overflow;
@@ -133,6 +163,19 @@ export function ArticlePage() {
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [previewAsset]);
+  useEffect(() => {
+    if (!annotationDialog) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeAnnotationDialog();
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [annotationDialog, closeAnnotationDialog]);
   useEffect(() => {
     if (!pipelineSettingsQuery.data) return;
     if (!reviewPerspective) setReviewPerspective(pipelineSettingsQuery.data.activePerspective);
@@ -230,6 +273,39 @@ export function ArticlePage() {
     mutationFn: () => api.polishArticle(articleId, reflectionDraft),
     onSuccess: (job) => setPolishJobId(job.id)
   });
+  const createAnnotationMutation = useMutation({
+    mutationFn: () => {
+      if (!quoteSelection) throw new Error(t("article.quoteSelectionMissing"));
+      return api.createArticleAnnotation(articleId, {
+        quote: quoteSelection.quote,
+        prefix: quoteSelection.prefix,
+        suffix: quoteSelection.suffix,
+        occurrence: quoteSelection.occurrence,
+        note: annotationDraft
+      });
+    },
+    onSuccess: async () => {
+      setAnnotationDialog(null);
+      setQuoteSelection(null);
+      window.getSelection()?.removeAllRanges();
+      await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
+    }
+  });
+  const updateAnnotationMutation = useMutation({
+    mutationFn: (annotationId: string) => api.updateArticleAnnotation(articleId, annotationId, annotationDraft),
+    onSuccess: async (annotation) => {
+      setAnnotationDialog({ mode: "view", annotationId: annotation.id });
+      await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
+    }
+  });
+  const deleteAnnotationMutation = useMutation({
+    mutationFn: (annotationId: string) => api.deleteArticleAnnotation(articleId, annotationId),
+    onSuccess: async () => {
+      setPendingAnnotationDelete(null);
+      setAnnotationDialog(null);
+      await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
+    }
+  });
   const collectionMutation = useMutation({
     mutationFn: () => api.updateArticleCollection(articleId, collectionId || undefined),
     onSuccess: async () => {
@@ -282,10 +358,32 @@ export function ArticlePage() {
     (asset) => (pendingImageStates[asset.name] ?? asset.originalState) === "removed"
   );
   const effectiveRemovedAssetNames = effectiveRemovedAssets.map((asset) => asset.name);
+  const activeAnnotation = annotationDialog?.annotationId
+    ? article.annotations.items.find((annotation) => annotation.id === annotationDialog.annotationId) ?? null
+    : null;
+  const resolvedAnnotationIdSet = new Set(resolvedAnnotationIds);
+  const openAnnotation = (annotationId: string, focus = false) => {
+    const annotation = article.annotations.items.find((item) => item.id === annotationId);
+    if (!annotation) return;
+    setQuoteSelection(null);
+    setAnnotationDraft(annotation.note);
+    setAnnotationMarkdownMode("preview");
+    setAnnotationDialog({ mode: "view", annotationId });
+    if (focus && resolvedAnnotationIdSet.has(annotationId)) {
+      setFocusAnnotationRequest({ id: annotationId, token: Date.now() });
+    }
+  };
+  const openCreateAnnotation = () => {
+    if (!quoteSelection) return;
+    setAnnotationDraft("");
+    setAnnotationMarkdownMode("edit");
+    setAnnotationDialog({ mode: "create" });
+  };
   const openReflectionDialog = () => {
     setReflectionDraft(reflection.markdown);
     setReflectionSavedSnapshot(reflection.markdown);
     setPolishJobId((current) => current ?? article.activePolish?.id ?? null);
+    setReflectionMode("edit");
     setReflectionOpen(true);
   };
   const applyPolishedReflection = async () => {
@@ -397,6 +495,12 @@ export function ArticlePage() {
             onDeleteImage={(name) => setPendingImageAction({ name, state: "removed" })}
             onRestoreImage={(name) => setPendingImageAction({ name, state: "active" })}
             onChange={setDraft}
+            annotations={article.annotations.items}
+            annotationSourceDigest={article.annotations.sourceDigest}
+            onSelectQuote={readOnly && !dirty ? setQuoteSelection : undefined}
+            onOpenAnnotation={openAnnotation}
+            onResolvedAnnotationIds={(ids) => setResolvedAnnotationIds((current) => current.join("\n") === ids.join("\n") ? current : ids)}
+            focusAnnotationRequest={focusAnnotationRequest}
           />
           <section className="reflection-section" aria-label={t("article.reflectionTitle")}>
             <header className="reflection-section-header">
@@ -508,6 +612,30 @@ export function ArticlePage() {
             {saveReflectionMutation.isError && <p className="article-action-error" role="alert">{(saveReflectionMutation.error as Error).message}</p>}
           </section>
 
+          <section className="inspection-section annotation-rail-section">
+            <div className="inspection-title">
+              <Quotes size={19} />
+              <h2>{t("article.quoteTitle")}</h2>
+              <span>{article.annotations.count}</span>
+            </div>
+            <p className="rail-note">{t("article.quoteRailHelp")}</p>
+            {article.annotations.items.length ? (
+              <div className="annotation-rail-list">
+                {article.annotations.items.map((annotation) => {
+                  const resolved = resolvedAnnotationIdSet.has(annotation.id);
+                  return (
+                    <button type="button" onClick={() => openAnnotation(annotation.id, true)} key={annotation.id}>
+                      <span className="annotation-rail-quote">“{annotation.quote}”</span>
+                      <span className={`annotation-anchor-state${resolved ? " resolved" : " stale"}`}>
+                        {resolved ? t("article.quoteLocated") : t("article.quoteNeedsRelocation")}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : <p className="annotation-empty">{t("article.quoteEmpty")}</p>}
+          </section>
+
           <section className="inspection-section">
             <div className="inspection-title">
               <Image size={19} />
@@ -580,6 +708,95 @@ export function ArticlePage() {
           </section>
         </aside>
       </div>
+      {quoteSelection && !annotationDialog && createPortal(
+        <button
+          type="button"
+          className="quote-selection-action"
+          style={{
+            left: Math.min(Math.max(96, quoteSelection.position.left), window.innerWidth - 96),
+            top: Math.min(quoteSelection.position.top, window.innerHeight - 52)
+          }}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={openCreateAnnotation}
+        >
+          <Quotes size={16} weight="fill" />
+          {t("article.quoteSelectionAction")}
+        </button>,
+        document.body
+      )}
+      {annotationDialog && createPortal(
+        <div className="dialog-layer annotation-dialog-layer" role="presentation" onMouseDown={closeAnnotationDialog}>
+          <section className="reflection-dialog annotation-dialog" role="dialog" aria-modal="true" aria-labelledby="annotation-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="reflection-dialog-header annotation-dialog-header">
+              <div>
+                <span>{t("article.quoteEyebrow")}</span>
+                <h2 id="annotation-dialog-title">{annotationDialog.mode === "create" ? t("article.quoteCreateTitle") : t("article.quoteViewTitle")}</h2>
+              </div>
+              <button type="button" aria-label={t("article.quoteClose")} onClick={closeAnnotationDialog}><X size={20} /></button>
+            </header>
+            <blockquote className="annotation-quoted-passage">
+              {annotationDialog.mode === "create" ? quoteSelection?.quote : activeAnnotation?.quote}
+            </blockquote>
+            {annotationDialog.mode === "view" ? (
+              <div className="reflection-draft-preview annotation-note-view">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{activeAnnotation?.note ?? ""}</ReactMarkdown>
+              </div>
+            ) : (
+              <>
+                <div className="reflection-dialog-modebar">
+                  <div className="reflection-mode-toggle" aria-label={t("article.quoteModeLabel")}>
+                    <button type="button" className={annotationMarkdownMode === "edit" ? "active" : ""} aria-pressed={annotationMarkdownMode === "edit"} onClick={() => setAnnotationMarkdownMode("edit")}>
+                      <PencilSimple size={15} />{t("article.reflectionModeEdit")}
+                    </button>
+                    <button type="button" className={annotationMarkdownMode === "preview" ? "active" : ""} aria-pressed={annotationMarkdownMode === "preview"} onClick={() => setAnnotationMarkdownMode("preview")}>
+                      <Eye size={15} />{t("article.reflectionModePreview")}
+                    </button>
+                  </div>
+                  <span>{t("article.reflectionMarkdownSupported")}</span>
+                </div>
+                {annotationMarkdownMode === "edit" ? (
+                  <textarea autoFocus className="reflection-dialog-input annotation-dialog-input" value={annotationDraft} onChange={(event) => setAnnotationDraft(event.target.value)} placeholder={t("article.quotePlaceholder")} />
+                ) : (
+                  <div className="reflection-draft-preview annotation-note-preview">
+                    {annotationDraft.trim()
+                      ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{annotationDraft}</ReactMarkdown>
+                      : <p className="reflection-empty-hint">{t("article.reflectionEmptyPreview")}</p>}
+                  </div>
+                )}
+              </>
+            )}
+            {(createAnnotationMutation.isError || updateAnnotationMutation.isError || deleteAnnotationMutation.isError) && (
+              <p className="article-action-error" role="alert">{((createAnnotationMutation.error || updateAnnotationMutation.error || deleteAnnotationMutation.error) as Error).message}</p>
+            )}
+            <footer className="reflection-dialog-footer annotation-dialog-footer">
+              {annotationDialog.mode === "view" ? (
+                <>
+                  <button className="button-danger" type="button" onClick={() => activeAnnotation && setPendingAnnotationDelete(activeAnnotation)}><Trash size={16} />{t("article.quoteDelete")}</button>
+                  <span />
+                  <button className="button-secondary" type="button" onClick={closeAnnotationDialog}>{t("article.quoteClose")}</button>
+                  <button className="button-primary" type="button" onClick={() => { setAnnotationDraft(activeAnnotation?.note ?? ""); setAnnotationMarkdownMode("edit"); setAnnotationDialog({ mode: "edit", annotationId: activeAnnotation?.id }); }}><PencilSimple size={16} />{t("article.quoteEdit")}</button>
+                </>
+              ) : (
+                <>
+                  <button className="button-secondary" type="button" onClick={closeAnnotationDialog}>{t("common.cancel")}</button>
+                  <button
+                    className="button-primary"
+                    type="button"
+                    disabled={!annotationDraft.trim() || createAnnotationMutation.isPending || updateAnnotationMutation.isPending}
+                    onClick={() => annotationDialog.mode === "create"
+                      ? createAnnotationMutation.mutate()
+                      : annotationDialog.annotationId && updateAnnotationMutation.mutate(annotationDialog.annotationId)}
+                  >
+                    {(createAnnotationMutation.isPending || updateAnnotationMutation.isPending) ? <SpinnerGap className="spin" size={16} /> : <FloppyDisk size={16} />}
+                    {t("article.quoteSave")}
+                  </button>
+                </>
+              )}
+            </footer>
+          </section>
+        </div>,
+        document.body
+      )}
       {reflectionOpen && createPortal(
         <div className="dialog-layer reflection-dialog-layer" role="presentation" onMouseDown={closeReflectionDialog}>
           <section
@@ -596,13 +813,32 @@ export function ArticlePage() {
               </div>
               <button type="button" aria-label={t("article.reflectionClose")} onClick={closeReflectionDialog}><X size={20} /></button>
             </header>
-            <textarea
-              autoFocus
-              className="reflection-dialog-input"
-              value={reflectionDraft}
-              onChange={(event) => setReflectionDraft(event.target.value)}
-              placeholder={t("article.reflectionPlaceholder")}
-            />
+            <div className="reflection-dialog-modebar">
+              <div className="reflection-mode-toggle" aria-label={t("article.reflectionModeLabel")}>
+                <button type="button" className={reflectionMode === "edit" ? "active" : ""} aria-pressed={reflectionMode === "edit"} onClick={() => setReflectionMode("edit")}>
+                  <PencilSimple size={15} />{t("article.reflectionModeEdit")}
+                </button>
+                <button type="button" className={reflectionMode === "preview" ? "active" : ""} aria-pressed={reflectionMode === "preview"} onClick={() => setReflectionMode("preview")}>
+                  <Eye size={15} />{t("article.reflectionModePreview")}
+                </button>
+              </div>
+              <span>{t("article.reflectionMarkdownSupported")}</span>
+            </div>
+            {reflectionMode === "edit" ? (
+              <textarea
+                autoFocus
+                className="reflection-dialog-input"
+                value={reflectionDraft}
+                onChange={(event) => setReflectionDraft(event.target.value)}
+                placeholder={t("article.reflectionPlaceholder")}
+              />
+            ) : (
+              <div className="reflection-draft-preview" aria-live="polite">
+                {reflectionDraft.trim()
+                  ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{reflectionDraft}</ReactMarkdown>
+                  : <p className="reflection-empty-hint">{t("article.reflectionEmptyPreview")}</p>}
+              </div>
+            )}
             {(polishing || polishJob?.status === "succeeded") && (
               <div className="upload-progress" aria-live="polite">
                 <div><span>{t(`article.polishStages.${polishJob?.stage ?? "queued"}`)}</span><strong>{polishJob?.progress ?? 0}%</strong></div>
@@ -653,6 +889,22 @@ export function ArticlePage() {
               <button type="button" className={pendingImageAction.state === "removed" ? "button-danger" : "button-primary"} onClick={() => stageImageChange(pendingImageAction.name, pendingImageAction.state)}>
                 {t("common.confirm")}
               </button>
+            </div>
+          </section>
+        </div>,
+        document.body
+      )}
+      {pendingAnnotationDelete && createPortal(
+        <div className="article-confirm-backdrop modal-root-layer" role="presentation" onMouseDown={() => setPendingAnnotationDelete(null)}>
+          <section className="article-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="annotation-delete-title" aria-describedby="annotation-delete-description" onMouseDown={(event) => event.stopPropagation()}>
+            <span className="article-confirm-icon article-confirm-icon-removed"><Quotes size={22} /></span>
+            <div>
+              <h2 id="annotation-delete-title">{t("article.quoteDeleteTitle")}</h2>
+              <p id="annotation-delete-description">{t("article.quoteDeleteDescription")}</p>
+            </div>
+            <div className="article-confirm-actions">
+              <button type="button" className="button-secondary" onClick={() => setPendingAnnotationDelete(null)}>{t("common.cancel")}</button>
+              <button type="button" className="button-danger" disabled={deleteAnnotationMutation.isPending} onClick={() => deleteAnnotationMutation.mutate(pendingAnnotationDelete.id)}>{t("article.quoteDelete")}</button>
             </div>
           </section>
         </div>,

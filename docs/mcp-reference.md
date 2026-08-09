@@ -28,10 +28,16 @@ The first four tools are synchronous. The `start_*` tools create background jobs
 - `get_article_reflection`
 - `save_article_reflection`
 - `polish_article_reflection`
+- `list_article_annotations`
+- `create_article_annotation`
+- `update_article_annotation`
+- `delete_article_annotation`
 
 Content updates affect editable prose; Noosphere restores protected source metadata before storing or exporting `reviewed.md`. `get_article` returns current metadata provenance and enrichment history. `update_missing_article_metadata` accepts only Author and Published values that were absent from the captured source. During AI review, candidate values additionally require an exact captured-text excerpt and are recorded as accepted or reverted. Image state operations use the asset identity reported by `list_article_images`.
 
 Reflections are independent `reflection.md` sidecars. `save_article_reflection` can update Markdown, the persistent upload preference, or both. `polish_article_reflection` returns a stateless preview and provider/model provenance; it writes only when `apply=true`. `start_polish` provides the same preview workflow as a background job. Clients should compare the returned job input digest with the current draft before offering Apply.
+
+Quote interpretations are independent `annotations.json` records. Create tools accept the exact quote, Markdown note, bounded prefix/suffix context, and zero-based occurrence. The service adds a stable ID, timestamps, and the current `reviewed.md` digest. Update changes only the note, while delete removes the record. Clients should use context for repeated passages and must not assume an anchor is still safe after the reviewed source changes.
 
 ### Knowledge organization
 
@@ -143,3 +149,22 @@ polish_article_reflection(
 ```
 
 Preview before applying. AI-added material is marked by the shared reflection prompt, and neither operation modifies `reviewed.md`.
+
+## Quote Annotation Example
+
+```text
+create_article_annotation(
+  article_id="ARTICLE_ID",
+  quote="A precise passage from the article.",
+  prefix="The words immediately before it. ",
+  suffix=" The words immediately after it.",
+  occurrence=0,
+  note="## Why it matters\n\nMy interpretation."
+)
+
+list_article_annotations(article_id="ARTICLE_ID")
+update_article_annotation(article_id="ARTICLE_ID", annotation_id="ANNOTATION_ID", note="Updated Markdown")
+delete_article_annotation(article_id="ARTICLE_ID", annotation_id="ANNOTATION_ID")
+```
+
+These operations never modify the article, reflection, or upload payload.

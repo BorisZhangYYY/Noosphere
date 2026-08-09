@@ -88,6 +88,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     reflect_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
+    annotations_parser = subparsers.add_parser("annotations", help="Manage Markdown interpretations anchored to quoted passages.")
+    annotations_subparsers = annotations_parser.add_subparsers(dest="annotations_command", required=True)
+    annotations_list = annotations_subparsers.add_parser("list", help="List an article's quote annotations.")
+    annotations_list.add_argument("article_id")
+    annotations_list.add_argument("--json", action="store_true")
+    annotations_add = annotations_subparsers.add_parser("add", help="Create a quote annotation.")
+    annotations_add.add_argument("article_id")
+    annotations_add.add_argument("--quote", required=True)
+    annotations_add.add_argument("--prefix", default="")
+    annotations_add.add_argument("--suffix", default="")
+    annotations_add.add_argument("--occurrence", type=int, default=0)
+    annotations_add_note = annotations_add.add_mutually_exclusive_group(required=True)
+    annotations_add_note.add_argument("--note")
+    annotations_add_note.add_argument("--note-file", type=Path)
+    annotations_add.add_argument("--json", action="store_true")
+    annotations_update = annotations_subparsers.add_parser("update", help="Replace an annotation's Markdown interpretation.")
+    annotations_update.add_argument("article_id")
+    annotations_update.add_argument("annotation_id")
+    annotations_update_note = annotations_update.add_mutually_exclusive_group(required=True)
+    annotations_update_note.add_argument("--note")
+    annotations_update_note.add_argument("--note-file", type=Path)
+    annotations_update.add_argument("--json", action="store_true")
+    annotations_delete = annotations_subparsers.add_parser("delete", help="Delete a quote annotation.")
+    annotations_delete.add_argument("article_id")
+    annotations_delete.add_argument("annotation_id")
+    annotations_delete.add_argument("--json", action="store_true")
+
     run_parser = subparsers.add_parser("run", help="Extract one URL, AI-review it, then upload it to SiYuan.")
     run_parser.add_argument("url", help="Article URL to extract.")
     run_parser.add_argument("--perspective", help="Review perspective ID from the pipeline configuration.")
@@ -507,6 +534,49 @@ async def _main_async(args: argparse.Namespace) -> int:
                     if value is not None
                 }
                 payload = update_article_metadata(args.article_id, updates)
+            _emit_payload(payload, as_json=args.json)
+            return 0
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            return 1
+
+    if args.command == "annotations":
+        from src.application.service import (
+            create_article_annotation,
+            delete_article_annotation,
+            get_article_annotations,
+            update_article_annotation,
+        )
+
+        try:
+            if args.annotations_command == "list":
+                payload = get_article_annotations(args.article_id)
+            elif args.annotations_command == "add":
+                note = args.note if args.note is not None else args.note_file.read_text(encoding="utf-8")
+                payload = {
+                    "annotation": create_article_annotation(
+                        args.article_id,
+                        quote=args.quote,
+                        prefix=args.prefix,
+                        suffix=args.suffix,
+                        occurrence=args.occurrence,
+                        note=note,
+                    )
+                }
+            elif args.annotations_command == "update":
+                note = args.note if args.note is not None else args.note_file.read_text(encoding="utf-8")
+                payload = {
+                    "annotation": update_article_annotation(
+                        args.article_id,
+                        args.annotation_id,
+                        note=note,
+                    )
+                }
+            else:
+                payload = {
+                    "deleted": True,
+                    "annotation": delete_article_annotation(args.article_id, args.annotation_id),
+                }
             _emit_payload(payload, as_json=args.json)
             return 0
         except (OSError, ValueError) as exc:

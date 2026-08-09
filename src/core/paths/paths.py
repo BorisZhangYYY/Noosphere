@@ -25,6 +25,7 @@ class Paths:
             ├── manifest.json
             ├── review.json
             ├── reflection.md
+            ├── annotations.json
             ├── email_report.json
             └── assets/
     """
@@ -69,6 +70,9 @@ class Paths:
 
     def article_reflection_path(self, article_id: str) -> Path:
         return self.article_dir(article_id) / "reflection.md"
+
+    def article_annotations_path(self, article_id: str) -> Path:
+        return self.article_dir(article_id) / "annotations.json"
 
     def article_email_report_path(self, article_id: str) -> Path:
         return self.article_dir(article_id) / "email_report.json"

@@ -209,6 +209,67 @@ async def save_article_reflection(
 
 
 @mcp.tool()
+async def list_article_annotations(article_id: str) -> dict[str, Any]:
+    """List Markdown interpretations anchored to quoted article passages."""
+    _resolve_article_dir(article_id)
+    from src.application.service import get_article_annotations
+
+    annotations = await _to_thread(get_article_annotations, article_id)
+    return {"ok": True, "operation": "annotations.list", **annotations}
+
+
+@mcp.tool()
+async def create_article_annotation(
+    article_id: str,
+    quote: str,
+    note: str,
+    prefix: str = "",
+    suffix: str = "",
+    occurrence: int = 0,
+) -> dict[str, Any]:
+    """Anchor a Markdown interpretation to an exact passage from an article."""
+    _resolve_article_dir(article_id)
+    from src.application.service import create_article_annotation as create_annotation
+
+    annotation = await _to_thread(
+        create_annotation,
+        article_id,
+        quote=quote,
+        note=note,
+        prefix=prefix,
+        suffix=suffix,
+        occurrence=occurrence,
+    )
+    return {"ok": True, "operation": "annotations.create", "article_id": article_id, "annotation": annotation}
+
+
+@mcp.tool()
+async def update_article_annotation(article_id: str, annotation_id: str, note: str) -> dict[str, Any]:
+    """Replace the Markdown interpretation without changing its quote anchor."""
+    _resolve_article_dir(article_id)
+    from src.application.service import update_article_annotation as update_annotation
+
+    annotation = await _to_thread(update_annotation, article_id, annotation_id, note=note)
+    return {"ok": True, "operation": "annotations.update", "article_id": article_id, "annotation": annotation}
+
+
+@mcp.tool()
+async def delete_article_annotation(article_id: str, annotation_id: str) -> dict[str, Any]:
+    """Delete one quoted-passage interpretation."""
+    _resolve_article_dir(article_id)
+    from src.application.service import delete_article_annotation as delete_annotation
+
+    annotation = await _to_thread(delete_annotation, article_id, annotation_id)
+    return {
+        "ok": True,
+        "operation": "annotations.delete",
+        "article_id": article_id,
+        "deleted": True,
+        "annotation": annotation,
+    }
+
+
+@mcp.tool()
 async def polish_article_reflection(
     article_id: str,
     *,
@@ -630,11 +691,14 @@ def create_app() -> Starlette:
         activate_ai_provider,
         batch_article_trash_action,
         batch_trash_articles,
+        create_article_annotation,
         create_capture,
         create_article_review,
         create_article_polish,
         create_collection as create_collection_route,
+        delete_article_annotation,
         get_article,
+        list_article_annotations,
         get_article_asset,
         get_article_review_job,
         get_polish_job,
@@ -653,6 +717,7 @@ def create_app() -> Starlette:
         retry_capture_job,
         trash_article,
         update_article,
+        update_article_annotation,
         update_article_metadata,
         update_article_image,
         update_article_reflection,
@@ -682,6 +747,10 @@ def create_app() -> Starlette:
         Route("/api/v1/articles/{article_id}/upload", upload_web_article, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/review", create_article_review, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/reflection", update_article_reflection, methods=["PATCH"]),
+        Route("/api/v1/articles/{article_id}/annotations", list_article_annotations, methods=["GET"]),
+        Route("/api/v1/articles/{article_id}/annotations", create_article_annotation, methods=["POST"]),
+        Route("/api/v1/articles/{article_id}/annotations/{annotation_id}", update_article_annotation, methods=["PATCH"]),
+        Route("/api/v1/articles/{article_id}/annotations/{annotation_id}", delete_article_annotation, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}/polish", create_article_polish, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/assets/{asset_name}", get_article_asset, methods=["GET"]),
         Route("/api/v1/articles/{article_id}/removed/{asset_name}", get_removed_article_asset, methods=["GET"]),

@@ -114,6 +114,7 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
         "removedAssets": removed_assets,
         "metadata": protected_metadata,
         "metadataHistory": list((manifest.get("metadata_enrichment") or {}).get("history") or []),
+        "annotations": get_article_annotations(article_id),
     }
     if include_content:
         payload.update(
@@ -443,6 +444,84 @@ def save_reflection(
     if upload_enabled is not None:
         set_upload_enabled(article_dir / "manifest.json", upload_enabled)
     return get_reflection(article_id)
+
+
+def _annotation_payload(annotation: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": annotation["id"],
+        "quote": annotation["quote"],
+        "prefix": annotation["prefix"],
+        "suffix": annotation["suffix"],
+        "occurrence": annotation["occurrence"],
+        "note": annotation["note"],
+        "sourceDigest": annotation["source_digest"],
+        "createdAt": annotation["created_at"],
+        "updatedAt": annotation["updated_at"],
+    }
+
+
+def get_article_annotations(article_id: str) -> dict[str, Any]:
+    """Return quote annotations and the digest of the current reviewed source."""
+    web = _web_helpers()
+    article_dir = web._safe_article_dir(article_id)
+    reviewed_path = article_dir / "reviewed.md"
+    reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
+    from src.core.annotations import read_annotations, reviewed_digest
+
+    annotations = [_annotation_payload(item) for item in read_annotations(article_dir)]
+    return {
+        "articleId": article_id,
+        "sourceDigest": reviewed_digest(reviewed_markdown),
+        "count": len(annotations),
+        "items": annotations,
+    }
+
+
+def create_article_annotation(
+    article_id: str,
+    *,
+    quote: str,
+    prefix: str = "",
+    suffix: str = "",
+    occurrence: int = 0,
+    note: str,
+) -> dict[str, Any]:
+    """Persist one reader-selected quote and Markdown interpretation."""
+    web = _web_helpers()
+    article_dir = web._safe_article_dir(article_id)
+    reviewed_path = article_dir / "reviewed.md"
+    if not reviewed_path.is_file():
+        raise ValueError(f"reviewed.md not found for article: {article_id}")
+    from src.core.annotations import create_annotation, reviewed_digest
+
+    annotation = create_annotation(
+        article_dir,
+        quote=quote,
+        prefix=prefix,
+        suffix=suffix,
+        occurrence=occurrence,
+        note=note,
+        source_digest=reviewed_digest(reviewed_path.read_text(encoding="utf-8")),
+    )
+    return _annotation_payload(annotation)
+
+
+def update_article_annotation(article_id: str, annotation_id: str, *, note: str) -> dict[str, Any]:
+    """Update one quote interpretation without changing its anchor."""
+    web = _web_helpers()
+    article_dir = web._safe_article_dir(article_id)
+    from src.core.annotations import update_annotation
+
+    return _annotation_payload(update_annotation(article_dir, annotation_id, note=note))
+
+
+def delete_article_annotation(article_id: str, annotation_id: str) -> dict[str, Any]:
+    """Delete one quote annotation."""
+    web = _web_helpers()
+    article_dir = web._safe_article_dir(article_id)
+    from src.core.annotations import delete_annotation
+
+    return _annotation_payload(delete_annotation(article_dir, annotation_id))
 
 
 def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[str, Any]:

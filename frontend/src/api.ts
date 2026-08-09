@@ -1,5 +1,5 @@
 import i18n from "./i18n";
-import type { ArticleDetail, ArticleSummary, CaptureJob, CollectionNode, OutputLanguage, PipelineSettings, PolishJob, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TrashedArticle, UploadJob } from "./types";
+import type { ArticleAnnotation, ArticleAnnotations, ArticleDetail, ArticleSummary, CaptureJob, CollectionNode, OutputLanguage, PipelineSettings, PolishJob, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TrashedArticle, UploadJob } from "./types";
 
 function locale() { return i18n.resolvedLanguage?.startsWith("zh") ? "zh-CN" : "en-US"; }
 function localized(path: string) { return `${path}${path.includes("?") ? "&" : "?"}locale=${encodeURIComponent(locale())}`; }
@@ -72,6 +72,22 @@ export const api = {
     request<{ articleId: string; markdown: string; uploadEnabled: boolean; exists: boolean }>(`/api/v1/articles/${encodeURIComponent(articleId)}/reflection`, {
       method: "PATCH",
       body: JSON.stringify(payload)
+    }),
+  createArticleAnnotation: (articleId: string, payload: { quote: string; prefix: string; suffix: string; occurrence: number; note: string }) =>
+    request<ArticleAnnotation>(`/api/v1/articles/${encodeURIComponent(articleId)}/annotations`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  listArticleAnnotations: (articleId: string) =>
+    request<ArticleAnnotations>(`/api/v1/articles/${encodeURIComponent(articleId)}/annotations`),
+  updateArticleAnnotation: (articleId: string, annotationId: string, note: string) =>
+    request<ArticleAnnotation>(`/api/v1/articles/${encodeURIComponent(articleId)}/annotations/${encodeURIComponent(annotationId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ note })
+    }),
+  deleteArticleAnnotation: (articleId: string, annotationId: string) =>
+    request<{ deleted: boolean; annotation: ArticleAnnotation }>(`/api/v1/articles/${encodeURIComponent(articleId)}/annotations/${encodeURIComponent(annotationId)}`, {
+      method: "DELETE"
     }),
   polishArticle: (articleId: string, reflectionMarkdown: string) =>
     request<PolishJob>(`/api/v1/articles/${encodeURIComponent(articleId)}/polish`, {

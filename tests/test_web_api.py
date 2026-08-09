@@ -155,6 +155,8 @@ def test_list_and_read_article(web_client) -> None:
         "uploadEnabled": False,
         "exists": False,
     }
+    assert detail.json()["annotations"]["count"] == 0
+    assert detail.json()["annotations"]["items"] == []
     assert detail.json()["activePolish"] is None
 
 
@@ -178,6 +180,50 @@ def test_reflection_update_validates_payload(web_client) -> None:
         f"/api/v1/articles/{article_id}/reflection",
         json={"uploadEnabled": "yes"},
     ).status_code == 400
+
+
+def test_quote_annotation_lifecycle(web_client) -> None:
+    client, _, article_id = web_client
+    response = client.post(
+        f"/api/v1/articles/{article_id}/annotations",
+        json={
+            "quote": "Context paragraph.",
+            "prefix": "Reviewed ",
+            "suffix": " diagram",
+            "occurrence": 0,
+            "note": "**My interpretation.**",
+        },
+    )
+    assert response.status_code == 201
+    annotation = response.json()
+    assert annotation["quote"] == "Context paragraph."
+    assert len(annotation["sourceDigest"]) == 64
+
+    listed = client.get(f"/api/v1/articles/{article_id}/annotations").json()
+    assert listed["count"] == 1
+    assert listed["items"] == [annotation]
+    detail = client.get(f"/api/v1/articles/{article_id}").json()
+    assert detail["annotations"]["items"] == [annotation]
+
+    updated = client.patch(
+        f"/api/v1/articles/{article_id}/annotations/{annotation['id']}",
+        json={"note": "## Updated"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["note"] == "## Updated"
+    assert updated.json()["quote"] == annotation["quote"]
+
+    deleted = client.delete(f"/api/v1/articles/{article_id}/annotations/{annotation['id']}")
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+    assert client.get(f"/api/v1/articles/{article_id}/annotations").json()["count"] == 0
+
+
+def test_quote_annotation_payload_validation(web_client) -> None:
+    client, _, article_id = web_client
+    endpoint = f"/api/v1/articles/{article_id}/annotations"
+    assert client.post(endpoint, json={"quote": "Passage", "note": ""}).status_code == 400
+    assert client.post(endpoint, json={"quote": "Passage", "note": "Meaning", "occurrence": -1}).status_code == 400
 
 
 def test_polish_job_returns_snapshot_and_model(web_client, monkeypatch) -> None:

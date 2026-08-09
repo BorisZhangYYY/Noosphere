@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2.3] - 2026-08-09
+
+### Added
+
+- Added reading-mode quote annotations: select an article passage, attach an independent Markdown interpretation, click the dashed underline to reopen it, and manage count, navigation, editing, and deletion from the inspection rail.
+- Added versioned, atomic `annotations.json` sidecars with exact quote, prefix/suffix context, occurrence, source digest, timestamps, corruption refusal, and serialized concurrent writes.
+- Added quote-annotation CRUD parity across the Web API, MCP tools, and `nsphr annotations` CLI commands.
+
+### Changed
+
+- Reflections now support explicit Markdown edit and rendered-preview modes, with consistent responsive rendering for saved notes, drafts, and AI-polished previews.
+- Changed-source quote anchors are highlighted only when their stored context resolves safely; otherwise they remain available in the rail as needing re-location instead of attaching to an ambiguous passage.
+
+### Fixed
+
+- Kept quote dialogs and delete confirmations in the root modal layer so the sidebar, article outline, reader, and inspection rail cannot overlap them.
+- Kept quote annotations completely independent from `raw.md`, `reviewed.md`, `reflection.md`, and upload payloads.
+
 ## [0.3.2.2] - 2026-08-09
 
 ### Added

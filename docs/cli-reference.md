@@ -38,6 +38,18 @@ Article updates never overwrite `raw.md`. Source, Platform, Captured, and Type a
 
 Polish is stateless and uses the current reviewed article plus the supplied or saved reflection. It prefers the provider/model recorded by the article review and falls back to the active provider if that profile is unavailable. `--apply` is valid only with `--polish`. Add `--json` for the preview, actual provider/model provenance, and persistent upload state.
 
+## Anchored Quote Interpretations
+
+| Command | Purpose |
+|---|---|
+| `nsphr annotations list ARTICLE_ID --json` | List quote anchors, Markdown interpretations, and the current reviewed-source digest. |
+| `nsphr annotations add ARTICLE_ID --quote "Passage" --note "Markdown"` | Create an annotation for an exact quoted passage. |
+| `nsphr annotations add ARTICLE_ID --quote "Passage" --prefix "Before " --suffix " after" --occurrence 1 --note-file note.md` | Create a disambiguated anchor and read the interpretation from a Markdown file. |
+| `nsphr annotations update ARTICLE_ID ANNOTATION_ID --note-file note.md` | Replace only the Markdown interpretation; the quote anchor stays immutable. |
+| `nsphr annotations delete ARTICLE_ID ANNOTATION_ID` | Delete one quote annotation. |
+
+The web reader normally calculates prefix, suffix, and occurrence automatically. Headless callers should supply them when a quote can appear more than once. Annotations live in `annotations.json`, remain separate from article and reflection Markdown, and are excluded from uploads.
+
 ## Collections
 
 | Command | Purpose |
