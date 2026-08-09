@@ -38,6 +38,7 @@ npx skills add https://github.com/BorisZhangYYY/Noosphere --skill noosphere-setu
 - **Report before uploading**: after `ai-review`, summarize important deletions, rewrites, structure changes, and preserved sections; ask the user for confirmation before running `upload`.
 - **`upload` is independent**: `upload` is a manual endpoint and does not require `ai-review`, a completed `review.json`, or validation to pass. You can upload a manually-edited `reviewed.md` directly.
 - **Reflections stay separate**: use `nsphr reflect` instead of editing `reflection.md` or `manifest.json` directly. AI polish is a preview unless the user explicitly asks to apply it. Ask before changing the persistent upload preference or overriding it for an upload.
+- **Quote annotations stay separate**: use `nsphr annotations` instead of editing `annotations.json` directly. Preserve the exact anchor context, and never merge annotations into article Markdown, reflections, or uploads.
 
 ## Configuration Reference
 
@@ -143,6 +144,7 @@ Each article gets a workspace at `outputs/<article_id>/`:
 - `raw.md` — original crawler output (do not edit).
 - `reviewed.md` — editable draft / AI-reviewed output.
 - `reflection.md` — optional personal note, kept independent from `reviewed.md`.
+- `annotations.json` — optional versioned quote anchors with independent Markdown interpretations; never uploaded.
 - `manifest.json` — source metadata, paths, crawl status, upload record.
 - `review.json` — AI review status and provider/model info.
 - `assets/` — downloaded images referenced by the article.

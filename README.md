@@ -16,6 +16,7 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 - Organize articles in a user-owned Knowledge workspace of clickable index documents with arbitrary nesting; articles may also remain directly at the workspace level.
 - Review images independently, then remove or restore them without changing `raw.md`.
 - Keep a personal `reflection.md` beside each article, optionally polish it with the reviewing model, and decide per article whether it is appended to an upload copy.
+- In reading mode, quote exact passages, underline resolved anchors, and keep Markdown interpretations in an independent `annotations.json` sidecar with rail-based navigation and management.
 - Archive locally or upload reviewed content to SiYuan.
 - Use the same data, configuration, and business rules through the web app, MCP service, or CLI.
 
@@ -118,6 +119,12 @@ Personal notes live in `reflection.md`, never inside `raw.md` or `reviewed.md`. 
 
 Each article also keeps a persistent upload preference in `manifest.json`. When enabled, Noosphere appends a canonical localized “My Reflections” section to a temporary upload copy and deletes that copy afterward. The stored `reviewed.md` remains unchanged.
 
+### Anchored reading quotes
+
+In web reading mode, select a passage and choose Quote this passage to write a Markdown interpretation. Resolved passages receive a dashed underline; clicking one opens its interpretation. The article inspection rail shows the total, navigates to each passage, and provides editing and deletion. Noosphere stores the exact quote, bounded prefix/suffix context, occurrence, reviewed-source digest, and Markdown note in `annotations.json`. If the article changes, an anchor is rendered only when it can still be resolved safely; unresolved entries stay manageable in the rail as needing re-location instead of attaching to the wrong text.
+
+Annotations never modify `raw.md`, `reviewed.md`, or `reflection.md`, and are never appended to uploads.
+
 ## Capability Parity
 
 | Business capability | Web | MCP | CLI |
@@ -127,6 +134,7 @@ Each article also keeps a persistent upload preference in `manifest.json`. When 
 | Arbitrary-depth Collections and article placement | Persistent sidebar and article rail | `list_collections`, `create_collection`, `update_collection`, `delete_collection`, `restore_collection`, `place_article` | `collections list/create/update/delete/restore/place` |
 | Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
 | Personal reflections and AI polish | Article section, floating editor, preview, and upload switch | `get_article_reflection`, `save_article_reflection`, `polish_article_reflection`, `start_polish` | `reflect`, plus upload inclusion overrides |
+| Anchored quote interpretations | Selection action, dashed underline, Markdown dialog, and rail management | `list_article_annotations`, `create_article_annotation`, `update_article_annotation`, `delete_article_annotation` | `annotations list/add/update/delete` |
 | Review perspectives and templates | Review Configuration | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
 | Provider, crawler, and archive settings | Settings page | Masked get/update/activate/test tools | `config show/apply/activate/test` |
 | Capture, review, and upload jobs | Live progress | `start_*`, `get_job`, `list_jobs` | `jobs list/show` against a running service |
@@ -141,7 +149,7 @@ Docker Compose keeps configuration, article workspaces, assets, archives, crawle
 NOOSPHERE_DATA_DIR=/path/to/noosphere-data docker compose up -d --build
 ```
 
-Every article keeps `raw.md`, editable `reviewed.md`, optional `reflection.md`, `manifest.json`, `review.json`, and `assets/` together. See [Configuration](docs/configuration.md) for the full data layout and migration guidance.
+Every article keeps `raw.md`, editable `reviewed.md`, optional `reflection.md`, optional `annotations.json`, `manifest.json`, `review.json`, and `assets/` together. See [Configuration](docs/configuration.md) for the full data layout and migration guidance.
 
 ## Project Structure
 

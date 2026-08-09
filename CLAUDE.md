@@ -7,7 +7,7 @@ Noosphere is an article web extraction, AI review, sharing and storing tool.
 - Read `README.md`, `TODO.md`, `CHANGELOG.md`, and `skills/noosphere/SKILL.md` before changing workflow behavior.
 - Keep user-facing installation, deployment, and operation guides in `docs/`. Keep repository-internal development rules in `.project/`; use this file as a compact index rather than a complete handbook.
 - `references/` contains Crawl4AI and SiYuan documentation that can be used as reference when developing new features.
-- Preserve clear output boundaries inside `outputs/<article_id>/`: do not edit or rewrite `raw.md`, and perform all review, editing, and AI rewriting based on `reviewed.md`. Keep personal notes in `reflection.md`; reflection editing, AI polish, and upload inclusion must never rewrite `reviewed.md`. Keep `manifest.json`, `review.json`, and `assets/` tied to the same article workspace.
+- Preserve clear output boundaries inside `outputs/<article_id>/`: do not edit or rewrite `raw.md`, and perform all review, editing, and AI rewriting based on `reviewed.md`. Keep personal notes in `reflection.md` and anchored quote interpretations in `annotations.json`; neither feature may rewrite `reviewed.md` or enter uploads. Keep `manifest.json`, `review.json`, and `assets/` tied to the same article workspace.
 - Keep long prompts in `prompts/`; keep `config.json.example` easy and human-readable.
 - Platform extraction strategies are documented in [.project/platform-extractors.md](.project/platform-extractors.md). When changing extractor behavior, read and update this doc.
 - Record unresolved product decisions and deliberately deferred work in `TODO.md`; completed user-visible work belongs in `CHANGELOG.md` instead.

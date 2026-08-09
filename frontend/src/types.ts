@@ -95,9 +95,37 @@ export interface ArticleDetail extends ArticleSummary {
   activeReview: ReviewJob | null;
   activePolish: PolishJob | null;
   reflection: { articleId: string; markdown: string; uploadEnabled: boolean; exists: boolean };
+  annotations: ArticleAnnotations;
   assets: Array<{ name: string; url: string }>;
   removedAssets: Array<{ name: string; url: string; reason: string; source: "ai" | "manual" }>;
   collection: ArticleCollection | null;
+}
+
+export interface ArticleAnnotation {
+  id: string;
+  quote: string;
+  prefix: string;
+  suffix: string;
+  occurrence: number;
+  note: string;
+  sourceDigest: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ArticleAnnotations {
+  articleId: string;
+  sourceDigest: string;
+  count: number;
+  items: ArticleAnnotation[];
+}
+
+export interface QuoteAnchorDraft {
+  quote: string;
+  prefix: string;
+  suffix: string;
+  occurrence: number;
+  position: { left: number; top: number };
 }
 
 export interface UploadJob {

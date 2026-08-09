@@ -2,6 +2,20 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
+## v0.3.2.3 — Markdown reflections and anchored reading quotes
+
+Goal: make personal reading notes fully Markdown-aware and let readers attach durable interpretations to exact passages without changing the reviewed article.
+
+- [x] **Markdown reflection rendering.** Add an explicit Edit Markdown / Rendered Preview mode to the reflection dialog and apply one complete, responsive Markdown style system to saved reflections, draft previews, and AI-polished previews.
+- [x] **Anchored reading quotes.** In read-only mode, let users select article text and create an independent Markdown interpretation. Persist the exact quote with stable prefix/suffix context and occurrence metadata, decorate resolved passages with a dashed underline, open the interpretation by clicking the passage, and provide count, navigation, editing, and deletion in the article inspection rail. Keep quote annotations out of `raw.md`, `reviewed.md`, `reflection.md`, and uploads; expose the same CRUD data through Web, MCP, and CLI.
+
+### Release gates
+
+- [x] Selection works across inline formatting and repeated sentences; stale anchors remain manageable instead of attaching to the wrong passage.
+- [x] Frontend type-check and production build pass; Python compile, configuration JSON validation, and the complete test suite pass.
+- [x] Visual smoke tests pass for creation, Markdown preview, clickable underlines, rail navigation/edit/delete, both themes/locales, and desktop/mobile layouts.
+- [x] README, user guides, bundled skill, changelog, and workspace-boundary docs describe `annotations.json` and the quote workflow.
+
 ## v0.3.2.2 — Per-article reflections with AI polish
 
 Goal: let users write a personal reflection on each reviewed article, polish it with the reviewing model in a floating dialog, and control whether the reflection travels with the uploaded document.

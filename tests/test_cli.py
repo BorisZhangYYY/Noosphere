@@ -49,6 +49,30 @@ def test_upload_accepts_reflection_override() -> None:
     assert parse_args(["upload", "article-id"]).include_reflection is None
 
 
+def test_annotation_commands_accept_markdown_notes_and_anchor_context(tmp_path) -> None:
+    note_file = tmp_path / "note.md"
+    added = parse_args([
+        "annotations", "add", "article-id",
+        "--quote", "Selected passage",
+        "--prefix", "Before ",
+        "--suffix", " after",
+        "--occurrence", "2",
+        "--note-file", str(note_file),
+        "--json",
+    ])
+    updated = parse_args([
+        "annotations", "update", "article-id", "annotation-id",
+        "--note", "## Updated",
+    ])
+    deleted = parse_args(["annotations", "delete", "article-id", "annotation-id"])
+
+    assert added.annotations_command == "add"
+    assert added.occurrence == 2
+    assert added.note_file == note_file
+    assert updated.note == "## Updated"
+    assert deleted.annotations_command == "delete"
+
+
 def test_article_metadata_command_accepts_only_enrichable_fields() -> None:
     args = parse_args([
         "articles", "metadata", "article-id",

@@ -76,6 +76,7 @@ Docker Compose mounts one host directory at `/data` and creates a layout similar
 │       ├── raw.md
 │       ├── reviewed.md
 │       ├── reflection.md
+│       ├── annotations.json
 │       ├── manifest.json
 │       ├── review.json
 │       └── assets/
@@ -91,6 +92,8 @@ Docker Compose mounts one host directory at `/data` and creates a layout similar
 Some directories are created only after the corresponding feature is used.
 
 `reflection.md` is optional and contains only the user's personal Markdown note. Its upload preference is stored in `manifest.json` so the file remains plain and portable. When inclusion is enabled, upload works from a short-lived merged copy with a localized reflection heading; `reviewed.md` is never changed.
+
+`annotations.json` is optional and versioned. It contains reader-created quote anchors and their Markdown interpretations, including the exact quote, bounded context, occurrence, reviewed-source digest, and timestamps. It is written atomically, is not merged into any Markdown file, and is excluded from uploads. Back up or move it with the rest of the article workspace.
 
 ## Migrate Existing Local Articles
 

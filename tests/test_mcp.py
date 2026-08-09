@@ -7,11 +7,14 @@ from types import SimpleNamespace
 import pytest
 
 from src.mcp.server import (
+    create_article_annotation,
     create_collection,
+    delete_article_annotation,
     delete_collection,
     get_article_reflection,
     get_job,
     list_articles,
+    list_article_annotations,
     list_collections,
     list_review_perspectives,
     place_article,
@@ -23,6 +26,7 @@ from src.mcp.server import (
     run_pipeline,
     save_article_reflection,
     update_collection,
+    update_article_annotation,
 )
 
 
@@ -266,6 +270,42 @@ async def test_reflection_tools_delegate_to_shared_service(monkeypatch, tmp_path
     assert result["markdown"] == "Draft"
     assert saved == {"article_id": "article", "markdown": "Draft", "upload_enabled": True}
     assert shown["markdown"] == "Saved"
+
+
+@pytest.mark.asyncio
+async def test_annotation_tools_delegate_to_shared_service(monkeypatch, tmp_path: Path) -> None:
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    monkeypatch.setattr("src.mcp.server._resolve_article_dir", lambda article_id: article_dir)
+    calls: list[tuple[str, tuple, dict]] = []
+
+    monkeypatch.setattr(
+        "src.application.service.get_article_annotations",
+        lambda article_id: {"articleId": article_id, "count": 1, "items": [{"id": "a1"}]},
+    )
+    monkeypatch.setattr(
+        "src.application.service.create_article_annotation",
+        lambda article_id, **kwargs: calls.append(("create", (article_id,), kwargs)) or {"id": "a1", **kwargs},
+    )
+    monkeypatch.setattr(
+        "src.application.service.update_article_annotation",
+        lambda article_id, annotation_id, **kwargs: calls.append(("update", (article_id, annotation_id), kwargs)) or {"id": annotation_id, **kwargs},
+    )
+    monkeypatch.setattr(
+        "src.application.service.delete_article_annotation",
+        lambda article_id, annotation_id: calls.append(("delete", (article_id, annotation_id), {})) or {"id": annotation_id},
+    )
+
+    listed = await list_article_annotations("article")
+    created = await create_article_annotation("article", "Passage", "**Meaning**", prefix="Before ")
+    updated = await update_article_annotation("article", "a1", "Updated")
+    deleted = await delete_article_annotation("article", "a1")
+
+    assert listed["count"] == 1
+    assert created["annotation"]["note"] == "**Meaning**"
+    assert updated["annotation"]["note"] == "Updated"
+    assert deleted["deleted"] is True
+    assert [call[0] for call in calls] == ["create", "update", "delete"]
 
 
 @pytest.mark.asyncio

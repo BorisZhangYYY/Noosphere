@@ -19,6 +19,7 @@ Outputs in `outputs/<article_id>/`:
 | `raw.md` | First-round crawler output. Do not edit. |
 | `reviewed.md` | Draft for editing or AI review. |
 | `reflection.md` | Optional personal note, written independently of the reviewed article. |
+| `annotations.json` | Optional anchored quotes and independent Markdown interpretations. |
 | `manifest.json` | Source metadata, paths, crawl status, image download results. |
 | `assets/` | Downloaded images referenced by the article. |
 
@@ -41,6 +42,12 @@ After `extract`, you can edit `reviewed.md` manually and then run `upload` direc
 `nsphr reflect ARTICLE_ID --set "Markdown"`
 
 The reflection is stored in `reflection.md`, not in the reviewed article. `--polish` produces a stateless preview from the current article and reflection; it is saved only with `--polish --apply`. Use `--upload-enabled` or `--no-upload-enabled` to persist whether future uploads include it.
+
+## Quote annotations
+
+`nsphr annotations list ARTICLE_ID`
+
+Quote interpretations are stored in versioned `annotations.json`, never in the reviewed article or reflection. Use `annotations add` with the exact quote and Markdown note; provide prefix, suffix, and occurrence when repeated text needs disambiguation. `annotations update` changes only the note, and `annotations delete` removes the record. Web reading mode captures anchor context automatically and leaves stale anchors manageable rather than attaching them to the wrong passage.
 
 ## Upload
 

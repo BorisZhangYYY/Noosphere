@@ -121,6 +121,17 @@
 
 .markdown-editor-readonly .vditor-reset {
   opacity: 1 !important;
+  cursor: text !important;
+}
+
+::highlight(noosphere-article-annotations) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: var(--accent-strong);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
 }
 
 .markdown-editor .noosphere-image-shell {
