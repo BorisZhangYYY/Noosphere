@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 
 from src.core.config.config import clear_config_cache, load_config
 from src.mcp.server import create_app
-from src.api.web import _capture_jobs, _review_jobs, _upload_jobs
+from src.api.web import _capture_jobs, _polish_jobs, _review_jobs, _upload_jobs
 
 
 @pytest.fixture
@@ -102,11 +102,13 @@ def web_client(monkeypatch, tmp_path: Path):
     _capture_jobs.clear()
     _review_jobs.clear()
     _upload_jobs.clear()
+    _polish_jobs.clear()
     with TestClient(create_app()) as client:
         yield client, config_path, article_dir.name
     _capture_jobs.clear()
     _review_jobs.clear()
     _upload_jobs.clear()
+    _polish_jobs.clear()
     clear_config_cache()
 
 
@@ -147,6 +149,61 @@ def test_list_and_read_article(web_client) -> None:
     assert detail.json()["metadata"]["author"]["editable"] is False
     assert "assets/image.png" in detail.json()["displayMarkdown"]
     assert detail.json()["assets"][0]["name"] == "image.png"
+    assert detail.json()["reflection"] == {
+        "articleId": article_id,
+        "markdown": "",
+        "uploadEnabled": False,
+        "exists": False,
+    }
+    assert detail.json()["activePolish"] is None
+
+
+def test_save_reflection_and_upload_preference(web_client) -> None:
+    client, _, article_id = web_client
+    response = client.patch(
+        f"/api/v1/articles/{article_id}/reflection",
+        json={"markdown": "我的感悟。", "uploadEnabled": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["uploadEnabled"] is True
+    detail = client.get(f"/api/v1/articles/{article_id}").json()
+    assert detail["reflection"]["markdown"] == "我的感悟。"
+    assert detail["reflection"]["uploadEnabled"] is True
+
+
+def test_reflection_update_validates_payload(web_client) -> None:
+    client, _, article_id = web_client
+    assert client.patch(f"/api/v1/articles/{article_id}/reflection", json={}).status_code == 400
+    assert client.patch(
+        f"/api/v1/articles/{article_id}/reflection",
+        json={"uploadEnabled": "yes"},
+    ).status_code == 400
+
+
+def test_polish_job_returns_snapshot_and_model(web_client, monkeypatch) -> None:
+    client, _, article_id = web_client
+
+    async def fake_run_reflection_graph(reviewed_path, *, reflection=None):
+        assert reflection == "我的感悟。"
+        return {"markdown": "润色后的感悟。", "model": "review-model", "provider": "openai"}
+
+    monkeypatch.setattr("src.graph.graph.run_reflection_graph", fake_run_reflection_graph)
+    response = client.post(
+        f"/api/v1/articles/{article_id}/polish",
+        json={"reflectionMarkdown": "我的感悟。"},
+    )
+    assert response.status_code == 202
+    job_id = response.json()["id"]
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        job = client.get(f"/api/v1/polish/{job_id}").json()
+        if job["status"] in {"succeeded", "failed"}:
+            break
+        time.sleep(0.05)
+    assert job["status"] == "succeeded"
+    assert job["polishPreview"] == "润色后的感悟。"
+    assert job["model"] == "review-model"
+    assert job["provider"] == "openai"
 
 
 def test_article_listing_degrades_when_database_metadata_is_unavailable(web_client, monkeypatch) -> None:

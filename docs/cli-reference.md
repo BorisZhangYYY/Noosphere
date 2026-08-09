@@ -10,6 +10,7 @@ The `nsphr` CLI exposes the complete local workflow and automation-friendly work
 | `nsphr extract --batch urls.txt [--json]` | Extract multiple URLs from a file. |
 | `nsphr ai-review ARTICLE_ID --perspective novice --language en-US` | Review or translate an article using a configured perspective. |
 | `nsphr upload ARTICLE_ID --target local\|siyuan` | Archive or upload reviewed Markdown. |
+| `nsphr upload ARTICLE_ID --include-reflection` | Include the reflection for this upload, overriding the stored preference. Use `--no-include-reflection` to exclude it. |
 | `nsphr run URL --perspective original --language zh-CN` | Extract, review, and upload in one foreground workflow. |
 
 `extract` and `upload` are deliberately usable as separate endpoints. You can extract an article, edit `reviewed.md`, and upload without AI review.
@@ -24,6 +25,18 @@ The `nsphr` CLI exposes the complete local workflow and automation-friendly work
 | `nsphr articles metadata ARTICLE_ID --author NAME --published-at DATE` | Fill Author or Published only when absent from the captured source. |
 
 Article updates never overwrite `raw.md`. Source, Platform, Captured, and Type are protected; reviewed Markdown is reassembled with canonical metadata before storage and export.
+
+## Personal Reflections
+
+| Command | Purpose |
+|---|---|
+| `nsphr reflect ARTICLE_ID` | Show the current reflection and upload preference. |
+| `nsphr reflect ARTICLE_ID --set "Markdown"` | Save `reflection.md` without changing `reviewed.md`. |
+| `nsphr reflect ARTICLE_ID --polish` | Generate an AI-polished preview without saving it. |
+| `nsphr reflect ARTICLE_ID --polish --apply` | Generate and explicitly apply the polished preview. |
+| `nsphr reflect ARTICLE_ID --upload-enabled` | Persist inclusion for future uploads. Use `--no-upload-enabled` to disable it. |
+
+Polish is stateless and uses the current reviewed article plus the supplied or saved reflection. It prefers the provider/model recorded by the article review and falls back to the active provider if that profile is unavailable. `--apply` is valid only with `--polish`. Add `--json` for the preview, actual provider/model provenance, and persistent upload state.
 
 ## Collections
 
@@ -76,11 +89,12 @@ MCP and web responses always mask secrets. Secret reveal is intentionally local-
 
 ## Background Jobs
 
-The CLI pipeline commands run in the foreground. To inspect background work created by the web app or MCP service:
+The CLI pipeline commands run in the foreground. To inspect background work created by the web app or MCP service, including reflection polish jobs:
 
 ```bash
 nsphr jobs list --server http://127.0.0.1:8080 --json
 nsphr jobs show JOB_ID --server http://127.0.0.1:8080 --json
+nsphr jobs list --kind polish --server http://127.0.0.1:8080 --json
 ```
 
 Run `nsphr COMMAND --help` for the authoritative option list of any command.

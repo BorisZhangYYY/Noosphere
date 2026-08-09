@@ -26,6 +26,7 @@ _settings_lock = asyncio.Lock()
 _capture_jobs: dict[str, dict[str, Any]] = {}
 _upload_jobs: dict[str, dict[str, Any]] = {}
 _review_jobs: dict[str, dict[str, Any]] = {}
+_polish_jobs: dict[str, dict[str, Any]] = {}
 _AI_API_FORMATS = {"anthropic", "openai_chat", "openai_responses"}
 _AI_PROVIDER_TYPES = {"kimi", "minimax", "zhipu", "volcengine", "custom"}
 _LOCAL_SECRET_REVEAL_HOSTS = {"localhost", "127.0.0.1", "::1", "testserver"}
@@ -438,6 +439,7 @@ def _article_summary(manifest_path: Path, locale: str = "en-US") -> dict[str, An
         "reviewCount": 0,
         "rereviewCount": 0,
         "uploadCount": 0,
+        "reflectCount": 0,
         "events": [],
     }
     try:
@@ -744,6 +746,10 @@ async def get_article(request: Request) -> JSONResponse:
     collection = summary.get("collection") or await asyncio.to_thread(CollectionStore().get_assignment, request.path_params["article_id"])
     active_upload = _active_job_for_article(_upload_jobs, request.path_params["article_id"])
     active_review = _active_job_for_article(_review_jobs, request.path_params["article_id"])
+    active_polish = _active_job_for_article(_polish_jobs, request.path_params["article_id"])
+    from src.application.service import get_reflection
+
+    reflection = await asyncio.to_thread(get_reflection, request.path_params["article_id"])
 
     return JSONResponse({
         **summary,
@@ -759,6 +765,8 @@ async def get_article(request: Request) -> JSONResponse:
         "hasUploaded": bool(manifest.get("uploaded")),
         "activeUpload": active_upload,
         "activeReview": active_review,
+        "activePolish": active_polish,
+        "reflection": reflection,
         "assets": assets,
         "removedAssets": removed_assets,
         "collection": collection,
@@ -936,6 +944,82 @@ async def start_upload_job(article_id: str, *, target: str = "siyuan") -> dict[s
     return _upload_jobs[job_id]
 
 
+async def _run_polish_job(job_id: str, article_id: str, reflection_markdown: str) -> None:
+    job = _polish_jobs[job_id]
+    job.update(status="running", stage="polishing", progress=20, startedAt=_utc_now())
+    _add_job_event(job, "ai_review", "pipeline.events.polishStarted")
+    try:
+        from src.graph.graph import run_reflection_graph
+
+        article_dir = _safe_article_dir(article_id)
+        result = await run_reflection_graph(
+            article_dir / "reviewed.md",
+            reflection=reflection_markdown,
+        )
+        job.update(
+            polishPreview=result["markdown"],
+            model=result["model"],
+            provider=result["provider"],
+        )
+        _add_job_event(job, "ai_review", "pipeline.events.polishCompleted", level="success")
+        job.update(status="succeeded", stage="completed", progress=100, finishedAt=_utc_now())
+    except Exception as exc:
+        error = _exception_message(exc)
+        _add_job_event(job, "system", "pipeline.events.polishFailed", level="error", details=error)
+        job.update(status="failed", stage="failed", error=error, finishedAt=_utc_now())
+
+
+async def start_polish_job(
+    article_id: str,
+    *,
+    reflection_markdown: str | None = None,
+) -> dict[str, Any]:
+    """Queue a reflection polish using an immutable draft snapshot."""
+    import hashlib
+
+    article_dir = _safe_article_dir(article_id)
+    if reflection_markdown is None:
+        from src.core.reflection import read_reflection
+
+        reflection_markdown = read_reflection(article_dir)
+    if not isinstance(reflection_markdown, str):
+        raise ValueError("reflectionMarkdown must be a string")
+    if not reflection_markdown.strip():
+        raise ValueError("Reflection is empty; write a reflection before polishing")
+    if len(reflection_markdown.encode("utf-8")) > 10 * 1024 * 1024:
+        raise ValueError("Reflection Markdown exceeds the 10 MB limit")
+
+    input_digest = hashlib.sha256(reflection_markdown.encode("utf-8")).hexdigest()
+    active_job = _active_job_for_article(_polish_jobs, article_id)
+    if active_job is not None:
+        if active_job.get("inputDigest") == input_digest:
+            return active_job
+        raise ValueError("A polish job is already running for an older reflection draft")
+
+    job_id = uuid.uuid4().hex
+    _polish_jobs[job_id] = {
+        "id": job_id,
+        "kind": "polish",
+        "articleId": article_id,
+        "status": "queued",
+        "stage": "queued",
+        "progress": 0,
+        "createdAt": _utc_now(),
+        "startedAt": None,
+        "finishedAt": None,
+        "inputDigest": input_digest,
+        "polishPreview": "",
+        "model": "",
+        "provider": "",
+        "events": [],
+        "error": None,
+    }
+    while len(_polish_jobs) > 100:
+        _polish_jobs.pop(next(iter(_polish_jobs)))
+    asyncio.create_task(_run_polish_job(job_id, article_id, reflection_markdown))
+    return _polish_jobs[job_id]
+
+
 async def upload_web_article(request: Request) -> JSONResponse:
     try:
         article_dir = _safe_article_dir(request.path_params["article_id"])
@@ -952,9 +1036,75 @@ async def upload_web_article(request: Request) -> JSONResponse:
     return JSONResponse(job, status_code=202)
 
 
+async def update_article_reflection(request: Request) -> JSONResponse:
+    """Save reflection Markdown and/or its upload preference."""
+    try:
+        _safe_article_dir(request.path_params["article_id"])
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Reflection updates must be an object"}, status_code=400)
+    markdown = payload.get("markdown")
+    upload_enabled = payload.get("uploadEnabled")
+    if markdown is not None and not isinstance(markdown, str):
+        return JSONResponse({"error": "markdown must be a string"}, status_code=400)
+    if upload_enabled is not None and not isinstance(upload_enabled, bool):
+        return JSONResponse({"error": "uploadEnabled must be a boolean"}, status_code=400)
+    if markdown is None and upload_enabled is None:
+        return JSONResponse({"error": "Provide markdown, uploadEnabled, or both"}, status_code=400)
+    try:
+        from src.application.service import save_reflection
+
+        result = await asyncio.to_thread(
+            save_reflection,
+            request.path_params["article_id"],
+            markdown,
+            upload_enabled=upload_enabled,
+        )
+    except ValueError as exc:
+        status_code = 413 if "10 MB" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status_code)
+    except OSError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return JSONResponse(result)
+
+
+async def create_article_polish(request: Request) -> JSONResponse:
+    """Start an asynchronous reflection polish job."""
+    try:
+        article_id = request.path_params["article_id"]
+        _safe_article_dir(article_id)
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Polish request must be an object"}, status_code=400)
+    reflection_markdown = payload.get("reflectionMarkdown")
+    if reflection_markdown is not None and not isinstance(reflection_markdown, str):
+        return JSONResponse({"error": "reflectionMarkdown must be a string"}, status_code=400)
+    try:
+        job = await start_polish_job(article_id, reflection_markdown=reflection_markdown)
+    except ValueError as exc:
+        status_code = 413 if "10 MB" in str(exc) else 409 if "already running" in str(exc) else 400
+        return JSONResponse({"error": str(exc)}, status_code=status_code)
+    return JSONResponse(job, status_code=202)
+
+
+async def get_polish_job(request: Request) -> JSONResponse:
+    job = _polish_jobs.get(request.path_params["job_id"])
+    if job is None:
+        return JSONResponse({"error": "Polish job not found"}, status_code=404)
+    return JSONResponse(job)
+
+
 def get_background_job(job_id: str) -> dict[str, Any]:
-    """Return a capture, review, or upload job by ID."""
-    for jobs in (_capture_jobs, _review_jobs, _upload_jobs):
+    """Return a capture, review, upload, or polish job by ID."""
+    for jobs in (_capture_jobs, _review_jobs, _upload_jobs, _polish_jobs):
         if job_id in jobs:
             return jobs[job_id]
     raise ValueError(f"Background job not found: {job_id}")
@@ -966,9 +1116,10 @@ def list_background_jobs(*, kind: str = "all") -> list[dict[str, Any]]:
         "capture": _capture_jobs,
         "review": _review_jobs,
         "upload": _upload_jobs,
+        "polish": _polish_jobs,
     }
     if kind != "all" and kind not in groups:
-        raise ValueError("kind must be one of: all, capture, review, upload")
+        raise ValueError("kind must be one of: all, capture, review, upload, polish")
     selected = groups.values() if kind == "all" else (groups[kind],)
     jobs = [job for group in selected for job in group.values()]
     return sorted(jobs, key=lambda job: str(job.get("createdAt") or ""), reverse=True)

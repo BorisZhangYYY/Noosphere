@@ -9,16 +9,19 @@ import pytest
 from src.mcp.server import (
     create_collection,
     delete_collection,
+    get_article_reflection,
     get_job,
     list_articles,
     list_collections,
     list_review_perspectives,
     place_article,
+    polish_article_reflection,
     _validate_article_id,
     _validate_upload_target,
     review_article,
     restore_collection,
     run_pipeline,
+    save_article_reflection,
     update_collection,
 )
 
@@ -240,3 +243,50 @@ async def test_get_job_returns_background_job(monkeypatch) -> None:
     result = await get_job("job-1")
 
     assert result == {"id": "job-1", "status": "running"}
+
+
+@pytest.mark.asyncio
+async def test_reflection_tools_delegate_to_shared_service(monkeypatch, tmp_path: Path) -> None:
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    monkeypatch.setattr("src.mcp.server._resolve_article_dir", lambda article_id: article_dir)
+    saved: dict[str, object] = {}
+
+    def fake_save(article_id: str, markdown=None, *, upload_enabled=None):
+        saved.update(article_id=article_id, markdown=markdown, upload_enabled=upload_enabled)
+        return {"articleId": article_id, "markdown": markdown or "", "uploadEnabled": bool(upload_enabled), "exists": bool(markdown)}
+
+    monkeypatch.setattr("src.application.service.save_reflection", fake_save)
+    monkeypatch.setattr(
+        "src.application.service.get_reflection",
+        lambda article_id: {"articleId": article_id, "markdown": "Saved", "uploadEnabled": True, "exists": True},
+    )
+    result = await save_article_reflection("article", "Draft", upload_enabled=True)
+    shown = await get_article_reflection("article")
+    assert result["markdown"] == "Draft"
+    assert saved == {"article_id": "article", "markdown": "Draft", "upload_enabled": True}
+    assert shown["markdown"] == "Saved"
+
+
+@pytest.mark.asyncio
+async def test_polish_tool_applies_only_when_requested(monkeypatch, tmp_path: Path) -> None:
+    article_dir = tmp_path / "article"
+    article_dir.mkdir()
+    (article_dir / "reviewed.md").write_text("# Article\n", encoding="utf-8")
+    monkeypatch.setattr("src.mcp.server._resolve_article_dir", lambda article_id: article_dir)
+
+    async def fake_polish(reviewed_path, *, reflection=None):
+        return {"markdown": "Polished", "model": "m", "provider": "p"}
+
+    applied: list[str] = []
+    monkeypatch.setattr("src.graph.graph.run_reflection_graph", fake_polish)
+    monkeypatch.setattr(
+        "src.application.service.save_reflection",
+        lambda article_id, markdown: applied.append(markdown),
+    )
+    preview = await polish_article_reflection("article")
+    assert preview["status"] == "polished"
+    assert applied == []
+    applied_result = await polish_article_reflection("article", apply=True)
+    assert applied_result["status"] == "applied"
+    assert applied == ["Polished"]

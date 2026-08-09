@@ -13,6 +13,7 @@ The MCP service exposes structured Noosphere operations over SSE at `http://loca
 - `start_capture`
 - `start_review`
 - `start_upload`
+- `start_polish`
 
 The first four tools are synchronous. The `start_*` tools create background jobs for clients that should avoid holding one request open during a long extraction, review, or upload.
 
@@ -24,8 +25,13 @@ The first four tools are synchronous. The `start_*` tools create background jobs
 - `update_missing_article_metadata`
 - `list_article_images`
 - `set_article_image_state`
+- `get_article_reflection`
+- `save_article_reflection`
+- `polish_article_reflection`
 
 Content updates affect editable prose; Noosphere restores protected source metadata before storing or exporting `reviewed.md`. `get_article` returns current metadata provenance and enrichment history. `update_missing_article_metadata` accepts only Author and Published values that were absent from the captured source. During AI review, candidate values additionally require an exact captured-text excerpt and are recorded as accepted or reverted. Image state operations use the asset identity reported by `list_article_images`.
+
+Reflections are independent `reflection.md` sidecars. `save_article_reflection` can update Markdown, the persistent upload preference, or both. `polish_article_reflection` returns a stateless preview and provider/model provenance; it writes only when `apply=true`. `start_polish` provides the same preview workflow as a background job. Clients should compare the returned job input digest with the current draft before offering Apply.
 
 ### Knowledge organization
 
@@ -71,6 +77,8 @@ Secrets are masked and cannot be revealed through MCP. An agent may update an ex
 
 Poll `get_job` after a `start_*` call. Repeated starts for the same active article operation return the existing job where the operation is idempotent.
 
+`upload_article` accepts `include_reflection=true|false` as a one-call override. Omitting it follows the article preference stored in `manifest.json`; either path builds a temporary upload copy and leaves `reviewed.md` untouched.
+
 ## Article Placement Example
 
 An MCP client should reason over stable IDs rather than names:
@@ -114,3 +122,24 @@ get_job(job_id=...)
 ```
 
 Job state is server-side. The operation continues when the initiating browser page or MCP conversation is no longer open.
+
+## Reflection Example
+
+```text
+save_article_reflection(
+  article_id="ARTICLE_ID",
+  markdown="This changed how I think about...",
+  upload_enabled=true
+)
+
+polish_article_reflection(article_id="ARTICLE_ID", apply=false)
+  -> polished_markdown, provider, model
+
+polish_article_reflection(
+  article_id="ARTICLE_ID",
+  markdown="This changed how I think about...",
+  apply=true
+)
+```
+
+Preview before applying. AI-added material is marked by the shared reflection prompt, and neither operation modifies `reviewed.md`.

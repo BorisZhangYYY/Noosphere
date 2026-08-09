@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 from langchain_core.tools import tool
@@ -222,6 +223,50 @@ async def upload_article(reviewed_path: str, title: str | None = None, target: s
     return {
         "upload_result": result,
         "platform_name": adapter.platform_name,
+    }
+
+
+@tool
+async def polish_reflection(
+    reviewed_markdown: str,
+    reflection_markdown: str,
+    language: str = "en-US",
+    provider: str = "",
+    model: str = "",
+) -> dict[str, str]:
+    """Polish a personal reflection, preferring the article review model."""
+    config = load_config()
+    prompt_body, _metadata = config.ai.resolve_prompt(
+        "reflection_prompt",
+        "reflection_prompt_path",
+    )
+    user_prompt = (
+        f"Reflection language: {language}\n\n"
+        "<article>\n"
+        f"{reviewed_markdown}\n"
+        "</article>\n\n"
+        "<reflection>\n"
+        f"{reflection_markdown}\n"
+        "</reflection>\n"
+    )
+
+    async def generate(selected_provider: str, selected_model: str):
+        settings = resolve_ai_settings(config, provider_name=selected_provider or None)
+        if selected_model:
+            settings = replace(settings, model=selected_model)
+        return await AIClient(settings).generate_text(prompt_body, user_prompt)
+
+    try:
+        response = await generate(provider, model)
+    except Exception:
+        active_settings = resolve_ai_settings(config)
+        if not provider and (not model or model == active_settings.model):
+            raise
+        response = await AIClient(active_settings).generate_text(prompt_body, user_prompt)
+    return {
+        "markdown": response.text.strip(),
+        "model": response.model,
+        "provider": response.provider,
     }
 
 

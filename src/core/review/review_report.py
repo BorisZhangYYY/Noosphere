@@ -23,6 +23,25 @@ def review_report_path(reviewed_path: Path) -> Path:
     return reviewed_path.with_name("review.json")
 
 
+def read_review_ai_settings(reviewed_path: Path) -> tuple[str, str] | None:
+    """Return the provider and model used by the last completed review."""
+    report_path = review_report_path(Path(reviewed_path))
+    if not report_path.is_file():
+        return None
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(report, dict) or report.get("status") != "reviewed":
+        return None
+    ai = report.get("ai")
+    if not isinstance(ai, dict):
+        return None
+    provider = str(ai.get("rewrite_provider") or "").strip()
+    model = str(ai.get("rewrite_model") or "").strip()
+    return (provider, model) if provider and model else None
+
+
 def reviewed_article_id(reviewed_path: Path) -> str:
     return reviewed_path.parent.name
 

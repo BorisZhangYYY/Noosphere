@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2.2] - 2026-08-09
+
+### Added
+
+- Added per-article `reflection.md` sidecars across Web, MCP, and CLI, with a dedicated article section, floating editor, persistent upload preference, and operation counts.
+- Added stateless LangGraph reflection polish using the current reviewed article and reflection, with explicit preview/apply semantics, AI-addition markers, provider/model provenance, and fallback from the recorded review model to the active provider.
+- Added synchronous and background reflection operations to MCP, `nsphr reflect` commands, and one-time upload inclusion overrides.
+
+### Changed
+
+- Uploads can append a canonical localized reflection section to an atomic temporary copy while keeping `reviewed.md` unchanged and cleaning temporary files after success or failure.
+- Reflection drafts now survive article-query refreshes, recover active polish jobs, reject stale previews, and prevent a second draft from replacing an in-flight polish snapshot.
+
+### Fixed
+
+- Isolated article image delete/restore confirmations and unsaved-change dialogs in a root-level modal layer above the sidebar, article outline, reader, and inspection rail on desktop, tablet, and mobile.
+- Preserved existing manifest fields during reflection preference updates, rejected corrupt manifests instead of overwriting them, and replaced shared temporary filenames with collision-safe atomic files.
+
 ## [0.3.2.1] - 2026-07-30
 
 ### Added

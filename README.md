@@ -15,6 +15,7 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 - Keep source metadata and final Markdown structure deterministic instead of relying on the model to reproduce a fragile document skeleton.
 - Organize articles in a user-owned Knowledge workspace of clickable index documents with arbitrary nesting; articles may also remain directly at the workspace level.
 - Review images independently, then remove or restore them without changing `raw.md`.
+- Keep a personal `reflection.md` beside each article, optionally polish it with the reviewing model, and decide per article whether it is appended to an upload copy.
 - Archive locally or upload reviewed content to SiYuan.
 - Use the same data, configuration, and business rules through the web app, MCP service, or CLI.
 
@@ -111,6 +112,12 @@ Existing two-level taxonomy records are migrated once into equivalent Collection
 
 The text-review provider and image-review provider are configured independently. If no vision-capable image provider is selected, Noosphere preserves images and records that image review was skipped.
 
+### Independent personal reflections
+
+Personal notes live in `reflection.md`, never inside `raw.md` or `reviewed.md`. Web, MCP, and CLI can save the note and request a stateless AI polish preview based only on the current reviewed article and reflection. Applying that preview is always explicit. The reviewing provider and model recorded in `review.json` are preferred; if that profile is no longer available, Noosphere falls back to the active text provider.
+
+Each article also keeps a persistent upload preference in `manifest.json`. When enabled, Noosphere appends a canonical localized “My Reflections” section to a temporary upload copy and deletes that copy afterward. The stored `reviewed.md` remains unchanged.
+
 ## Capability Parity
 
 | Business capability | Web | MCP | CLI |
@@ -119,6 +126,7 @@ The text-review provider and image-review provider are configured independently.
 | Article list, protected metadata, and prose update | Library and editor | `list_articles`, `get_article`, `update_article_content`, `update_missing_article_metadata` | `articles list/show/update/metadata` |
 | Arbitrary-depth Collections and article placement | Persistent sidebar and article rail | `list_collections`, `create_collection`, `update_collection`, `delete_collection`, `restore_collection`, `place_article` | `collections list/create/update/delete/restore/place` |
 | Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
+| Personal reflections and AI polish | Article section, floating editor, preview, and upload switch | `get_article_reflection`, `save_article_reflection`, `polish_article_reflection`, `start_polish` | `reflect`, plus upload inclusion overrides |
 | Review perspectives and templates | Review Configuration | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
 | Provider, crawler, and archive settings | Settings page | Masked get/update/activate/test tools | `config show/apply/activate/test` |
 | Capture, review, and upload jobs | Live progress | `start_*`, `get_job`, `list_jobs` | `jobs list/show` against a running service |
@@ -133,7 +141,7 @@ Docker Compose keeps configuration, article workspaces, assets, archives, crawle
 NOOSPHERE_DATA_DIR=/path/to/noosphere-data docker compose up -d --build
 ```
 
-Every article keeps `raw.md`, editable `reviewed.md`, `manifest.json`, `review.json`, and `assets/` together. See [Configuration](docs/configuration.md) for the full data layout and migration guidance.
+Every article keeps `raw.md`, editable `reviewed.md`, optional `reflection.md`, `manifest.json`, `review.json`, and `assets/` together. See [Configuration](docs/configuration.md) for the full data layout and migration guidance.
 
 ## Project Structure
 
@@ -181,6 +189,10 @@ No. The interface locale controls display labels and can be used as the default 
 ### What happens when image review is unavailable?
 
 Noosphere safely keeps all downloaded images. Image removal only runs when a separately selected provider is declared vision-capable.
+
+### Can AI change my reflection automatically?
+
+No. AI polish produces a preview from an immutable snapshot of the current draft. You must apply the preview explicitly, and Noosphere refuses to apply it after the draft has changed. The original article and `reviewed.md` are never modified by reflection editing or upload inclusion.
 
 ### Where is my data stored?
 

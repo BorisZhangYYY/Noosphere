@@ -39,6 +39,8 @@ Provider profile names are user-defined. Each profile can set:
 
 `ai.provider` selects the text-review profile. `ai.image_provider` independently selects the image-review profile. Declaring a text model vision-capable does not automatically activate it for image review.
 
+`ai.reflection_prompt_path` selects the shared reflection-polish prompt (default: `prompts/reflect_article.md`). Polish first tries the provider/model recorded in the article's `review.json`; if that profile is missing or no longer usable, it retries with the active text provider.
+
 ## Crawlers
 
 `crawler.primary` and `crawler.fallback` accept `crawl4ai` or `firecrawl`. The fallback must be different from the primary crawler or disabled. Firecrawl credentials are only needed when Firecrawl is selected in either position.
@@ -73,6 +75,7 @@ Docker Compose mounts one host directory at `/data` and creates a layout similar
 │   └── ARTICLE_ID/
 │       ├── raw.md
 │       ├── reviewed.md
+│       ├── reflection.md
 │       ├── manifest.json
 │       ├── review.json
 │       └── assets/
@@ -86,6 +89,8 @@ Docker Compose mounts one host directory at `/data` and creates a layout similar
 ```
 
 Some directories are created only after the corresponding feature is used.
+
+`reflection.md` is optional and contains only the user's personal Markdown note. Its upload preference is stored in `manifest.json` so the file remains plain and portable. When inclusion is enabled, upload works from a short-lived merged copy with a localized reflection heading; `reviewed.md` is never changed.
 
 ## Migrate Existing Local Articles
 

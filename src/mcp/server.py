@@ -147,7 +147,12 @@ async def review_article(article_id: str, perspective: str = "", language: str =
 
 
 @mcp.tool()
-async def upload_article(article_id: str, *, target: str = "auto") -> dict[str, Any]:
+async def upload_article(
+    article_id: str,
+    *,
+    target: str = "auto",
+    include_reflection: bool | None = None,
+) -> dict[str, Any]:
     """Upload a reviewed article to the configured note platform."""
     article_dir = _resolve_article_dir(article_id)
     reviewed_path = article_dir / "reviewed.md"
@@ -156,7 +161,11 @@ async def upload_article(article_id: str, *, target: str = "auto") -> dict[str, 
 
     from src.graph.graph import run_upload_graph
 
-    result: UploadResult = await run_upload_graph(reviewed_path, target=_validate_upload_target(target))
+    result: UploadResult = await run_upload_graph(
+        reviewed_path,
+        target=_validate_upload_target(target),
+        include_reflection=include_reflection,
+    )
     return {
         "ok": True,
         "operation": "upload",
@@ -165,6 +174,67 @@ async def upload_article(article_id: str, *, target: str = "auto") -> dict[str, 
         "target": target,
         "hpath": result.hpath,
         "created": result.created,
+        "include_reflection": include_reflection,
+    }
+
+
+@mcp.tool()
+async def get_article_reflection(article_id: str) -> dict[str, Any]:
+    """Return an article's reflection and upload preference."""
+    _resolve_article_dir(article_id)
+    from src.application.service import get_reflection
+
+    reflection = await _to_thread(get_reflection, article_id)
+    return {"ok": True, "operation": "reflect", "article_id": article_id, **reflection}
+
+
+@mcp.tool()
+async def save_article_reflection(
+    article_id: str,
+    markdown: str | None = None,
+    *,
+    upload_enabled: bool | None = None,
+) -> dict[str, Any]:
+    """Save reflection Markdown and/or its persistent upload preference."""
+    _resolve_article_dir(article_id)
+    from src.application.service import save_reflection
+
+    reflection = await _to_thread(
+        save_reflection,
+        article_id,
+        markdown,
+        upload_enabled=upload_enabled,
+    )
+    return {"ok": True, "operation": "reflect", "article_id": article_id, **reflection}
+
+
+@mcp.tool()
+async def polish_article_reflection(
+    article_id: str,
+    *,
+    apply: bool = False,
+    markdown: str | None = None,
+) -> dict[str, Any]:
+    """Polish a reflection and apply it only when explicitly requested."""
+    article_dir = _resolve_article_dir(article_id)
+    reviewed_path = article_dir / "reviewed.md"
+    if not reviewed_path.is_file():
+        raise ValueError(f"reviewed.md not found for article: {article_id}")
+    from src.graph.graph import run_reflection_graph
+
+    result = await run_reflection_graph(reviewed_path, reflection=markdown)
+    if apply:
+        from src.application.service import save_reflection
+
+        await _to_thread(save_reflection, article_id, result["markdown"])
+    return {
+        "ok": True,
+        "operation": "reflect",
+        "article_id": article_id,
+        "status": "applied" if apply else "polished",
+        "polished_markdown": result["markdown"],
+        "model": result["model"],
+        "provider": result["provider"],
     }
 
 
@@ -515,8 +585,19 @@ async def start_upload(article_id: str, target: str = "siyuan") -> dict[str, Any
 
 
 @mcp.tool()
+async def start_polish(article_id: str, markdown: str = "") -> dict[str, Any]:
+    """Start an asynchronous reflection polish and return a pollable job."""
+    from src.api.web import start_polish_job
+
+    return await start_polish_job(
+        article_id,
+        reflection_markdown=markdown if markdown else None,
+    )
+
+
+@mcp.tool()
 async def get_job(job_id: str) -> dict[str, Any]:
-    """Poll a background capture, review, or upload job."""
+    """Poll a background capture, review, upload, or polish job."""
     from src.api.web import get_background_job
 
     return get_background_job(job_id)
@@ -551,10 +632,12 @@ def create_app() -> Starlette:
         batch_trash_articles,
         create_capture,
         create_article_review,
+        create_article_polish,
         create_collection as create_collection_route,
         get_article,
         get_article_asset,
         get_article_review_job,
+        get_polish_job,
         get_job as get_web_job,
         get_removed_article_asset,
         get_pipeline_settings,
@@ -572,6 +655,7 @@ def create_app() -> Starlette:
         update_article,
         update_article_metadata,
         update_article_image,
+        update_article_reflection,
         update_article_collection,
         update_pipeline_settings,
         update_collection as update_collection_route,
@@ -597,12 +681,15 @@ def create_app() -> Starlette:
         Route("/api/v1/articles/{article_id}", trash_article, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}/upload", upload_web_article, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/review", create_article_review, methods=["POST"]),
+        Route("/api/v1/articles/{article_id}/reflection", update_article_reflection, methods=["PATCH"]),
+        Route("/api/v1/articles/{article_id}/polish", create_article_polish, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/assets/{asset_name}", get_article_asset, methods=["GET"]),
         Route("/api/v1/articles/{article_id}/removed/{asset_name}", get_removed_article_asset, methods=["GET"]),
         Route("/api/v1/articles/{article_id}/images/{asset_name}", update_article_image, methods=["PATCH"]),
         Route("/api/v1/articles/{article_id}/collection", update_article_collection, methods=["PATCH"]),
         Route("/api/v1/uploads/{job_id}", get_upload_job, methods=["GET"]),
         Route("/api/v1/reviews/{job_id}", get_article_review_job, methods=["GET"]),
+        Route("/api/v1/polish/{job_id}", get_polish_job, methods=["GET"]),
         Route("/api/v1/jobs", list_web_jobs, methods=["GET"]),
         Route("/api/v1/jobs/{job_id}", get_web_job, methods=["GET"]),
         Route("/api/v1/captures", create_capture, methods=["POST"]),

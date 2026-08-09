@@ -58,6 +58,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     upload_parser.add_argument("file", type=Path, help="Markdown file, article directory, or article ID to upload.")
     upload_parser.add_argument("--force", "-f", action="store_true", help="Re-upload even if the article was already uploaded.")
     upload_parser.add_argument("--target", "-t", choices=["local", "siyuan"], default=None, help="Upload target platform (default: auto-select from config).")
+    upload_parser.add_argument(
+        "--include-reflection",
+        dest="include_reflection",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override the article's reflection upload preference for this upload.",
+    )
     upload_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     ai_review_parser = subparsers.add_parser("ai-review", help="Use the configured AI model to rewrite and check one reviewed Markdown file, article directory, or article ID.")
@@ -66,6 +73,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ai_review_parser.add_argument("--perspective", help="Review perspective ID from the pipeline configuration.")
     ai_review_parser.add_argument("--language", choices=["zh-CN", "en-US", "source"], help="Reviewed article output language.")
     ai_review_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+
+    reflect_parser = subparsers.add_parser("reflect", help="Show, save, or AI-polish an article reflection.")
+    reflect_parser.add_argument("file", type=Path, help="Reviewed Markdown file, article directory, or article ID.")
+    reflect_parser.add_argument("--set", dest="set_text", help="Save this reflection Markdown.")
+    reflect_parser.add_argument("--polish", action="store_true", help="Polish the current reflection with AI.")
+    reflect_parser.add_argument("--apply", action="store_true", help="Apply the polished preview to reflection.md.")
+    reflect_parser.add_argument(
+        "--upload-enabled",
+        dest="upload_enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Persist whether uploads include this reflection.",
+    )
+    reflect_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     run_parser = subparsers.add_parser("run", help="Extract one URL, AI-review it, then upload it to SiYuan.")
     run_parser.add_argument("url", help="Article URL to extract.")
@@ -245,7 +266,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     jobs_parser = subparsers.add_parser("jobs", help="Inspect background jobs from a running Noosphere server.")
     jobs_subparsers = jobs_parser.add_subparsers(dest="jobs_command", required=True)
     jobs_list = jobs_subparsers.add_parser("list", help="List server-side capture, review, and upload jobs.")
-    jobs_list.add_argument("--kind", choices=["all", "capture", "review", "upload"], default="all")
+    jobs_list.add_argument("--kind", choices=["all", "capture", "review", "upload", "polish"], default="all")
     jobs_list.add_argument("--server", default="http://127.0.0.1:8080")
     jobs_list.add_argument("--json", action="store_true")
     jobs_show = jobs_subparsers.add_parser("show", help="Show one server-side job.")
@@ -319,9 +340,18 @@ async def _run_ai_review(path: Path, *, perspective: str | None = None, language
     return validation
 
 
-async def _run_upload(path: Path, target: str | None = None) -> tuple[str, str]:
+async def _run_upload(
+    path: Path,
+    target: str | None = None,
+    *,
+    include_reflection: bool | None = None,
+) -> tuple[str, str]:
     """Upload a reviewed Markdown file and return (hpath, platform_name)."""
-    upload_result = await run_upload_graph(path, target=target)
+    upload_result = await run_upload_graph(
+        path,
+        target=target,
+        include_reflection=include_reflection,
+    )
     # The upload graph records platform in manifest; report it from the manifest.
     manifest_path = path.with_name("manifest.json")
     platform = "unknown"
@@ -724,6 +754,75 @@ async def _main_async(args: argparse.Namespace) -> int:
         console.print(table)
         return 0 if failed == 0 else 1
 
+    if args.command == "reflect":
+        from src.core.reflection import (
+            read_reflection,
+            read_upload_enabled,
+            set_upload_enabled,
+            write_reflection,
+        )
+
+        if args.apply and not args.polish:
+            message = "--apply requires --polish"
+            if args.json:
+                _emit_payload({"ok": False, "operation": "reflect", "error": message}, as_json=True)
+            else:
+                console.print(f"[red]Error: {message}[/red]")
+            return 1
+        try:
+            reviewed_path = _resolve_reviewed_path(args.file)
+            article_dir = reviewed_path.parent
+            if args.set_text is not None:
+                write_reflection(article_dir, args.set_text)
+            if args.upload_enabled is not None:
+                set_upload_enabled(article_dir / "manifest.json", args.upload_enabled)
+
+            polished_result = None
+            if args.polish:
+                from src.graph.graph import run_reflection_graph
+
+                polished_result = await run_reflection_graph(
+                    reviewed_path,
+                    reflection=args.set_text if args.set_text is not None else None,
+                )
+                if args.apply:
+                    write_reflection(article_dir, polished_result["markdown"])
+
+            markdown = read_reflection(article_dir)
+            payload = {
+                "ok": True,
+                "operation": "reflect",
+                "article_id": article_dir.name,
+                "status": (
+                    "applied" if args.polish and args.apply
+                    else "polished" if args.polish
+                    else "saved" if args.set_text is not None or args.upload_enabled is not None
+                    else "shown"
+                ),
+                "reflection": markdown,
+                "polished_markdown": polished_result["markdown"] if polished_result else None,
+                "model": polished_result["model"] if polished_result else "",
+                "provider": polished_result["provider"] if polished_result else "",
+                "uploadEnabled": read_upload_enabled(article_dir / "manifest.json"),
+            }
+        except Exception as exc:
+            if args.json:
+                _emit_payload({"ok": False, "operation": "reflect", "error": str(exc)}, as_json=True)
+            else:
+                console.print(f"[red]Reflection failed: {exc}[/red]")
+            return 1
+        if args.json:
+            _emit_payload(payload, as_json=True)
+        elif polished_result is not None and not args.apply:
+            console.print("[green]Polished reflection:[/green]")
+            console.print(polished_result["markdown"])
+            console.print(f"[dim]{polished_result['provider']} · {polished_result['model']}[/dim]")
+        elif markdown.strip():
+            console.print(markdown)
+        else:
+            console.print("[yellow]No reflection yet. Use --set to write one.[/yellow]")
+        return 0
+
     if args.command == "upload":
         try:
             reviewed_path = _resolve_reviewed_path(args.file)
@@ -745,7 +844,11 @@ async def _main_async(args: argparse.Namespace) -> int:
             return 0
 
         try:
-            hpath, platform = await _run_upload(reviewed_path, target=args.target)
+            hpath, platform = await _run_upload(
+                reviewed_path,
+                target=args.target,
+                include_reflection=args.include_reflection,
+            )
         except Exception as exc:
             if args.json:
                 _emit_payload({"ok": False, "operation": "upload", "error": str(exc)}, as_json=True)

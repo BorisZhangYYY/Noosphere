@@ -1,5 +1,5 @@
 import i18n from "./i18n";
-import type { ArticleDetail, ArticleSummary, CaptureJob, CollectionNode, OutputLanguage, PipelineSettings, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TrashedArticle, UploadJob } from "./types";
+import type { ArticleDetail, ArticleSummary, CaptureJob, CollectionNode, OutputLanguage, PipelineSettings, PolishJob, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TrashedArticle, UploadJob } from "./types";
 
 function locale() { return i18n.resolvedLanguage?.startsWith("zh") ? "zh-CN" : "en-US"; }
 function localized(path: string) { return `${path}${path.includes("?") ? "&" : "?"}locale=${encodeURIComponent(locale())}`; }
@@ -68,6 +68,17 @@ export const api = {
   getUploadJob: (jobId: string) => request<UploadJob>(`/api/v1/uploads/${encodeURIComponent(jobId)}`),
   reviewArticle: (articleId: string, perspective: string, outputLanguage: OutputLanguage = "follow_ui") => request<ReviewJob>(localized(`/api/v1/articles/${encodeURIComponent(articleId)}/review`), { method: "POST", body: JSON.stringify({ perspective, outputLanguage }) }),
   getReviewJob: (jobId: string) => request<ReviewJob>(`/api/v1/reviews/${encodeURIComponent(jobId)}`),
+  saveReflection: (articleId: string, payload: { markdown?: string; uploadEnabled?: boolean }) =>
+    request<{ articleId: string; markdown: string; uploadEnabled: boolean; exists: boolean }>(`/api/v1/articles/${encodeURIComponent(articleId)}/reflection`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
+  polishArticle: (articleId: string, reflectionMarkdown: string) =>
+    request<PolishJob>(`/api/v1/articles/${encodeURIComponent(articleId)}/polish`, {
+      method: "POST",
+      body: JSON.stringify({ reflectionMarkdown })
+    }),
+  getPolishJob: (jobId: string) => request<PolishJob>(`/api/v1/polish/${encodeURIComponent(jobId)}`),
   getPipelineSettings: () => request<PipelineSettings>(localized("/api/v1/pipeline/settings")),
   updatePipelineSettings: (settings: PipelineSettings) => request<PipelineSettings>(localized("/api/v1/pipeline/settings"), {
     method: "PATCH",
