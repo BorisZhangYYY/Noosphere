@@ -34,3 +34,6 @@ skills-lock.json
 
 # Logs
 *.log
+
+# 本地回收站(SOUL.md 规范)
+.trash/
