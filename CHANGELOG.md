@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2.4] - 2026-08-10
+
+### Added
+
+- Added a database mirror of article content (raw/reviewed/reflection Markdown and annotations) in the new `noosphere_article_content` table; missing workspaces are reconstructed from that backup on demand and at startup, while trashed articles are never resurrected and permanent deletes drop the mirror row.
+- Added reading-mode collection moves: a quick move dropdown beside the title-block collection chips places the article immediately, and the inspection rail picker is no longer disabled while read-only.
+- Added the `NOOSPHERE_ALLOWED_SECRET_HOSTS` environment variable as an append-only host whitelist for secret reveal, so LAN or tunnel access can view and rotate configured credentials while localhost remains the default.
+
+### Fixed
+
+- Tolerated `chmod` failures on 9p/NTFS mounts (e.g. WSL2) so saving settings no longer aborts with `Operation not permitted` for non-root users.
+
 ## [0.3.2.3] - 2026-08-09
 
 ### Added
