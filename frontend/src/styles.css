@@ -412,10 +412,6 @@ body.article-route-active .content-shell { height: 100dvh; min-height: 0; paddin
 .reader-surface.editor-surface > * { max-width: none; }
 .article-title-block { width: min(1080px, 100%); max-width: none !important; margin: 34px auto 0 !important; padding: 0 clamp(22px, 3.2vw, 46px) 28px; border-bottom: 1px solid var(--line); }
 .article-title-block h1 { max-width: none; margin: 0 0 15px; font-size: clamp(30px, 3.4vw, 46px); line-height: 1.08; text-wrap: balance; }
-.article-collection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.article-collection-chips { display: flex; flex-wrap: wrap; gap: 7px; }
-.article-collection-chips button { min-height: 27px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--text-muted); background: var(--surface-muted); cursor: pointer; font-size: 9.5px; font-weight: 620; }
-.article-collection-chips button:hover { border-color: var(--accent); color: var(--accent-strong); }
 .has-external-title .markdown-editor-readonly .vditor-wysiwyg .vditor-reset > h1:first-child { display: none; }
 .editor-mode-toggle { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-muted); }
 .editor-mode-toggle button { min-height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11.5px; font-weight: 650; }
