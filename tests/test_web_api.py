@@ -737,6 +737,35 @@ def test_settings_api_masks_and_preserves_secrets(web_client) -> None:
     assert "existing-secret" not in json.dumps(reloaded)
 
 
+def test_settings_save_succeeds_when_chmod_is_not_permitted(web_client, monkeypatch) -> None:
+    """
+    In 9p/NTFS (WSL) mounts, non-root users hit `Operation not permitted` on chmod.
+    The atomic config write must tolerate chmod failure and still persist.
+    """
+    import os
+
+    client, config_path, _ = web_client
+
+    # Force every chmod to fail, as it does on NTFS/9p mounts for non-root.
+    monkeypatch.setattr(
+        os, "chmod", lambda *a, **k: (_ for _ in ()).throw(PermissionError(1, "Operation not permitted"))
+    )
+
+    settings = client.get("/api/v1/settings")
+    payload = settings.json()
+    payload["aiProviders"][0]["model"] = "chmod-fail-safe-model"
+    response = client.patch("/api/v1/settings", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["model"] == "chmod-fail-safe-model"
+
+    # Config must still be persisted despite chmod failing.
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert persisted["ai_providers"]["openai"]["model"] == "chmod-fail-safe-model"
+    # No stray temp file left behind.
+    assert not list(config_path.parent.glob(".config-*.json"))
+
+
 def test_settings_infers_legacy_provider_types(web_client) -> None:
     client, _, _ = web_client
 
