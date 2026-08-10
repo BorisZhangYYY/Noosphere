@@ -476,27 +476,6 @@ export function ArticlePage() {
           {readOnly && (
             <header className="article-title-block">
               <h1>{article.title}</h1>
-              <div className="article-collection-bar">
-                {!!(article.collection?.collection_path ?? []).length && <div className="article-collection-chips">
-                  {(article.collection?.collection_path ?? []).map((item) => (
-                    <button type="button" onClick={() => navigate(`/collections/${encodeURIComponent(item.id)}`)} key={item.id}>
-                      <FolderOpen size={13} />
-                      {item.name}
-                    </button>
-                  ))}
-                </div>}
-                <InlineSelect
-                  value={collectionId || "__root"}
-                  ariaLabel={t("article.moveToCollection")}
-                  onChange={(value) => collectionMutation.mutate(value === "__root" ? "" : value)}
-                  disabled={collectionQuery.isLoading || collectionMutation.isPending}
-                  options={[
-                    { value: "__root", label: t("knowledge.unfiled"), description: t("article.collectionRootHelp") },
-                    ...availableCollections
-                  ]}
-                />
-              </div>
-              {collectionMutation.isError && <p className="article-action-error" role="alert">{(collectionMutation.error as Error).message}</p>}
             </header>
           )}
           <MarkdownEditor
@@ -956,7 +935,7 @@ export function ArticlePage() {
         document.body
       )}
       {previewAsset && createPortal(
-        <div className="asset-lightbox-backdrop" role="presentation" onMouseDown={() => setPreviewAsset(null)}>
+        <div className="asset-lightbox-backdrop modal-root-layer" role="presentation" onMouseDown={() => setPreviewAsset(null)}>
           <section
             className="asset-lightbox"
             role="dialog"

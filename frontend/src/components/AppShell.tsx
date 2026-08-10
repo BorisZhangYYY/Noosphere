@@ -155,7 +155,7 @@ export function AppShell() {
       )}
 
       {captureOpen && (
-        <div className="dialog-layer" role="presentation" onMouseDown={() => setCaptureOpen(false)}>
+        <div className="dialog-layer modal-root-layer" role="presentation" onMouseDown={() => setCaptureOpen(false)}>
           <form className="capture-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-title" onSubmit={(event) => { event.preventDefault(); captureMutation.mutate({ url: captureUrl, reviewMode, perspective, outputLanguage }); }} onMouseDown={(event) => event.stopPropagation()}>
             <button className="dialog-close" onClick={() => setCaptureOpen(false)} aria-label={t("nav.close")}>
               <X size={19} />
