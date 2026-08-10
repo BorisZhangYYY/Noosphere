@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -685,6 +686,19 @@ def _health_handler(request):
     return JSONResponse({"status": "ok", "service": "noosphere-mcp"})
 
 
+@asynccontextmanager
+async def _recover_article_workspaces_lifespan(app):
+    """Best-effort startup check: rebuild article workspaces missing from disk."""
+    del app
+    try:
+        from src.core.content import recover_missing_article_workspaces
+
+        await asyncio.to_thread(recover_missing_article_workspaces, load_config().output_dir_path)
+    except Exception as exc:
+        logger.warning("Article workspace startup recovery skipped: %s", exc)
+    yield
+
+
 def create_app() -> Starlette:
     """Return a Starlette ASGI app serving the MCP SSE endpoint and health check."""
     from src.api.web import (
@@ -788,6 +802,7 @@ def create_app() -> Starlette:
     routes.append(Mount("/", app=sse_app))
     return Starlette(
         routes=routes,
+        lifespan=_recover_article_workspaces_lifespan,
     )
 
 
