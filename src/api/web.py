@@ -1462,6 +1462,15 @@ def _secret_response(payload: dict[str, Any], status_code: int = 200) -> JSONRes
     return JSONResponse(payload, status_code=status_code, headers={"Cache-Control": "no-store"})
 
 
+def _secret_reveal_hosts() -> set[str]:
+    # 默认仅 localhost 可 reveal；NOOSPHERE_ALLOWED_SECRET_HOSTS（逗号分隔）为追加白名单，
+    # 用于局域网 IP / 隧道域名等外部访问场景，不会覆盖默认 localhost 列表。
+    hosts = {host.casefold() for host in _LOCAL_SECRET_REVEAL_HOSTS}
+    extra = os.getenv("NOOSPHERE_ALLOWED_SECRET_HOSTS", "")
+    hosts.update(entry.strip().casefold() for entry in extra.split(",") if entry.strip())
+    return hosts
+
+
 def _secret_reveal_allowed(request: Request) -> bool:
     if os.getenv("NOOSPHERE_ALLOW_REMOTE_SECRET_REVEAL", "").casefold() == "true":
         return True
@@ -1469,7 +1478,7 @@ def _secret_reveal_allowed(request: Request) -> bool:
         host = request.url.hostname
     except ValueError:
         return False
-    return bool(host and host.casefold() in _LOCAL_SECRET_REVEAL_HOSTS)
+    return bool(host and host.casefold() in _secret_reveal_hosts())
 
 
 async def reveal_settings_secret(request: Request) -> JSONResponse:
