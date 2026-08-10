@@ -264,6 +264,9 @@ def permanently_delete_trashed_articles(article_ids: list[str]) -> list[str]:
         CollectionStore().delete_assignment(article_id)
         ArticleActivityStore().delete_article(article_id)
         trash_store.remove(article_id)
+        from src.core.content import mirror_delete
+
+        mirror_delete(article_id)
         deleted.append(article_id)
     return deleted
 
@@ -396,6 +399,9 @@ def save_reviewed_markdown(
         if original_manifest is not None:
             web._atomic_write_text(manifest_path, original_manifest)
         raise
+    from src.core.content import mirror_content
+
+    mirror_content(article_id, reviewed_markdown=persisted_markdown)
     return {
         "ok": True,
         "article_id": article_id,
@@ -441,9 +447,24 @@ def save_reflection(
 
     if markdown is not None:
         write_reflection(article_dir, markdown)
+        from src.core.content import mirror_content
+
+        mirror_content(article_id, reflection_markdown=markdown)
     if upload_enabled is not None:
         set_upload_enabled(article_dir / "manifest.json", upload_enabled)
     return get_reflection(article_id)
+
+
+def _mirror_annotations(article_id: str, article_dir: Path) -> None:
+    """Mirror the raw annotations.json content into the database backup."""
+    from src.core.annotations import ANNOTATIONS_FILENAME
+    from src.core.content import mirror_content
+
+    path = article_dir / ANNOTATIONS_FILENAME
+    mirror_content(
+        article_id,
+        annotations_json=path.read_text(encoding="utf-8") if path.is_file() else "",
+    )
 
 
 def _annotation_payload(annotation: dict[str, Any]) -> dict[str, Any]:
@@ -503,6 +524,7 @@ def create_article_annotation(
         note=note,
         source_digest=reviewed_digest(reviewed_path.read_text(encoding="utf-8")),
     )
+    _mirror_annotations(article_id, article_dir)
     return _annotation_payload(annotation)
 
 
@@ -512,7 +534,9 @@ def update_article_annotation(article_id: str, annotation_id: str, *, note: str)
     article_dir = web._safe_article_dir(article_id)
     from src.core.annotations import update_annotation
 
-    return _annotation_payload(update_annotation(article_dir, annotation_id, note=note))
+    annotation = update_annotation(article_dir, annotation_id, note=note)
+    _mirror_annotations(article_id, article_dir)
+    return _annotation_payload(annotation)
 
 
 def delete_article_annotation(article_id: str, annotation_id: str) -> dict[str, Any]:
@@ -521,7 +545,9 @@ def delete_article_annotation(article_id: str, annotation_id: str) -> dict[str, 
     article_dir = web._safe_article_dir(article_id)
     from src.core.annotations import delete_annotation
 
-    return _annotation_payload(delete_annotation(article_dir, annotation_id))
+    annotation = delete_annotation(article_dir, annotation_id)
+    _mirror_annotations(article_id, article_dir)
+    return _annotation_payload(annotation)
 
 
 def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[str, Any]:
@@ -580,6 +606,9 @@ def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[st
     protected_markdown = render_protected_review(reviewed_markdown, manifest, raw_markdown)
     web._atomic_write_text(reviewed_path, protected_markdown)
     web._atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    from src.core.content import mirror_content
+
+    mirror_content(article_id, reviewed_markdown=protected_markdown)
     return {
         "ok": True,
         "article_id": article_id,

@@ -105,7 +105,7 @@ rsync -a --ignore-existing outputs/ .noosphere/articles/
 test -e .noosphere/config.json || cp config.json .noosphere/config.json
 ```
 
-Article Markdown and assets remain files because they are directly inspectable, portable, and easy to back up. Soft-deleted workspaces move beneath `trash/articles/` until restored or permanently removed. PostgreSQL stores shared application state, recycle-bin records, operation history, Collections, article placements, and workflow checkpoints. On first use, legacy two-level taxonomy rows are copied into equivalent Collection paths once.
+Article Markdown and assets remain files because they are directly inspectable, portable, and easy to back up. Article content (raw/reviewed/reflection Markdown and annotations) is additionally mirrored into the database (`noosphere_article_content` table); if a workspace directory is lost, it is automatically reconstructed from that backup (asset images are not restored). Soft-deleted workspaces move beneath `trash/articles/` until restored or permanently removed. PostgreSQL stores shared application state, recycle-bin records, operation history, Collections, article placements, and workflow checkpoints. On first use, legacy two-level taxonomy rows are copied into equivalent Collection paths once.
 
 ## Environment Overrides
 

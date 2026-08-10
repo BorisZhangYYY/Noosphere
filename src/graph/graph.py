@@ -131,6 +131,15 @@ async def _download_node(state: ArticleState) -> dict[str, object]:
     raw_path.parent.mkdir(parents=True, exist_ok=True)
     raw_path.write_text(updated_markdown, encoding="utf-8")
     shutil.copyfile(raw_path, reviewed_path)
+    from src.core.content import mirror_content
+
+    mirror_content(
+        state["article_id"],
+        title=state.get("title") or "",
+        source_url=state["url"],
+        raw_markdown=updated_markdown,
+        reviewed_markdown=updated_markdown,
+    )
 
     # Reconstruct Article and ImageDownloadResult for manifest writing.
     from src.core.models.article import Article
@@ -392,6 +401,12 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
                 f"{outcome.get('field')}: {outcome.get('value')}",
             )
     reviewed_path.write_text(reviewed_markdown, encoding="utf-8")
+    from src.core.content import mirror_content
+
+    mirror_content(
+        state.get("article_id") or reviewed_path.parent.name,
+        reviewed_markdown=reviewed_markdown,
+    )
     await emit_event("ai_review", "pipeline.events.aiReviewCompleted", f"{len(reviewed_markdown)} characters")
 
     completed = {

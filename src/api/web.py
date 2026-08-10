@@ -665,8 +665,13 @@ def _safe_article_dir(article_id: str) -> Path:
     _validate_article_id(article_id)
     output_dir = load_config().output_dir_path.resolve()
     article_dir = (output_dir / article_id).resolve()
-    if article_dir.parent != output_dir or not article_dir.is_dir():
+    if article_dir.parent != output_dir:
         raise ValueError(f"Article not found: {article_id}")
+    if not article_dir.is_dir() or not (article_dir / "manifest.json").is_file():
+        from src.core.content import reconstruct_article_workspace
+
+        if reconstruct_article_workspace(article_id, output_dir) is None:
+            raise ValueError(f"Article not found: {article_id}")
     return article_dir
 
 
