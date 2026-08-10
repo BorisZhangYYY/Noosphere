@@ -947,6 +947,41 @@ def test_settings_secret_reveal_rejects_remote_host_unless_enabled(web_client, m
     assert allowed.json()["secret"] == "existing-secret"
 
 
+def test_settings_secret_reveal_allowed_hosts_env_extends_localhost(web_client, monkeypatch) -> None:
+    client, _, _ = web_client
+    payload = {"service": "ai", "providerName": "openai"}
+
+    # Without the env var, a remote host is rejected.
+    rejected = client.post(
+        "/api/v1/settings/secrets/reveal",
+        json=payload,
+        headers={"host": "noosphere.example"},
+    )
+    assert rejected.status_code == 403
+
+    # Whitelisting the host (with noise/empty entries) allows reveal.
+    monkeypatch.setenv("NOOSPHERE_ALLOWED_SECRET_HOSTS", " Noosphere.EXAMPLE , ,")
+    allowed = client.post(
+        "/api/v1/settings/secrets/reveal",
+        json=payload,
+        headers={"host": "noosphere.example"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["secret"] == "existing-secret"
+
+    # Other remote hosts remain rejected.
+    other = client.post(
+        "/api/v1/settings/secrets/reveal",
+        json=payload,
+        headers={"host": "other.example"},
+    )
+    assert other.status_code == 403
+
+    # The env whitelist extends, not replaces: localhost still works.
+    local = client.post("/api/v1/settings/secrets/reveal", json=payload)
+    assert local.status_code == 200
+
+
 def test_provider_connection_test_uses_draft_without_persisting(web_client, monkeypatch) -> None:
     client, config_path, _ = web_client
     payload = client.get("/api/v1/settings").json()

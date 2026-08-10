@@ -36,6 +36,8 @@ services:
       NOOSPHERE_CONFIG: /data/config.json
       NOOSPHERE_OUTPUT_DIR: /data/articles
       NOOSPHERE_CHECKPOINT_BACKEND: postgres
+      # Optional: comma-separated extra hosts allowed to reveal configured secrets
+      NOOSPHERE_ALLOWED_SECRET_HOSTS: ${NOOSPHERE_ALLOWED_SECRET_HOSTS:-}
     ports:
       - "8080:8080"
     volumes:
