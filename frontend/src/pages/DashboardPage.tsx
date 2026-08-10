@@ -277,7 +277,7 @@ export function DashboardPage() {
       </section>
 
       {pendingAction && (
-        <div className="dialog-layer" role="presentation" onMouseDown={() => !mutation.isPending && setPendingAction(null)}>
+        <div className="dialog-layer modal-root-layer" role="presentation" onMouseDown={() => !mutation.isPending && setPendingAction(null)}>
           <section className="article-confirm-dialog library-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="library-confirm-title" onMouseDown={(event) => event.stopPropagation()}>
             <span className="confirm-dialog-icon"><WarningCircle size={24} /></span>
             <div>

@@ -494,7 +494,8 @@ body.article-route-active .content-shell { height: 100dvh; min-height: 0; paddin
 .upload-progress progress::-webkit-progress-value { border-radius: 99px; background: var(--accent); transition: width .3s ease; }
 .article-confirm-backdrop { position: fixed; z-index: var(--z-overlay); inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(5, 15, 28, .34); backdrop-filter: blur(8px); }
 .dialog-layer.modal-root-layer,
-.article-confirm-backdrop.modal-root-layer { z-index: var(--z-modal); isolation: isolate; }
+.article-confirm-backdrop.modal-root-layer,
+.asset-lightbox-backdrop.modal-root-layer { z-index: var(--z-modal); isolation: isolate; }
 .article-confirm-dialog { width: min(440px, 100%); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; padding: 24px; border: 1px solid var(--line-strong); border-radius: var(--radius-surface); background: var(--surface-solid); box-shadow: 0 28px 90px rgba(5, 15, 28, .32); }
 .article-confirm-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; color: var(--accent-strong); background: var(--accent-soft); }
 .article-confirm-icon-removed { color: var(--danger); background: color-mix(in srgb, var(--danger) 11%, transparent); }
@@ -637,7 +638,7 @@ body.article-route-active .content-shell { height: 100dvh; min-height: 0; paddin
 .collection-index-row > svg { color: var(--text-muted); }
 .collection-index-empty { margin: 28px 0 0; color: var(--text-muted); font-size: 13px; }
 
-.help-dialog-layer { align-items: center; }
+.help-dialog-layer { align-items: center; z-index: var(--z-modal); isolation: isolate; }
 .help-dialog { width: min(680px, calc(100vw - 32px)); max-height: min(760px, calc(100dvh - 40px)); padding: 26px; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--surface-solid); box-shadow: 0 30px 100px rgba(4, 17, 31, .3); }
 .help-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .help-dialog > header p { margin: 0 0 6px; color: var(--accent-strong); font-size: 9px; font-weight: 720; letter-spacing: .12em; text-transform: uppercase; }

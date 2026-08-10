@@ -935,7 +935,7 @@ export function ArticlePage() {
         document.body
       )}
       {previewAsset && createPortal(
-        <div className="asset-lightbox-backdrop" role="presentation" onMouseDown={() => setPreviewAsset(null)}>
+        <div className="asset-lightbox-backdrop modal-root-layer" role="presentation" onMouseDown={() => setPreviewAsset(null)}>
           <section
             className="asset-lightbox"
             role="dialog"

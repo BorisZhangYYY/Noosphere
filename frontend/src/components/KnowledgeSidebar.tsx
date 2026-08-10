@@ -680,7 +680,7 @@ export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
         )}
       </div>
       {articleToDelete && createPortal(
-        <div className="dialog-layer" role="presentation" onMouseDown={() => !trashMutation.isPending && setArticleToDelete(null)}>
+        <div className="dialog-layer modal-root-layer" role="presentation" onMouseDown={() => !trashMutation.isPending && setArticleToDelete(null)}>
           <section
             className="article-confirm-dialog knowledge-delete-dialog"
             role="alertdialog"
@@ -707,7 +707,7 @@ export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
         document.body
       )}
       {deletedCollectionsOpen && createPortal(
-        <div className="dialog-layer" role="presentation" onMouseDown={() => !restoreCollectionMutation.isPending && setDeletedCollectionsOpen(false)}>
+        <div className="dialog-layer modal-root-layer" role="presentation" onMouseDown={() => !restoreCollectionMutation.isPending && setDeletedCollectionsOpen(false)}>
           <section
             className="collection-restore-dialog"
             role="dialog"
