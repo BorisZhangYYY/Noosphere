@@ -1625,7 +1625,14 @@ def _atomic_write_config(config: Config) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(temporary_path, 0o600)
+        try:
+            # 尽力收紧权限（mkstemp 已默认 0600 且仅创建者可读）；
+            # 在 9p/NTFS 等不支持 chmod 的挂载上，非 root 用户会抛 OSError（Operation not permitted）。
+            # 此时不阻断保存：临时文件权限仍是 0600，且随即将被 replace 进目标，数据完整性与安全性不受影响。
+            os.chmod(temporary_path, 0o600)
+        except OSError:
+            # chmod 失败不视为致命；目标文件本身会继承 os.replace 后的权限。
+            pass
         os.replace(temporary_path, destination)
     finally:
         if temporary_path.exists():
