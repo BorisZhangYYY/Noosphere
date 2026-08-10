@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2.5] - 2026-08-10
+
+### Changed
+
+- Removed the article-title collection bar (chips + quick-move dropdown) from reading mode; collection placement is now handled solely from the inspection rail, which keeps the title area clean.
+
+### Fixed
+
+- Promoted all full-screen modals (article delete, recycle-bin restore, capture, help, dashboard confirmations, and asset lightbox) to the root modal layer with an isolated stacking context, so no dialog can collide with the knowledge-workspace sidebar on `backdrop-filter`-heavy tracks (e.g. some browsers / GPU renderers).
+
 ## [0.3.2.4] - 2026-08-10
 
 ### Added
