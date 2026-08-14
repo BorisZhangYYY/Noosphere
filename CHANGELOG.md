@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Unified article reading and editing around the same Markdown-rendered title and content layout, shifted the copy slightly left for better optical balance, made mode/theme changes update the existing editor instead of rebuilding the whole document, and reduced the web workbench response to the one article body it uses.
+- Replaced Vditor's complete structural popovers, including the heading ID field, with protected image controls that can move an image up or down without allowing it to be removed from the Markdown accidentally.
+
+### Fixed
+
+- Stopped Backspace, Delete, and Cut before they reach Vditor when a protected article image would be affected, avoiding delete-and-restore flicker even around zero-width editor markers.
+- Kept the article body in the flexible content column when the inspection rail is collapsed at tablet and small-laptop widths.
+
 ## [0.3.2.5] - 2026-08-10
 
 ### Changed

@@ -101,6 +101,8 @@ export interface ArticleDetail extends ArticleSummary {
   collection: ArticleCollection | null;
 }
 
+export type ArticleWorkspaceDetail = Omit<ArticleDetail, "rawMarkdown" | "reviewedMarkdown" | "displayMarkdown">;
+
 export interface ArticleAnnotation {
   id: string;
   quote: string;

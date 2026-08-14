@@ -472,12 +472,7 @@ export function ArticlePage() {
       </header>
       <div className={`article-layout${inspectionOpen ? "" : " inspection-collapsed"}`}>
         <ArticleOutline markdown={draft} />
-        <article className={`reader-surface editor-surface${readOnly ? " has-external-title" : ""}`}>
-          {readOnly && (
-            <header className="article-title-block">
-              <h1>{article.title}</h1>
-            </header>
-          )}
+        <article className="reader-surface editor-surface">
           <MarkdownEditor
             articleId={articleId}
             value={draft}
