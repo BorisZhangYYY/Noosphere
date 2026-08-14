@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.2.6] - 2026-08-14
+
 ### Changed
 
 - Unified article reading and editing around the same Markdown-rendered title and content layout, shifted the copy slightly left for better optical balance, made mode/theme changes update the existing editor instead of rebuilding the whole document, and reduced the web workbench response to the one article body it uses.
@@ -15,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Stopped Backspace, Delete, and Cut before they reach Vditor when a protected article image would be affected, avoiding delete-and-restore flicker even around zero-width editor markers.
 - Kept the article body in the flexible content column when the inspection rail is collapsed at tablet and small-laptop widths.
+- Made Playwright system-package installation retry individual archive downloads before restarting the full Docker build step, avoiding repeated large downloads after transient mirror failures.
 
 ## [0.3.2.5] - 2026-08-10
 
