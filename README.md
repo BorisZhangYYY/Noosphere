@@ -117,6 +117,8 @@ The text-review provider and image-review provider are configured independently.
 
 Personal notes live in `reflection.md`, never inside `raw.md` or `reviewed.md`. Web, MCP, and CLI can save the note and request a stateless AI polish preview based only on the current reviewed article and reflection. Applying that preview is always explicit. The reviewing provider and model recorded in `review.json` are preferred; if that profile is no longer available, Noosphere falls back to the active text provider.
 
+The page and upload document render “My Reflections” as a level-two heading. When a reflection needs its own structure, start its headings at Markdown level three (`###`); the web editor shows this guidance and AI polish preserves the same hierarchy.
+
 Each article also keeps a persistent upload preference in `manifest.json`. When enabled, Noosphere appends a canonical localized “My Reflections” section to a temporary upload copy and deletes that copy afterward. The stored `reviewed.md` remains unchanged.
 
 ### Anchored reading quotes

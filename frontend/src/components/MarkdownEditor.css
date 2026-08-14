@@ -28,6 +28,11 @@
   display: none !important;
 }
 
+/* Noosphere owns block and image actions; suppress Vditor's transient WYSIWYG popovers. */
+.markdown-editor .vditor-wysiwyg > .vditor-panel {
+  display: none !important;
+}
+
 .markdown-editor .vditor-content,
 .markdown-editor .vditor-wysiwyg,
 .markdown-editor .vditor-wysiwyg pre.vditor-reset {
@@ -38,7 +43,8 @@
 
 .markdown-editor .vditor-wysiwyg pre.vditor-reset {
   width: min(1080px, 100%);
-  margin-inline: auto;
+  margin-left: max(0px, calc((100% - 1080px) / 2 - 22px));
+  margin-right: auto;
   padding: 28px clamp(22px, 3.2vw, 46px) 64px !important;
   color: var(--text) !important;
   font-family: inherit;
@@ -186,35 +192,61 @@
   pointer-events: none;
 }
 
-.markdown-editor-frame .noosphere-image-action {
+.markdown-editor-frame .noosphere-image-actions {
   position: absolute;
   z-index: 1;
+  display: flex;
   min-height: 34px;
-  padding: 0 12px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--surface-solid) 58%, transparent);
   border-radius: 9px;
   opacity: .88;
   background: rgba(7, 17, 31, .86);
-  color: #fff;
   box-shadow: 0 8px 24px rgba(5, 15, 28, .24);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 680;
   pointer-events: auto;
-  transition: opacity .18s ease, background-color .18s ease, transform .18s ease;
+  transition: opacity .18s ease, transform .18s ease;
 }
 
-.markdown-editor-frame .noosphere-image-action:hover,
-.markdown-editor-frame .noosphere-image-action:focus-visible {
+.markdown-editor-frame .noosphere-image-actions:hover,
+.markdown-editor-frame .noosphere-image-actions:focus-within {
   opacity: 1;
   transform: translateY(-1px);
 }
 
-.markdown-editor-frame .noosphere-image-action[data-image-state="active"]:hover {
+.markdown-editor-frame .noosphere-image-action {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, .16);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+  transition: background-color .18s ease, color .18s ease;
+}
+
+.markdown-editor-frame .noosphere-image-action:last-child {
+  border-right: 0;
+}
+
+.markdown-editor-frame .noosphere-image-action:hover,
+.markdown-editor-frame .noosphere-image-action:focus-visible {
+  background: rgba(255, 255, 255, .13);
+  outline-offset: -3px;
+}
+
+.markdown-editor-frame .noosphere-image-action:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+.markdown-editor-frame .noosphere-image-action[data-action="delete"]:hover {
   background: var(--danger);
 }
 
-.markdown-editor-frame .noosphere-image-action[data-image-state="removed"]:hover {
+.markdown-editor-frame .noosphere-image-action[data-action="restore"]:hover {
   background: var(--success);
 }
 

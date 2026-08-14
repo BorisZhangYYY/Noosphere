@@ -25,6 +25,7 @@ interface MarkdownEditorProps {
 
 const EDITOR_IMAGE_ACTION_RE = /[ \t]*<button\b[^>]*\bclass\s*=\s*["'][^"']*\bnoosphere-image-action\b[^"']*["'][^>]*>.*?<\/button>[ \t]*\n?/gis;
 const MARKDOWN_IMAGE_TARGET_RE = /!\[[^\]\n]*]\(\s*(?:<([^>\n]+)>|([^\s)\n]+))[^)\n]*\)|<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+const STRUCTURAL_POPOVER_TYPES = new Set(["blockquote", "li", "heading", "block", "footnotes-block", "vditor-toc"]);
 
 function stripEditorArtifacts(markdown: string) {
   return markdown.replace(EDITOR_IMAGE_ACTION_RE, "");
@@ -41,6 +42,37 @@ function hasSameImageStructure(candidate: string, reference: string) {
     && candidateImages.every((image, index) => image === referenceImages[index]);
 }
 
+function imageTargetName(source: string) {
+  const cleanSource = source.split(/[?#]/, 1)[0];
+  try {
+    return decodeURIComponent(cleanSource.split("/").pop() ?? "");
+  } catch {
+    return cleanSource.split("/").pop() ?? "";
+  }
+}
+
+function moveImageBlockInMarkdown(markdown: string, assetName: string, imageIndex: number, direction: "up" | "down") {
+  const segments = markdown.split(/(\n[ \t]*\n(?:[ \t]*\n)*)/);
+  let currentImageIndex = 0;
+  let targetSegmentIndex = -1;
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 2) {
+    const segment = segments[segmentIndex];
+    for (const match of stripEditorArtifacts(segment).matchAll(MARKDOWN_IMAGE_TARGET_RE)) {
+      const source = match[1] || match[2] || match[3] || "";
+      if (currentImageIndex === imageIndex && imageTargetName(source) === assetName && match[0].trim() === segment.trim()) {
+        targetSegmentIndex = segmentIndex;
+        break;
+      }
+      currentImageIndex += 1;
+    }
+    if (targetSegmentIndex >= 0) break;
+  }
+  const siblingSegmentIndex = targetSegmentIndex + (direction === "up" ? -2 : 2);
+  if (targetSegmentIndex < 0 || siblingSegmentIndex < 0 || siblingSegmentIndex >= segments.length) return null;
+  [segments[targetSegmentIndex], segments[siblingSegmentIndex]] = [segments[siblingSegmentIndex], segments[targetSegmentIndex]];
+  return segments.join("");
+}
+
 export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAssetNames = [], showRemovedImages = true, onDeleteImage, onRestoreImage, annotations = [], annotationSourceDigest = "", onSelectQuote, onOpenAnnotation, onResolvedAnnotationIds, focusAnnotationRequest }: MarkdownEditorProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -49,6 +81,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
   const onChangeRef = useRef(onChange);
   const valueRef = useRef(value);
   const removedNamesRef = useRef(new Set(removedAssetNames));
+  const readOnlyRef = useRef(readOnly);
   const decorateImagesRef = useRef<() => void>(() => undefined);
   const decorateAnnotationsRef = useRef<() => void>(() => undefined);
   const focusAnnotationRef = useRef<(annotationId: string) => void>(() => undefined);
@@ -58,10 +91,13 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
   const applyingExternalValueRef = useRef(false);
   const { i18n, t } = useTranslation();
   const { resolvedTheme } = useTheme();
+  const resolvedThemeRef = useRef(resolvedTheme);
 
   onChangeRef.current = onChange;
   valueRef.current = value;
   removedNamesRef.current = new Set(removedAssetNames);
+  readOnlyRef.current = readOnly;
+  resolvedThemeRef.current = resolvedTheme;
   imageActionsRef.current = { onDeleteImage, onRestoreImage };
   annotationPropsRef.current = { annotations, annotationSourceDigest, onSelectQuote, onOpenAnnotation, onResolvedAnnotationIds };
 
@@ -76,7 +112,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     let annotationFrame = 0;
     const annotationRanges = new Map<string, Range>();
     const highlightName = "noosphere-article-annotations";
-    const actions = new Map<string, HTMLButtonElement>();
+    const actions = new Map<string, HTMLDivElement>();
     const copyText = async (text: string) => {
       if (navigator.clipboard?.writeText) {
         try {
@@ -103,6 +139,20 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         return "";
       }
     };
+    const editableImageBlock = (shell: HTMLElement) => shell.closest<HTMLElement>("[data-block='0']") ?? shell;
+    const moveImageBlock = (name: string, index: number, direction: "up" | "down") => {
+      if (readOnlyRef.current) return;
+      const nextMarkdown = moveImageBlockInMarkdown(valueRef.current, name, index, direction);
+      if (!nextMarkdown) return;
+      valueRef.current = nextMarkdown;
+      applyingExternalValueRef.current = true;
+      editorRef.current?.setValue(nextMarkdown);
+      onChangeRef.current(nextMarkdown);
+      queueMicrotask(() => {
+        applyingExternalValueRef.current = false;
+        scheduleDecoration();
+      });
+    };
     const decorateImages = () => {
       const frame = frameRef.current;
       const actionLayer = actionsRef.current;
@@ -123,26 +173,47 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         shell.dataset.noosphereReadonlyImage = "true";
         shell.setAttribute("contenteditable", "false");
         shell.setAttribute("aria-label", t("article.readOnlyImageNamed", { name }));
-        if (readOnly || shell.getClientRects().length === 0) return;
+        if (readOnlyRef.current || shell.getClientRects().length === 0) return;
         const key = `${name}:${index}`;
         visibleActions.add(key);
-        let action = actions.get(key);
-        if (!action) {
-          action = document.createElement("button");
-          action.type = "button";
-          action.className = "noosphere-image-action";
-          actionLayer.append(action);
-          actions.set(key, action);
+        let actionGroup = actions.get(key);
+        if (!actionGroup) {
+          actionGroup = document.createElement("div");
+          actionGroup.className = "noosphere-image-actions";
+          actionGroup.onclick = handleImageAction;
+          for (const actionName of ["move-up", "move-down", removed ? "restore" : "delete"] as const) {
+            const action = document.createElement("button");
+            action.type = "button";
+            action.className = "noosphere-image-action";
+            action.dataset.action = actionName;
+            actionGroup.append(action);
+          }
+          actionLayer.append(actionGroup);
+          actions.set(key, actionGroup);
         }
         const label = removed ? t("article.restoreImage") : t("article.deleteImage");
-        action.dataset.action = removed ? "restore" : "delete";
-        action.dataset.assetName = name;
-        action.dataset.imageState = removed ? "removed" : "active";
-        if (action.textContent !== label) action.textContent = label;
-        action.setAttribute("aria-label", removed ? t("article.restoreImageNamed", { name }) : t("article.deleteImageNamed", { name }));
+        actionGroup.dataset.assetName = name;
+        actionGroup.dataset.imageIndex = String(index);
+        actionGroup.dataset.imageState = removed ? "removed" : "active";
+        const moveUp = actionGroup.querySelector<HTMLButtonElement>("[data-action='move-up']")!;
+        const moveDown = actionGroup.querySelector<HTMLButtonElement>("[data-action='move-down']")!;
+        const stateAction = actionGroup.querySelector<HTMLButtonElement>("[data-action='delete'], [data-action='restore']")!;
+        stateAction.dataset.action = removed ? "restore" : "delete";
+        moveUp.textContent = "↑";
+        moveDown.textContent = "↓";
+        moveUp.setAttribute("aria-label", t("article.moveImageUpNamed", { name }));
+        moveDown.setAttribute("aria-label", t("article.moveImageDownNamed", { name }));
+        moveUp.title = t("article.moveImageUp");
+        moveDown.title = t("article.moveImageDown");
+        stateAction.textContent = label;
+        stateAction.setAttribute("aria-label", removed ? t("article.restoreImageNamed", { name }) : t("article.deleteImageNamed", { name }));
+        stateAction.title = label;
+        const block = editableImageBlock(shell);
+        moveUp.disabled = removed || !block.previousElementSibling;
+        moveDown.disabled = removed || !block.nextElementSibling;
         const shellBounds = shell.getBoundingClientRect();
-        action.style.top = `${Math.max(0, shellBounds.top - frameBounds.top + 12)}px`;
-        action.style.right = `${Math.max(12, frameBounds.right - shellBounds.right + 12)}px`;
+        actionGroup.style.top = `${Math.max(0, shellBounds.top - frameBounds.top + 12)}px`;
+        actionGroup.style.right = `${Math.max(12, frameBounds.right - shellBounds.right + 12)}px`;
       });
       actions.forEach((action, key) => {
         if (visibleActions.has(key)) return;
@@ -216,7 +287,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     const decorateAnnotations = () => {
       annotationRanges.clear();
       clearHighlight();
-      if (!readOnly) {
+      if (!readOnlyRef.current) {
         annotationPropsRef.current.onResolvedAnnotationIds?.([]);
         return;
       }
@@ -261,7 +332,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       return candidates.reduce((closest, candidate) => Math.abs(candidate - approximate) < Math.abs(closest - approximate) ? candidate : closest, candidates[0] ?? -1);
     };
     const handleQuoteSelection = () => {
-      if (!readOnly) return;
+      if (!readOnlyRef.current) return;
       const selection = window.getSelection();
       const model = articleTextNodes();
       if (!selection?.rangeCount || selection.isCollapsed || !model.root || !selection.anchorNode || !selection.focusNode) {
@@ -295,7 +366,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       });
     };
     const handleAnnotationClick = (event: MouseEvent) => {
-      if (!readOnly || window.getSelection()?.toString()) return;
+      if (!readOnlyRef.current || window.getSelection()?.toString()) return;
       const documentWithCaret = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null };
       const point = documentWithCaret.caretRangeFromPoint?.(event.clientX, event.clientY);
       if (!point) return;
@@ -339,11 +410,19 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       if (imageAction) {
         event.preventDefault();
         event.stopPropagation();
-        const name = imageAction.dataset.assetName;
+        const actionGroup = imageAction.closest<HTMLElement>(".noosphere-image-actions");
+        const name = actionGroup?.dataset.assetName;
+        const index = Number(actionGroup?.dataset.imageIndex ?? -1);
         if (!name) return;
-        if (imageAction.dataset.action === "restore") imageActionsRef.current.onRestoreImage?.(name);
-        else imageActionsRef.current.onDeleteImage?.(name);
+        if (imageAction.dataset.action === "move-up" && index >= 0) moveImageBlock(name, index, "up");
+        else if (imageAction.dataset.action === "move-down" && index >= 0) moveImageBlock(name, index, "down");
+        else if (imageAction.dataset.action === "restore") imageActionsRef.current.onRestoreImage?.(name);
+        else if (imageAction.dataset.action === "delete") imageActionsRef.current.onDeleteImage?.(name);
       }
+    };
+    const isIgnorableEditorNode = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) return /^[\s\u200B\uFEFF]*$/.test(node.textContent ?? "");
+      return node instanceof HTMLElement && ["BR", "WBR"].includes(node.tagName);
     };
     const adjacentNode = (selection: Selection, direction: "backward" | "forward", root: HTMLElement) => {
       let node: Node | null = selection.anchorNode;
@@ -351,7 +430,10 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       if (!node) return null;
       if (node.nodeType === Node.TEXT_NODE) {
         const textLength = node.textContent?.length ?? 0;
-        if ((direction === "backward" && offset > 0) || (direction === "forward" && offset < textLength)) return null;
+        const remainingText = direction === "backward"
+          ? node.textContent?.slice(0, offset)
+          : node.textContent?.slice(offset, textLength);
+        if (remainingText && !/^[\s\u200B\uFEFF]*$/.test(remainingText)) return null;
         const parent: ParentNode | null = node.parentNode;
         if (!parent) return null;
         offset = Array.from(parent.childNodes).findIndex((child) => child === node) + (direction === "forward" ? 1 : 0);
@@ -359,7 +441,11 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       }
       while (node && node !== root) {
         const children = Array.from(node.childNodes);
-        const candidate = direction === "backward" ? children[offset - 1] : children[offset];
+        let candidate = direction === "backward" ? children[offset - 1] : children[offset];
+        while (candidate && isIgnorableEditorNode(candidate)) {
+          offset += direction === "backward" ? -1 : 1;
+          candidate = direction === "backward" ? children[offset - 1] : children[offset];
+        }
         if (candidate) return candidate;
         const parent: ParentNode | null = node.parentNode;
         if (!parent) return null;
@@ -371,29 +457,70 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     const isProtectedImageNode = (node: Node | null) => {
       const element = node instanceof Element ? node : node?.parentElement;
       return Boolean(element?.matches("[data-noosphere-readonly-image='true']")
-        || element?.closest("[data-noosphere-readonly-image='true']"));
+        || element?.closest("[data-noosphere-readonly-image='true']")
+        || element?.querySelector("[data-noosphere-readonly-image='true']"));
     };
-    const preventAtomicImageDeletion = (event: KeyboardEvent) => {
-      if (readOnly || (event.key !== "Backspace" && event.key !== "Delete")) return;
+    const blockBoundaryImage = (selection: Selection, direction: "backward" | "forward", root: HTMLElement) => {
+      const range = selection.getRangeAt(0);
+      const anchorElement = selection.anchorNode instanceof Element ? selection.anchorNode : selection.anchorNode?.parentElement;
+      const block = anchorElement?.closest<HTMLElement>("[data-block='0']");
+      if (!block || !root.contains(block) || isProtectedImageNode(block)) return isProtectedImageNode(block ?? null);
+      const boundary = document.createRange();
+      boundary.selectNodeContents(block);
+      try {
+        if (direction === "backward") boundary.setEnd(range.startContainer, range.startOffset);
+        else boundary.setStart(range.endContainer, range.endOffset);
+      } catch {
+        return false;
+      }
+      if (!/^[\s\u200B\uFEFF]*$/.test(boundary.toString())) return false;
+      const sibling = direction === "backward" ? block.previousElementSibling : block.nextElementSibling;
+      return isProtectedImageNode(sibling);
+    };
+    const shouldPreventAtomicImageDeletion = (direction: "backward" | "forward") => {
       const editableSurface = host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
       const selection = window.getSelection();
-      if (!editableSurface || !selection?.rangeCount || !selection.anchorNode || !editableSurface.contains(selection.anchorNode)) return;
+      if (!editableSurface || !selection?.rangeCount || !selection.anchorNode || !editableSurface.contains(selection.anchorNode)) return false;
       const range = selection.getRangeAt(0);
       if (!selection.isCollapsed) {
-        const includesImage = Array.from(editableSurface.querySelectorAll("[data-noosphere-readonly-image='true']"))
+        return Array.from(editableSurface.querySelectorAll("[data-noosphere-readonly-image='true']"))
           .some((imageBlock) => range.intersectsNode(imageBlock));
-        if (includesImage) event.preventDefault();
-        return;
       }
+      return blockBoundaryImage(selection, direction, editableSurface)
+        || isProtectedImageNode(adjacentNode(selection, direction, editableSurface));
+    };
+    const cancelProtectedImageMutation = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+    const preventAtomicImageDeletion = (event: KeyboardEvent) => {
+      if (readOnlyRef.current || (event.key !== "Backspace" && event.key !== "Delete")) return;
       const direction = event.key === "Backspace" ? "backward" : "forward";
-      if (isProtectedImageNode(adjacentNode(selection, direction, editableSurface))) event.preventDefault();
+      if (shouldPreventAtomicImageDeletion(direction)) cancelProtectedImageMutation(event);
+    };
+    const preventAtomicImageBeforeInput = (event: InputEvent) => {
+      if (readOnlyRef.current) return;
+      if (event.inputType === "deleteContentBackward" && shouldPreventAtomicImageDeletion("backward")) cancelProtectedImageMutation(event);
+      if (event.inputType === "deleteContentForward" && shouldPreventAtomicImageDeletion("forward")) cancelProtectedImageMutation(event);
+    };
+    const preventAtomicImageCut = (event: ClipboardEvent) => {
+      if (readOnlyRef.current) return;
+      const editableSurface = host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
+      const selection = window.getSelection();
+      if (!editableSurface || !selection?.rangeCount || selection.isCollapsed) return;
+      const range = selection.getRangeAt(0);
+      if (Array.from(editableSurface.querySelectorAll("[data-noosphere-readonly-image='true']")).some((imageBlock) => range.intersectsNode(imageBlock))) {
+        cancelProtectedImageMutation(event);
+      }
     };
     host.addEventListener("click", keepRenderedBlocksVisible, true);
     host.addEventListener("click", handleAnnotationClick);
     host.addEventListener("mouseup", handleQuoteSelection);
     host.addEventListener("keyup", handleQuoteSelection);
     host.addEventListener("keydown", preventAtomicImageDeletion, true);
-    actionsRef.current?.addEventListener("click", handleImageAction);
+    host.addEventListener("beforeinput", preventAtomicImageBeforeInput, true);
+    host.addEventListener("cut", preventAtomicImageCut, true);
 
     async function mountEditor() {
       if (i18n.resolvedLanguage === "zh") {
@@ -409,19 +536,24 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         lang: i18n.resolvedLanguage === "zh" ? "zh_CN" : "en_US",
         i18n: i18nBundle,
         cdn: "/app/vditor",
-        theme: resolvedTheme === "dark" ? "dark" : "classic",
+        theme: resolvedThemeRef.current === "dark" ? "dark" : "classic",
         height: "auto",
         minHeight: 620,
         cache: { enable: false },
         counter: { enable: false },
         toolbarConfig: { hide: true },
         toolbar: [],
-        customWysiwygToolbar: () => undefined,
+        customWysiwygToolbar: (type, element) => {
+          if (!STRUCTURAL_POPOVER_TYPES.has(type)) return;
+          element.replaceChildren();
+          element.classList.add("vditor-panel--none");
+          element.setAttribute("aria-hidden", "true");
+        },
         preview: {
           delay: 180,
-          hljs: { enable: true, lineNumber: true, style: resolvedTheme === "dark" ? "native" : "github" },
+          hljs: { enable: true, lineNumber: true, style: resolvedThemeRef.current === "dark" ? "native" : "github" },
           theme: {
-            current: resolvedTheme === "dark" ? "dark" : "light",
+            current: resolvedThemeRef.current === "dark" ? "dark" : "light",
             path: "/app/vditor/dist/css/content-theme"
           },
           markdown: {
@@ -435,7 +567,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         link: { isOpen: false },
         image: { isPreview: false },
         input: (markdown) => {
-          if (readOnly || applyingExternalValueRef.current || restoringImageStructureRef.current) return;
+          if (readOnlyRef.current || applyingExternalValueRef.current || restoringImageStructureRef.current) return;
           const cleaned = stripEditorArtifacts(markdown);
           if (!hasSameImageStructure(cleaned, valueRef.current)) {
             restoringImageStructureRef.current = true;
@@ -455,15 +587,15 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
           }
           editorRef.current = editor;
           editor?.setTheme(
-            resolvedTheme === "dark" ? "dark" : "classic",
-            resolvedTheme === "dark" ? "dark" : "light",
-            resolvedTheme === "dark" ? "native" : "github",
+            resolvedThemeRef.current === "dark" ? "dark" : "classic",
+            resolvedThemeRef.current === "dark" ? "dark" : "light",
+            resolvedThemeRef.current === "dark" ? "native" : "github",
             "/app/vditor/dist/css/content-theme"
           );
-          if (readOnly) editor?.disabled();
+          if (readOnlyRef.current) editor?.disabled();
           const editableSurface = hostRef.current?.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
-          editableSurface?.setAttribute("contenteditable", readOnly ? "false" : "true");
-          editableSurface?.setAttribute("aria-readonly", String(readOnly));
+          editableSurface?.setAttribute("contenteditable", readOnlyRef.current ? "false" : "true");
+          editableSurface?.setAttribute("aria-readonly", String(readOnlyRef.current));
           scheduleDecoration();
           scheduleAnnotationDecoration();
           observer = new MutationObserver(() => {
@@ -487,8 +619,9 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       host.removeEventListener("mouseup", handleQuoteSelection);
       host.removeEventListener("keyup", handleQuoteSelection);
       host.removeEventListener("keydown", preventAtomicImageDeletion, true);
+      host.removeEventListener("beforeinput", preventAtomicImageBeforeInput, true);
+      host.removeEventListener("cut", preventAtomicImageCut, true);
       host.removeEventListener("load", scheduleDecoration, true);
-      actionsRef.current?.removeEventListener("click", handleImageAction);
       window.removeEventListener("resize", scheduleDecoration);
       cancelAnimationFrame(decorationFrame);
       cancelAnimationFrame(annotationFrame);
@@ -503,7 +636,31 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       decorateAnnotationsRef.current = () => undefined;
       focusAnnotationRef.current = () => undefined;
     };
-  }, [articleId, i18n.resolvedLanguage, readOnly, resolvedTheme, t]);
+  }, [articleId, i18n.resolvedLanguage, t]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    if (readOnly) editor.disabled();
+    else editor.enable();
+    const editableSurface = hostRef.current?.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
+    editableSurface?.setAttribute("contenteditable", readOnly ? "false" : "true");
+    editableSurface?.setAttribute("aria-readonly", String(readOnly));
+    hostRef.current?.querySelectorAll<HTMLElement>(".vditor-wysiwyg > .vditor-panel").forEach((panel) => {
+      panel.style.display = "none";
+    });
+    decorateImagesRef.current();
+    decorateAnnotationsRef.current();
+  }, [readOnly]);
+
+  useEffect(() => {
+    editorRef.current?.setTheme(
+      resolvedTheme === "dark" ? "dark" : "classic",
+      resolvedTheme === "dark" ? "dark" : "light",
+      resolvedTheme === "dark" ? "native" : "github",
+      "/app/vditor/dist/css/content-theme"
+    );
+  }, [resolvedTheme]);
 
   const annotationKey = annotations.map((annotation) => `${annotation.id}:${annotation.updatedAt}:${annotation.sourceDigest}`).join("\n");
   useEffect(() => {

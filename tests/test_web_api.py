@@ -160,6 +160,16 @@ def test_list_and_read_article(web_client) -> None:
     assert detail.json()["activePolish"] is None
 
 
+def test_read_article_editable_content_omits_unused_markdown_copies(web_client) -> None:
+    client, _, article_id = web_client
+    detail = client.get(f"/api/v1/articles/{article_id}?content=editable")
+    assert detail.status_code == 200
+    assert detail.json()["editableMarkdown"].startswith("# Reviewed\n")
+    assert "rawMarkdown" not in detail.json()
+    assert "reviewedMarkdown" not in detail.json()
+    assert "displayMarkdown" not in detail.json()
+
+
 def test_save_reflection_and_upload_preference(web_client) -> None:
     client, _, article_id = web_client
     response = client.patch(

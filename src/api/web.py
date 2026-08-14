@@ -757,13 +757,10 @@ async def get_article(request: Request) -> JSONResponse:
     reflection = await asyncio.to_thread(get_reflection, request.path_params["article_id"])
     annotations = await asyncio.to_thread(get_article_annotations, request.path_params["article_id"])
 
-    return JSONResponse({
+    response_payload = {
         **summary,
         "publishedAt": protected_metadata["publishedAt"]["value"],
         "contentType": str(article.get("content_type") or "article"),
-        "rawMarkdown": raw_markdown,
-        "reviewedMarkdown": reviewed_markdown,
-        "displayMarkdown": display_markdown,
         "editableMarkdown": editable_article_markdown(display_markdown),
         "metadata": protected_metadata,
         "metadataHistory": list((manifest.get("metadata_enrichment") or {}).get("history") or []),
@@ -778,7 +775,14 @@ async def get_article(request: Request) -> JSONResponse:
         "removedAssets": removed_assets,
         "collection": collection,
         "operationSummary": summary["operationSummary"],
-    })
+    }
+    if request.query_params.get("content") != "editable":
+        response_payload.update({
+            "rawMarkdown": raw_markdown,
+            "reviewedMarkdown": reviewed_markdown,
+            "displayMarkdown": display_markdown,
+        })
+    return JSONResponse(response_payload)
 
 
 async def get_article_asset(request: Request):

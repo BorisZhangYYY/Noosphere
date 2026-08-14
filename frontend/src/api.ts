@@ -1,5 +1,5 @@
 import i18n from "./i18n";
-import type { ArticleAnnotation, ArticleAnnotations, ArticleDetail, ArticleSummary, CaptureJob, CollectionNode, OutputLanguage, PipelineSettings, PolishJob, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TrashedArticle, UploadJob } from "./types";
+import type { ArticleAnnotation, ArticleAnnotations, ArticleDetail, ArticleSummary, ArticleWorkspaceDetail, CaptureJob, CollectionNode, OutputLanguage, PipelineSettings, PolishJob, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TrashedArticle, UploadJob } from "./types";
 
 function locale() { return i18n.resolvedLanguage?.startsWith("zh") ? "zh-CN" : "en-US"; }
 function localized(path: string) { return `${path}${path.includes("?") ? "&" : "?"}locale=${encodeURIComponent(locale())}`; }
@@ -21,7 +21,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   listArticles: () => request<{ articles: ArticleSummary[] }>(localized("/api/v1/articles")),
-  getArticle: (articleId: string) => request<ArticleDetail>(localized(`/api/v1/articles/${encodeURIComponent(articleId)}`)),
+  getArticle: (articleId: string) => request<ArticleWorkspaceDetail>(localized(`/api/v1/articles/${encodeURIComponent(articleId)}?content=editable`)),
   listCaptureJobs: () => request<{ jobs: CaptureJob[] }>("/api/v1/captures"),
   retryCaptureJob: (jobId: string) => request<CaptureJob>(`/api/v1/captures/${encodeURIComponent(jobId)}/retry`, { method: "POST" }),
   createCapture: ({ url, reviewMode, perspective, outputLanguage }: { url: string; reviewMode: ReviewMode; perspective: string; outputLanguage: OutputLanguage }) => request<CaptureJob>(localized("/api/v1/captures"), {

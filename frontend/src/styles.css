@@ -410,9 +410,6 @@ body.article-route-active .content-shell { height: 100dvh; min-height: 0; paddin
 .reader-surface th, .reader-surface td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; }
 .editor-surface { padding: clamp(10px, 1.8vw, 20px); }
 .reader-surface.editor-surface > * { max-width: none; }
-.article-title-block { width: min(1080px, 100%); max-width: none !important; margin: 34px auto 0 !important; padding: 0 clamp(22px, 3.2vw, 46px) 28px; border-bottom: 1px solid var(--line); }
-.article-title-block h1 { max-width: none; margin: 0 0 15px; font-size: clamp(30px, 3.4vw, 46px); line-height: 1.08; text-wrap: balance; }
-.has-external-title .markdown-editor-readonly .vditor-wysiwyg .vditor-reset > h1:first-child { display: none; }
 .editor-mode-toggle { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-muted); }
 .editor-mode-toggle button { min-height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11.5px; font-weight: 650; }
 .editor-mode-toggle button.active { background: var(--surface-solid); color: var(--accent-strong); box-shadow: var(--shadow-soft); }
@@ -1047,6 +1044,8 @@ body.article-route-active .content-shell { height: 100dvh; min-height: 0; paddin
   .article-toolbar-actions { gap: 6px; }
   .article-layout { grid-template-columns: 1fr; }
   .article-layout:has(.article-outline) { grid-template-columns: 1fr; }
+  .article-layout.inspection-collapsed,
+  .article-layout.inspection-collapsed:has(.article-outline) { grid-template-columns: minmax(0, 1fr); }
   .article-outline { display: none; }
   .article-page .reader-surface { height: auto; overflow: visible; scrollbar-gutter: auto; }
   .inspection-rail { position: static; max-height: none; display: grid; grid-template-columns: repeat(2, 1fr); overflow: visible; }
@@ -1063,6 +1062,7 @@ body.article-route-active .content-shell { height: 100dvh; min-height: 0; paddin
 
 @media (min-width: 981px) and (max-width: 1120px) {
   .article-layout:has(.article-outline) { grid-template-columns: minmax(0, 1fr) 310px; }
+  .article-layout.inspection-collapsed:has(.article-outline) { grid-template-columns: minmax(0, 1fr) 0; }
   .article-outline { display: none; }
 }
 

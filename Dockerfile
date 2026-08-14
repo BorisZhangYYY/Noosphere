@@ -37,11 +37,16 @@ RUN useradd -m -u 1000 noosphere && \
     mkdir -p /data /app/prompts && \
     chown -R noosphere:noosphere /data /app/prompts /home/noosphere
 
-# Playwright installs OS packages through apt, which requires root. Debian
-# mirrors occasionally fail a single archive request; retry the idempotent
-# dependency installation so a transient 5xx does not abort the whole build.
+# Playwright installs OS packages through apt, which requires root. Retry each
+# archive download before retrying the full idempotent install so one transient
+# mirror 5xx does not force apt to fetch the whole dependency set again.
 # Install the browser itself after switching users so its cache remains writable.
-RUN set -e; \
+RUN printf '%s\n' \
+        'Acquire::Retries "5";' \
+        'Acquire::http::Pipeline-Depth "0";' \
+        'Acquire::http::Timeout "30";' \
+        > /etc/apt/apt.conf.d/80-noosphere-retries && \
+    set -e; \
     for dependency_attempt in 1 2 3; do \
         if playwright install-deps chromium; then \
             break; \

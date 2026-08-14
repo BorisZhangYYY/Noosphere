@@ -2,6 +2,25 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
+## v0.3.2.6 — Article workspace consistency and editor reliability
+
+Goal: make article reading and editing share one stable layout while improving workbench loading, protected-image operations, and responsive inspection-rail behavior.
+
+- [x] **Reading and editing parity.** Render the same Markdown title and content geometry in both modes and shift the article copy slightly left for better optical balance.
+- [x] **Workbench loading efficiency.** Keep the existing Vditor instance across mode and theme changes and request only the editable article body needed by the workbench.
+- [x] **Protected-image editing.** Remove Vditor's conflicting structural popovers, prevent destructive keyboard transactions from reaching protected images, and provide explicit image movement and recoverable state controls.
+- [x] **Responsive inspection collapse.** Keep the article body in the flexible content column when the inspection rail is collapsed at tablet and small-laptop widths.
+- [x] **Reflection heading hierarchy.** Keep “My Reflections” as the level-two section heading and recommend level-three Markdown headings inside the reflection, including for AI-polished output.
+
+### Release gates
+
+- [x] Frontend type-check and production build pass; Python compile, configuration JSON validation, and the complete test suite pass.
+- [x] The frontend production dependency audit reports zero vulnerabilities; build-only development advisories are reviewed as non-runtime.
+- [x] Visual smoke tests pass for read/edit parity, image controls, protected-image keyboard behavior, hidden Vditor popovers, and inspection-rail collapse.
+- [x] Version metadata and changelog are prepared for `v0.3.2.6`; local Superpowers plans remain excluded from Git.
+- [x] The production Docker image builds and passes a local container smoke test.
+- [ ] Create the `v0.3.2.6` tag and publish release artifacts after explicit approval.
+
 ## v0.3.2.3 — Markdown reflections and anchored reading quotes
 
 Goal: make personal reading notes fully Markdown-aware and let readers attach durable interpretations to exact passages without changing the reviewed article.
