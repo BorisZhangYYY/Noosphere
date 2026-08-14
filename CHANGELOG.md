@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Unified article reading and editing around the same Markdown-rendered title and content layout, shifted the copy slightly left for better optical balance, made mode/theme changes update the existing editor instead of rebuilding the whole document, and reduced the web workbench response to the one article body it uses.
 - Replaced Vditor's complete structural popovers, including the heading ID field, with protected image controls that can move an image up or down without allowing it to be removed from the Markdown accidentally.
+- Clarified that headings inside the level-two “My Reflections” section should start at Markdown level three, and kept AI-polished reflections within that hierarchy.
 
 ### Fixed
 

@@ -10,6 +10,7 @@ Goal: make article reading and editing share one stable layout while improving w
 - [x] **Workbench loading efficiency.** Keep the existing Vditor instance across mode and theme changes and request only the editable article body needed by the workbench.
 - [x] **Protected-image editing.** Remove Vditor's conflicting structural popovers, prevent destructive keyboard transactions from reaching protected images, and provide explicit image movement and recoverable state controls.
 - [x] **Responsive inspection collapse.** Keep the article body in the flexible content column when the inspection rail is collapsed at tablet and small-laptop widths.
+- [x] **Reflection heading hierarchy.** Keep “My Reflections” as the level-two section heading and recommend level-three Markdown headings inside the reflection, including for AI-polished output.
 
 ### Release gates
 

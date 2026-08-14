@@ -127,6 +127,7 @@ async def test_polish_uses_review_model_and_falls_back_when_missing(monkeypatch,
     async def fake_generate(self, system_prompt: str, user_prompt: str) -> AITextResponse:
         captured["provider"] = self.settings.provider
         captured["model"] = self.settings.model
+        captured["system_prompt"] = system_prompt
         captured["prompt"] = user_prompt
         return AITextResponse("Polished reflection.", self.settings.model, self.settings.provider)
 
@@ -138,6 +139,7 @@ async def test_polish_uses_review_model_and_falls_back_when_missing(monkeypatch,
         "provider": "openai",
     }
     assert captured["provider"] == "openai"
+    assert "Markdown level 3 (`###`) or deeper" in captured["system_prompt"]
     assert "My thoughts." in captured["prompt"]
     assert read_reflection(article_dir) == "My thoughts."
 
