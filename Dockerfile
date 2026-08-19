@@ -19,6 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy source and install the package in editable mode.
 COPY --chown=root:root . /app
+
+# Allow overriding pip index at build time (e.g. domestic mirror).
+ARG PIP_INDEX_URL
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 RUN pip install --no-cache-dir -e /app
 
 # --- Runtime image ---
@@ -36,6 +40,13 @@ COPY --from=web-builder /web/dist /app/frontend/dist
 RUN useradd -m -u 1000 noosphere && \
     mkdir -p /data /app/prompts && \
     chown -R noosphere:noosphere /data /app/prompts /home/noosphere
+
+# Optionally swap apt sources to a faster mirror (e.g. domestic TUNA) before
+# Playwright installs OS packages via apt.
+ARG APT_MIRROR
+RUN if [ -n "$APT_MIRROR" ]; then \
+        sed -i "s#deb.debian.org#$APT_MIRROR#g" /etc/apt/sources.list.d/debian.sources; \
+    fi
 
 # Playwright installs OS packages through apt, which requires root. Retry each
 # archive download before retrying the full idempotent install so one transient
