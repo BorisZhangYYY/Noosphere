@@ -1,6 +1,7 @@
 """LangGraph StateGraph definition for the Noosphere article pipeline."""
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from langchain_core.runnables import RunnableConfig
 
 from src.core.review.ai_review_data import write_completed_review_report
 from src.core.config.config import load_config
+from src.core.workspace import serialized, content_revision, check_revision, atomic_write_text
 from src.core.models.manifest import write_article_manifest
 from src.core.paths.output_paths import article_output_paths
 from src.core.paths import resolve_project_path
@@ -172,6 +174,7 @@ async def _download_node(state: ArticleState) -> dict[str, object]:
         manifest_path=manifest_path,
     )
     write_article_manifest(article, paths, image_result)
+    mirror_content(state["article_id"])
     from src.core.activity import ArticleActivityStore
     ArticleActivityStore().record(state["article_id"], "capture", sourceLanguage=state.get("source_language", ""))
 
@@ -279,6 +282,11 @@ async def _upload_node(state: ArticleState) -> dict[str, object]:
 
 
 def _export_upload_node(state: ArticleState) -> dict[str, object]:
+    return _persist_upload_result(state.get("article_id") or Path(state["reviewed_path"]).parent.name, state)
+
+
+@serialized
+def _persist_upload_result(article_id: str, state: ArticleState) -> dict[str, object]:
     """Record upload result in manifest.json for backward compatibility."""
     import json
     import logging
@@ -308,7 +316,9 @@ def _export_upload_node(state: ArticleState) -> dict[str, object]:
             target=upload_platform,
             created=bool(upload_result.created) if upload_result else False,
         )
-        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        atomic_write_text(manifest_path, json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+        from src.core.content import mirror_content
+        mirror_content(article_id)
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("Failed to persist upload result to manifest: %s", exc)
 
@@ -330,6 +340,7 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
     """Run one AI rewrite attempt and persist the result to disk."""
     from src.core.telemetry import emit_event
 
+    expected_revision = content_revision(Path(state["reviewed_path"]).parent)
     attempts = state.get("attempts", 0) + 1
     await emit_event("ai_review", "pipeline.events.aiReviewStarted", f"attempt {attempts}")
 
@@ -344,8 +355,16 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
             "image_filter_result": state.get("image_filter_result"),
         }
     )
-    reviewed_markdown = edit_result["markdown"]
+    completed = await asyncio.to_thread(_commit_review, state.get("article_id") or Path(state["reviewed_path"]).parent.name, state, edit_result, attempts, expected_revision)
+    for outcome in completed["metadata_enrichment_outcomes"]:
+        await emit_event("ai_review", "pipeline.events.metadataEnrichmentAccepted" if outcome.get("action") == "accepted" else "pipeline.events.metadataEnrichmentReverted", f"{outcome.get('field')}: {outcome.get('value')}")
+    await emit_event("ai_review", "pipeline.events.aiReviewCompleted", f"{len(completed['reviewed_markdown'])} characters")
+    return completed
 
+@serialized
+def _commit_review(article_id: str, state: ArticleState, edit_result: dict, attempts: int, expected_revision: str) -> dict:
+    check_revision(Path(state["reviewed_path"]).parent, expected_revision)
+    reviewed_markdown = edit_result["markdown"]
     image_filter_result = state.get("image_filter_result")
     assets_dir = state.get("assets_dir")
     removed_files: list[str] = []
@@ -392,23 +411,7 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
             model=str(edit_result.get("model") or ""),
             provider=str(edit_result.get("provider") or ""),
         )
-        for outcome in enrichment_outcomes:
-            await emit_event(
-                "ai_review",
-                "pipeline.events.metadataEnrichmentAccepted"
-                if outcome.get("action") == "accepted"
-                else "pipeline.events.metadataEnrichmentReverted",
-                f"{outcome.get('field')}: {outcome.get('value')}",
-            )
-    reviewed_path.write_text(reviewed_markdown, encoding="utf-8")
-    from src.core.content import mirror_content
-
-    mirror_content(
-        state.get("article_id") or reviewed_path.parent.name,
-        reviewed_markdown=reviewed_markdown,
-    )
-    await emit_event("ai_review", "pipeline.events.aiReviewCompleted", f"{len(reviewed_markdown)} characters")
-
+    atomic_write_text(reviewed_path, reviewed_markdown)
     completed = {
         "reviewed_markdown": reviewed_markdown,
         "attempts": attempts,
@@ -421,6 +424,8 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
         "status": "reviewed",
     }
     _write_success_report({**state, **completed})
+    from src.core.content import mirror_content
+    mirror_content(article_id, reviewed_markdown=reviewed_markdown)
     return completed
 
 

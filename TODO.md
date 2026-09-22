@@ -2,6 +2,24 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
+## v0.3.2.7 — Combined release preparation
+
+On 2026-09-21 the user explicitly requested one release containing all completed reliability, search and batch work. This is a one-time scope exception to the eight-issue split; the normal release-planning rule remains unchanged. Completed capabilities are recorded in CHANGELOG.md and documented in `docs/reliability-upgrade.md` and `docs/search-and-batches.md`.
+
+### Release gates
+
+- [x] Exact versioned image, PostgreSQL container checks, 226 backend/browser tests and 4 frontend tests passed on 2026-09-22.
+The combined release operations are authorized. Publication and merge outcomes are tracked by the v0.3.2.7 GitHub release, tag-triggered image workflow and release pull request.
+
+## Later product iterations
+
+- [ ] Background search indexing and rendered-paragraph scroll anchors. Large-library benchmarks are excluded at the user's request; use small functional regressions.
+- [ ] Batch configuration snapshots, provider/site throttling and backoff, explicit recapture/re-review modes, idempotent external delivery, usage/cost reporting and bulk movement of existing articles.
+
+- [ ] Review diffs and recoverable article revision history.
+- [ ] Capture quality diagnostics and provenance-focused retries.
+- [ ] Validated full-workspace backup/import, including assets and collection state.
+
 ## v0.3.2.6 — Article workspace consistency and editor reliability
 
 Goal: make article reading and editing share one stable layout while improving workbench loading, protected-image operations, and responsive inspection-rail behavior.
@@ -19,7 +37,7 @@ Goal: make article reading and editing share one stable layout while improving w
 - [x] Visual smoke tests pass for read/edit parity, image controls, protected-image keyboard behavior, hidden Vditor popovers, and inspection-rail collapse.
 - [x] Version metadata and changelog are prepared for `v0.3.2.6`; local Superpowers plans remain excluded from Git.
 - [x] The production Docker image builds and passes a local container smoke test.
-- [ ] Create the `v0.3.2.6` tag and publish release artifacts after explicit approval.
+- [x] The `v0.3.2.6` release was published on 2026-08-14.
 
 ## v0.3.2.3 — Markdown reflections and anchored reading quotes
 

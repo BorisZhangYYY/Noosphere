@@ -934,62 +934,20 @@ def test_settings_secret_reveal_is_explicit_and_not_cached(web_client, payload, 
     assert response.headers["cache-control"] == "no-store"
 
 
-def test_settings_secret_reveal_rejects_remote_host_unless_enabled(web_client, monkeypatch) -> None:
+def test_settings_secret_reveal_requires_authentication_for_remote_hosts(web_client, monkeypatch) -> None:
     client, _, _ = web_client
     payload = {"service": "ai", "providerName": "openai"}
-
-    rejected = client.post(
-        "/api/v1/settings/secrets/reveal",
-        json=payload,
-        headers={"host": "noosphere.example"},
-    )
-    assert rejected.status_code == 403
-    assert rejected.headers["cache-control"] == "no-store"
-    assert "existing-secret" not in rejected.text
-
     monkeypatch.setenv("NOOSPHERE_ALLOW_REMOTE_SECRET_REVEAL", "true")
-    allowed = client.post(
-        "/api/v1/settings/secrets/reveal",
-        json=payload,
-        headers={"host": "noosphere.example"},
-    )
+    monkeypatch.setenv("NOOSPHERE_ALLOWED_SECRET_HOSTS", "noosphere.example")
+    headers = {"host": "noosphere.example"}
+    assert client.post("/api/v1/settings/secrets/reveal", json=payload, headers=headers).status_code == 403
+    monkeypatch.setenv("NOOSPHERE_ACCESS_TOKEN", "test-access-token")
+    assert client.post("/api/v1/settings/secrets/reveal", json=payload, headers=headers).status_code == 401
+    headers["authorization"] = "Bearer test-access-token"
+    allowed = client.post("/api/v1/settings/secrets/reveal", json=payload, headers=headers)
     assert allowed.status_code == 200
     assert allowed.json()["secret"] == "existing-secret"
-
-
-def test_settings_secret_reveal_allowed_hosts_env_extends_localhost(web_client, monkeypatch) -> None:
-    client, _, _ = web_client
-    payload = {"service": "ai", "providerName": "openai"}
-
-    # Without the env var, a remote host is rejected.
-    rejected = client.post(
-        "/api/v1/settings/secrets/reveal",
-        json=payload,
-        headers={"host": "noosphere.example"},
-    )
-    assert rejected.status_code == 403
-
-    # Whitelisting the host (with noise/empty entries) allows reveal.
-    monkeypatch.setenv("NOOSPHERE_ALLOWED_SECRET_HOSTS", " Noosphere.EXAMPLE , ,")
-    allowed = client.post(
-        "/api/v1/settings/secrets/reveal",
-        json=payload,
-        headers={"host": "noosphere.example"},
-    )
-    assert allowed.status_code == 200
-    assert allowed.json()["secret"] == "existing-secret"
-
-    # Other remote hosts remain rejected.
-    other = client.post(
-        "/api/v1/settings/secrets/reveal",
-        json=payload,
-        headers={"host": "other.example"},
-    )
-    assert other.status_code == 403
-
-    # The env whitelist extends, not replaces: localhost still works.
-    local = client.post("/api/v1/settings/secrets/reveal", json=payload)
-    assert local.status_code == 200
+    assert allowed.headers["cache-control"] == "no-store"
 
 
 def test_provider_connection_test_uses_draft_without_persisting(web_client, monkeypatch) -> None:
@@ -1179,7 +1137,7 @@ def test_article_reviewed_markdown_can_be_saved_and_uploaded(web_client, monkeyp
     )
     saved = client.patch(
         f"/api/v1/articles/{article_id}",
-        json={"reviewedMarkdown": f"# Edited\n\n{editor_control}\n\n`inline`\n"},
+        json={"expectedRevision": client.get(f"/api/v1/articles/{article_id}").json()["revision"], "reviewedMarkdown": f"# Edited\n\n{editor_control}\n\n`inline`\n"},
     )
     assert saved.status_code == 200
     reviewed = client.get(f"/api/v1/articles/{article_id}").json()
@@ -1225,7 +1183,7 @@ Protected body.
 """
     response = client.patch(
         f"/api/v1/articles/{article_id}",
-        json={"reviewedMarkdown": malicious},
+        json={"expectedRevision": client.get(f"/api/v1/articles/{article_id}").json()["revision"], "reviewedMarkdown": malicious},
     )
 
     assert response.status_code == 200
@@ -1289,7 +1247,7 @@ def test_article_image_can_be_removed_and_restored_without_mutating_raw(web_clie
 
     removed = client.patch(
         f"{article_url}/images/image.png",
-        json={"state": "removed", "reviewedMarkdown": initial["displayMarkdown"]},
+        json={"expectedRevision": client.get(f"/api/v1/articles/{article_id}").json()["revision"], "state": "removed", "reviewedMarkdown": initial["displayMarkdown"]},
     )
     assert removed.status_code == 200
     detail = client.get(article_url).json()
@@ -1302,7 +1260,7 @@ def test_article_image_can_be_removed_and_restored_without_mutating_raw(web_clie
 
     restored = client.patch(
         f"{article_url}/images/image.png",
-        json={"state": "active", "reviewedMarkdown": detail["displayMarkdown"]},
+        json={"expectedRevision": client.get(f"/api/v1/articles/{article_id}").json()["revision"], "state": "active", "reviewedMarkdown": detail["displayMarkdown"]},
     )
     assert restored.status_code == 200
     detail = client.get(article_url).json()
@@ -1325,7 +1283,7 @@ def test_article_save_applies_staged_image_changes_without_persisting_removed_pr
     initial = client.get(article_url).json()
     first_removal = client.patch(
         f"{article_url}/images/image.png",
-        json={"state": "removed", "reviewedMarkdown": initial["editableMarkdown"]},
+        json={"expectedRevision": client.get(f"/api/v1/articles/{article_id}").json()["revision"], "state": "removed", "reviewedMarkdown": initial["editableMarkdown"]},
     )
     assert first_removal.status_code == 200
 
@@ -1333,7 +1291,7 @@ def test_article_save_applies_staged_image_changes_without_persisting_removed_pr
     assert "/removed/image.png?state=removed" in after_first["editableMarkdown"]
     staged_save = client.patch(
         article_url,
-        json={
+        json={"expectedRevision": client.get(f"/api/v1/articles/{article_id}").json()["revision"],
             "reviewedMarkdown": after_first["editableMarkdown"] + "\n\nSaved with image changes.\n",
             "imageStates": {second_name: "removed"},
         },
@@ -1350,7 +1308,7 @@ def test_article_save_applies_staged_image_changes_without_persisting_removed_pr
 
     staged_restore = client.patch(
         article_url,
-        json={
+        json={"expectedRevision": client.get(f"/api/v1/articles/{article_id}").json()["revision"],
             "reviewedMarkdown": after_save["editableMarkdown"],
             "imageStates": {"image.png": "active"},
         },

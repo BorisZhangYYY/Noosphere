@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from src.api.security import AccessControl
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
@@ -41,6 +43,10 @@ class SPAStaticFiles(StaticFiles):
         return response
 
 mcp = FastMCP("noosphere")
+# The outer AccessControl protects both transports, including remote authenticated
+# hosts. Avoid a second SDK localhost-only allowlist rejecting those requests.
+if getattr(mcp.settings, "transport_security", None) is not None:
+    mcp.settings.transport_security.enable_dns_rebinding_protection = False
 
 # ---------------------------------------------------------------------------
 # URL validation
@@ -365,11 +371,11 @@ async def get_article(article_id: str, locale: str = "en-US", include_content: b
 
 
 @mcp.tool()
-async def update_article_content(article_id: str, reviewed_markdown: str) -> dict[str, Any]:
+async def update_article_content(article_id: str, reviewed_markdown: str, expected_revision: str) -> dict[str, Any]:
     """Replace reviewed.md while keeping raw.md immutable."""
     from src.application.service import save_reviewed_markdown
 
-    return await _to_thread(save_reviewed_markdown, article_id, reviewed_markdown)
+    return await _to_thread(save_reviewed_markdown, article_id, reviewed_markdown, expected_revision=expected_revision)
 
 
 @mcp.tool()
@@ -690,19 +696,68 @@ def _health_handler(request):
 async def _recover_article_workspaces_lifespan(app):
     """Best-effort startup check: rebuild article workspaces missing from disk."""
     del app
+    import fcntl
+    from src.core.paths import runtime_home
+    from src.api.web import recover_background_jobs, stop_background_jobs
+
+    runtime_home().mkdir(parents=True, exist_ok=True)
+    server_lock = (runtime_home() / "http-service.lock").open("a")
+    try:
+        fcntl.flock(server_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        server_lock.close()
+        raise RuntimeError("Only one HTTP service may manage this workspace at a time")
+    try:
+        await asyncio.to_thread(recover_background_jobs)
+    except BaseException:
+        server_lock.close()
+        raise
     try:
         from src.core.content import recover_missing_article_workspaces
 
         await asyncio.to_thread(recover_missing_article_workspaces, load_config().output_dir_path)
     except Exception as exc:
         logger.warning("Article workspace startup recovery skipped: %s", exc)
-    yield
+    try:
+        yield
+    finally:
+        await stop_background_jobs()
+        server_lock.close()
+
+
+@mcp.tool()
+async def search_library(query: str, scope: str = "all", collection_id: str = "", limit: int = 30, offset: int = 0) -> dict:
+    """Search title, body, reflections or annotations; raw source is opt-in."""
+    from src.application.service import search_articles
+    return await asyncio.to_thread(search_articles, query, scope=scope, collection_id=collection_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+async def preview_batch(urls: list[str]) -> dict:
+    """Validate and deduplicate up to 100 URLs without starting work."""
+    from src.application.batches import preflight
+    return {"items": await asyncio.to_thread(preflight, urls)}
+
+
+@mcp.tool()
+async def start_batch(urls: list[str], mode: str = "capture", perspective: str | None = None, language: str = "source", collection_id: str = "") -> dict:
+    """Start capture-only or capture-and-review work; does not upload articles."""
+    from src.application.batches import create_batch
+    return create_batch(urls, mode=mode, perspective=perspective, language=language, collection_id=collection_id)
+
+
+@mcp.tool()
+async def control_batch(batch_id: str, action: str) -> dict:
+    """Pause, resume, retry failed items, or cancel pending work in a batch."""
+    from src.application.batches import control_batch as control
+    return control(batch_id, action)
 
 
 def create_app() -> Starlette:
     """Return a Starlette ASGI app serving the MCP SSE endpoint and health check."""
     from src.api.web import (
         activate_ai_provider,
+        retry_article_mirror,
         batch_article_trash_action,
         batch_trash_articles,
         create_article_annotation,
@@ -744,10 +799,18 @@ def create_app() -> Starlette:
         update_settings,
     )
 
+    from src.api.discovery import search, rebuild_search, search_passage, batches, batch_action
+
     sse_app = mcp.sse_app()
     routes = [
         Route("/", lambda request: RedirectResponse("/app/"), methods=["GET"]),
         Route("/health", _health_handler, methods=["GET"]),
+        Route("/api/v1/batches", batches, methods=["GET", "POST"]),
+        Route("/api/v1/batches/preview", batches, methods=["POST"]),
+        Route("/api/v1/batches/{batch_id}", batch_action, methods=["POST"]),
+        Route("/api/v1/search/passage", search_passage, methods=["GET"]),
+        Route("/api/v1/search", search, methods=["GET"]),
+        Route("/api/v1/search/rebuild", rebuild_search, methods=["POST"]),
         Route("/api/v1/articles", list_articles, methods=["GET"]),
         Route("/api/v1/articles/batch-delete", batch_trash_articles, methods=["POST"]),
         Route("/api/v1/trash/articles", list_article_trash, methods=["GET"]),
@@ -756,6 +819,7 @@ def create_app() -> Starlette:
         Route("/api/v1/trash/articles/{article_id}", permanently_delete_article, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}", get_article, methods=["GET"]),
         Route("/api/v1/articles/{article_id}", update_article, methods=["PATCH"]),
+        Route("/api/v1/articles/{article_id}/mirror/retry", retry_article_mirror, methods=["POST"]),
         Route("/api/v1/articles/{article_id}/metadata", update_article_metadata, methods=["PATCH"]),
         Route("/api/v1/articles/{article_id}", trash_article, methods=["DELETE"]),
         Route("/api/v1/articles/{article_id}/upload", upload_web_article, methods=["POST"]),
@@ -802,6 +866,7 @@ def create_app() -> Starlette:
     routes.append(Mount("/", app=sse_app))
     return Starlette(
         routes=routes,
+        middleware=[Middleware(AccessControl)],
         lifespan=_recover_article_workspaces_lifespan,
     )
 
@@ -814,4 +879,4 @@ if __name__ == "__main__":
     host = os.getenv("MCP_HOST", "0.0.0.0")
     port = int(os.getenv("MCP_PORT", "8080"))
     logger.info("Starting Noosphere MCP server on %s:%s", host, port)
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=port, proxy_headers=False)

@@ -90,7 +90,7 @@ def test_annotation_service_uses_reviewed_digest_without_touching_article_files(
     }
     for name, content in original.items():
         (article_dir / name).write_text(content, encoding="utf-8")
-    monkeypatch.setattr("src.api.web._safe_article_dir", lambda article_id: article_dir)
+    monkeypatch.setattr("src.core.workspace.safe_article_dir", lambda article_id: article_dir)
 
     from src.application.service import create_article_annotation, get_article_annotations
 

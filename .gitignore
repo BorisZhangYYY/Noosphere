@@ -9,6 +9,7 @@ __pycache__/
 
 # Secrets — runtime config with API keys and tokens
 config.json
+.env
 
 # Testing
 .pytest_cache/

@@ -115,7 +115,14 @@ Article Markdown and assets remain files because they are directly inspectable, 
 - `NOOSPHERE_OUTPUT_DIR`: effective article workspace path.
 - `NOOSPHERE_CHECKPOINT_BACKEND`: checkpoint backend override.
 - `DATABASE_URL`: PostgreSQL connection string.
-- `NOOSPHERE_ALLOWED_SECRET_HOSTS`: comma-separated host whitelist that extends the default localhost-only list allowed to reveal configured secrets (e.g. LAN IPs or tunnel domains). Unset means only `localhost`/`127.0.0.1`/`::1` may reveal.
-- `NOOSPHERE_ALLOW_REMOTE_SECRET_REVEAL`: set to `true` to allow secret reveal from any host (escape hatch; prefer the whitelist above).
 
 Deployment environment overrides take precedence over persisted checkpoint settings.
+
+## Access and reliability settings
+
+- `NOOSPHERE_ACCESS_TOKEN`: required for remote Web/MCP access and Docker. Browser password or bearer token; never a provider API key.
+- `NOOSPHERE_DATABASE_PASSWORD`: the actual PostgreSQL password used by Compose; required, with no hard-coded default.
+- `NOOSPHERE_BIND_ADDRESS`: published app interface, default `127.0.0.1`.
+- `NOOSPHERE_JOB_CONCURRENCY`: maximum concurrently executing background jobs, default `4`.
+
+Host-based secret reveal overrides have been retired. See [upgrade and recovery procedures](reliability-upgrade.md) for existing installations, draft revisions, mirror health and consistent backups.

@@ -566,6 +566,9 @@ class CollectionStore:
         )
         if collection is None:
             raise RuntimeError("Collection was not persisted")
+        from src.core.library import invalidate_summaries
+
+        invalidate_summaries()
         return collection
 
     def update_collection(
@@ -672,6 +675,9 @@ class CollectionStore:
         )
         if collection is None:
             raise RuntimeError("Collection update was not persisted")
+        from src.core.library import invalidate_summaries
+
+        invalidate_summaries()
         return collection
 
     def _descendant_ids(self, connection, collection_id: str) -> set[str]:
@@ -785,6 +791,9 @@ class CollectionStore:
         assignment = self.get_assignment(article_id)
         if assignment is None:
             raise RuntimeError("Article placement was not persisted")
+        from src.core.library import invalidate_summaries
+
+        invalidate_summaries()
         return assignment
 
     def get_assignment(

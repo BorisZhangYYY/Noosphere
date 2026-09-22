@@ -21,7 +21,7 @@ The `nsphr` CLI exposes the complete local workflow and automation-friendly work
 |---|---|
 | `nsphr articles list --query TEXT --collection-id ID --json` | Search article summaries, optionally within a Collection subtree. |
 | `nsphr articles show ARTICLE_ID --json` | Read content, metadata, Collection path, images, and activity. |
-| `nsphr articles update ARTICLE_ID --from reviewed.md` | Replace the editable reviewed copy. |
+| `nsphr articles update ARTICLE_ID --from reviewed.md --expected-revision REVISION` | Replace the editable reviewed copy. |
 | `nsphr articles metadata ARTICLE_ID --author NAME --published-at DATE` | Fill Author or Published only when absent from the captured source. |
 
 Article updates never overwrite `raw.md`. Source, Platform, Captured, and Type are protected; reviewed Markdown is reassembled with canonical metadata before storage and export.
@@ -110,3 +110,7 @@ nsphr jobs list --kind polish --server http://127.0.0.1:8080 --json
 ```
 
 Run `nsphr COMMAND --help` for the authoritative option list of any command.
+
+## Revision-aware content updates
+
+Read the article revision before replacing its content. Updates now require `--expected-revision` in CLI or `expected_revision` in MCP. A stale revision is rejected; fetch the current article and reconcile the draft before retrying. See the [upgrade guide](reliability-upgrade.md) for authentication and examples.

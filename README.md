@@ -17,6 +17,8 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 - Review images independently, then remove or restore them without changing `raw.md`.
 - Keep a personal `reflection.md` beside each article, optionally polish it with the reviewing model, and decide per article whether it is appended to an upload copy.
 - In reading mode, quote exact passages, underline resolved anchors, and keep Markdown interpretations in an independent `annotations.json` sidecar with rail-based navigation and management.
+- Search article text, reflections and annotations with highlighted excerpts and source-context navigation.
+- Process batches of URLs with duplicate checks, durable per-item progress, pause/cancel and failed-item retry.
 - Archive locally or upload reviewed content to SiYuan.
 - Use the same data, configuration, and business rules through the web app, MCP service, or CLI.
 
@@ -35,6 +37,8 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 ### Note-taking platforms
 
 - SiYuan
+
+For the v0.3.2.7 upgrade, including required Docker credentials and revision-aware saves, see [the upgrade guide](docs/reliability-upgrade.md).
 
 ## Three Ways to Install and Use Noosphere
 
@@ -60,6 +64,8 @@ Local development uses SQLite unless PostgreSQL is configured. Add `--json` to c
 ### 2. MCP service
 
 Use Docker when an MCP client or agent should operate Noosphere. PostgreSQL, Crawl4AI, Firecrawl, Chromium, the Python runtime, and the built frontend are contained in the deployment.
+
+Before starting Compose, set `NOOSPHERE_ACCESS_TOKEN` and `NOOSPHERE_DATABASE_PASSWORD` following the [credential setup instructions](docs/reliability-upgrade.md). Keep the existing password when reusing a PostgreSQL data directory.
 
 ```bash
 git clone https://github.com/BorisZhangYYY/Noosphere.git
@@ -181,6 +187,7 @@ Noosphere/
 - [CLI reference](docs/cli-reference.md)
 - [MCP reference](docs/mcp-reference.md)
 - [Configuration and portable data](docs/configuration.md)
+- [Search and batch workspace](docs/search-and-batches.md)
 - [Changelog](CHANGELOG.md)
 - [Planned work](TODO.md)
 

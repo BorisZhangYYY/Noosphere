@@ -63,7 +63,8 @@ RUN playwright install chromium
 # read-only application directory. Docker Compose already supplies these
 # values, while standalone `docker run` calls need safe defaults as well.
 ENV NOOSPHERE_HOME=/data \
-    NOOSPHERE_CONFIG=/data/config.json
+    NOOSPHERE_CONFIG=/data/config.json \
+    NOOSPHERE_OUTPUT_DIR=/data/articles
 
 WORKDIR /app
 
