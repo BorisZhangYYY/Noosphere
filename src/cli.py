@@ -163,6 +163,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mcp_parser.add_argument("--host", default="127.0.0.1", help="Host to bind the MCP HTTP server (default: 127.0.0.1).")
     mcp_parser.add_argument("--port", type=int, default=8080, help="Port to bind the MCP HTTP server (default: 8080).")
 
+    search_parser = subparsers.add_parser("search", help="Search article content, reflections and annotations.")
+    search_parser.add_argument("query")
+    search_parser.add_argument("--scope", choices=["all", "title", "author", "reviewed", "reflection", "annotations", "raw"], default="all")
+    search_parser.add_argument("--collection-id", default="")
+    search_parser.add_argument("--limit", type=int, default=30)
+    search_parser.add_argument("--offset", type=int, default=0)
+    search_parser.add_argument("--json", action="store_true")
+
     articles_parser = subparsers.add_parser("articles", help="Inspect and edit article workspaces.")
     articles_subparsers = articles_parser.add_subparsers(dest="articles_command", required=True)
     articles_list = articles_subparsers.add_parser("list", help="List articles with search and collection filters.")
@@ -180,6 +188,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     articles_update.add_argument("article_id")
     articles_update.add_argument("--from", dest="source_file", type=Path, required=True)
     articles_update.add_argument("--json", action="store_true")
+    articles_update.add_argument("--expected-revision", required=True, help="Revision returned by articles show; reject stale writes.")
     articles_metadata = articles_subparsers.add_parser("metadata", help="Fill source metadata fields that were missing at capture time.")
     articles_metadata.add_argument("article_id")
     articles_metadata.add_argument("--author")
@@ -293,7 +302,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     jobs_parser = subparsers.add_parser("jobs", help="Inspect background jobs from a running Noosphere server.")
     jobs_subparsers = jobs_parser.add_subparsers(dest="jobs_command", required=True)
     jobs_list = jobs_subparsers.add_parser("list", help="List server-side capture, review, and upload jobs.")
-    jobs_list.add_argument("--kind", choices=["all", "capture", "review", "upload", "polish"], default="all")
+    jobs_list.add_argument("--kind", choices=["all", "capture", "review", "upload", "polish", "batch"], default="all")
     jobs_list.add_argument("--server", default="http://127.0.0.1:8080")
     jobs_list.add_argument("--json", action="store_true")
     jobs_show = jobs_subparsers.add_parser("show", help="Show one server-side job.")
@@ -497,9 +506,13 @@ def _server_json(server: str, path: str) -> dict[str, Any]:
     import urllib.error
     import urllib.request
 
+    import os
+
     url = server.rstrip("/") + path
+    token = os.environ.get("NOOSPHERE_ACCESS_TOKEN", "")
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
     try:
-        with urllib.request.urlopen(url, timeout=20) as response:  # noqa: S310 - user selects the local service URL.
+        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 - user selects the local service URL.
             payload = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise ValueError(f"Cannot query Noosphere server at {url}: {exc}") from exc
@@ -509,6 +522,15 @@ def _server_json(server: str, path: str) -> dict[str, Any]:
 
 
 async def _main_async(args: argparse.Namespace) -> int:
+    if args.command == "search":
+        from src.application.service import search_articles
+        try:
+            _emit_payload(search_articles(args.query, scope=args.scope, collection_id=args.collection_id, limit=args.limit, offset=args.offset), as_json=args.json)
+            return 0
+        except (ValueError, OSError) as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+            return 1
+
     if args.command == "articles":
         from src.application.service import get_article, list_articles, save_reviewed_markdown, update_article_metadata
 
@@ -526,7 +548,7 @@ async def _main_async(args: argparse.Namespace) -> int:
                 payload = {"article": get_article(args.article_id, locale=args.locale, include_content=not args.no_content)}
             elif args.articles_command == "update":
                 markdown = args.source_file.read_text(encoding="utf-8")
-                payload = save_reviewed_markdown(args.article_id, markdown)
+                payload = save_reviewed_markdown(args.article_id, markdown, expected_revision=args.expected_revision)
             else:
                 updates = {
                     key: value
@@ -1103,7 +1125,7 @@ async def _main_async(args: argparse.Namespace) -> int:
         logging.basicConfig(level=logging.INFO)
         app = create_app()
         console.print(f"[green]Starting MCP server on {args.host}:{args.port}[/green]")
-        uvicorn_config = uvicorn.Config(app, host=args.host, port=args.port, log_level="info")
+        uvicorn_config = uvicorn.Config(app, host=args.host, port=args.port, log_level="info", proxy_headers=False)
         uvicorn_server = uvicorn.Server(uvicorn_config)
         await uvicorn_server.serve()
         return 0

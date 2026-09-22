@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.2.7] - 2026-09-22
+
+### Security
+
+- Require credentials for remote Web/MCP access, reject forged-localhost and cross-origin access, retire Host-only secret permissions, bind Docker to loopback by default, and remove the published PostgreSQL port and hard-coded database password.
+
+### Fixed
+
+- Invalidate article summaries immediately after collection changes on PostgreSQL, and keep standalone container article output in the writable data directory.
+- Preserve unsaved article drafts when opening reflections, refreshing data, or typing while a save completes.
+- Require content revisions on Web/MCP/CLI replacement writes and reject stale drafts; serialize article mutations and reject AI results when the article changed during the model request.
+- Prevent permanently deleted articles from being reconstructed after a failed mirror cleanup, retaining failed deletions for retry.
+- Recover individual missing workspace files without overwriting existing empty files, and mirror complete manifests and review reports for subsequent recovery.
+- Persist accepted background jobs, mark interrupted jobs on restart, bound concurrent execution and queue capacity, and retain active jobs during history cleanup.
+
+### Added
+
+- Full-text search of titles, authors, reviewed content, reflections, annotations and optional raw source, with Chinese/English tokens, phrase queries, filters, highlighted excerpts, source-context navigation and index rebuilding. Available through Web, HTTP, MCP and CLI.
+- A batch workspace for up to 100 URLs, duplicate preflight, capture-only or AI review, persisted per-item stages, pause/resume/cancel, failed-item retries and failure export. Batch execution shares the bounded job runner and requires explicit continuation after interruption.
+- Show content mirror health and an explicit sync/retry action in the article inspection rail.
+- Document credential migration, revision-aware API updates, job recovery and full-data backup procedures in `docs/reliability-upgrade.md`.
+
+### Changed
+
+- Cache unchanged article summaries, avoid duplicate collection lookups, add REST list pagination and filters, and separate workspace persistence and article summaries from HTTP helpers.
+- Load only the theme styling used by the workspace and split editor/theme bundles; global stylesheet payload falls from about 826 KB to 284 KB before compression.
+
 ## [0.3.2.6] - 2026-08-14
 
 ### Changed

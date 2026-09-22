@@ -3,6 +3,9 @@ import { createHashRouter, Navigate, RouterProvider } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { LoadingPanel } from "./components/StatePanel";
 
+const BatchPage = lazy(() => import("./pages/BatchPage").then(module => ({ default: module.BatchPage })));
+const SearchPage = lazy(() => import("./pages/SearchPage").then(module => ({ default: module.SearchPage })));
+
 const ArticlePage = lazy(() => import("./pages/ArticlePage").then((module) => ({ default: module.ArticlePage })));
 const CollectionPage = lazy(() => import("./pages/CollectionPage").then((module) => ({ default: module.CollectionPage })));
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
@@ -14,6 +17,8 @@ const router = createHashRouter([
     element: <AppShell />,
     children: [
       { index: true, element: <DashboardPage /> },
+      { path: "batches", element: <BatchPage /> },
+      { path: "search", element: <SearchPage /> },
       { path: "library", element: <KnowledgePage /> },
       { path: "collections/:collectionId", element: <CollectionPage /> },
       { path: "articles/:articleId", element: <ArticlePage /> },

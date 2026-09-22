@@ -11,6 +11,8 @@ from typing import Any
 
 from src.core.config.config import clear_config_cache, load_config
 from src.core.config.schema import Config
+from src.core import workspace, article_rendering, library
+from src.core.workspace import serialized, check_revision, content_revision
 
 
 def _web_helpers():
@@ -27,12 +29,11 @@ def list_articles(
     collection_id: str = "",
 ) -> list[dict[str, Any]]:
     """Return localized article summaries with optional lightweight filters."""
-    web = _web_helpers()
     articles: list[dict[str, Any]] = []
     output_dir = load_config().output_dir_path
     if output_dir.exists():
         for manifest_path in output_dir.rglob("manifest.json"):
-            summary = web._article_summary(manifest_path, locale)
+            summary = library._article_summary(manifest_path, locale)
             if summary:
                 articles.append(summary)
     normalized_query = query.strip().casefold()
@@ -60,15 +61,15 @@ def list_articles(
     return articles
 
 
+@serialized
 def get_article(article_id: str, *, locale: str = "en-US", include_content: bool = True) -> dict[str, Any]:
     """Return one article with its collection placement, activity, and images."""
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
     manifest_path = article_dir / "manifest.json"
-    summary = web._article_summary(manifest_path, locale)
+    summary = library._article_summary(manifest_path, locale)
     if not summary:
         raise ValueError("Article manifest is missing or invalid")
-    manifest = web._read_json(manifest_path)
+    manifest = workspace.read_json(manifest_path)
     article = manifest.get("article") or {}
     paths = manifest.get("paths") or {}
     raw_path = article_dir / str(paths.get("raw") or "raw.md")
@@ -81,9 +82,9 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
     reviewed_markdown = strip_editor_artifacts(reviewed_markdown)
     protected_metadata = article_metadata_state(manifest, raw_markdown)
     referenced = {
-        web._markdown_image_name(match.group(2))
+        article_rendering._markdown_image_name(match.group(2))
         for markdown in (raw_markdown, reviewed_markdown)
-        for match in web.MARKDOWN_IMAGE_RE.finditer(markdown)
+        for match in article_rendering.MARKDOWN_IMAGE_RE.finditer(markdown)
     }
     assets = [
         {"name": path.name, "state": "active", "path": str(path)}
@@ -107,6 +108,7 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
     ] if removed_dir.is_dir() else []
     payload: dict[str, Any] = {
         **summary,
+        "revision": content_revision(article_dir),
         "publishedAt": protected_metadata["publishedAt"]["value"],
         "contentType": str(article.get("content_type") or "article"),
         "hasUploaded": bool(manifest.get("uploaded")),
@@ -120,7 +122,7 @@ def get_article(article_id: str, *, locale: str = "en-US", include_content: bool
         payload.update(
             rawMarkdown=raw_markdown,
             reviewedMarkdown=reviewed_markdown,
-            editableMarkdown=editable_article_markdown(reviewed_markdown or raw_markdown),
+            editableMarkdown=editable_article_markdown(reviewed_markdown if reviewed_path.is_file() else raw_markdown),
         )
     return payload
 
@@ -138,6 +140,7 @@ def _article_trash_dir(article_id: str) -> Path:
     return trash_dir
 
 
+@serialized
 def trash_articles(article_ids: list[str]) -> list[dict[str, Any]]:
     """Move active article workspaces into the persistent recycle bin."""
     if not article_ids:
@@ -148,11 +151,11 @@ def trash_articles(article_ids: list[str]) -> list[dict[str, Any]]:
     store = ArticleTrashStore()
     plans: list[tuple[str, Path, Path, dict[str, Any]]] = []
     for article_id in unique_ids:
-        article_dir = _web_helpers()._safe_article_dir(article_id)
+        article_dir = workspace.safe_article_dir(article_id)
         trash_dir = _article_trash_dir(article_id)
         if trash_dir.exists() or store.get(article_id) is not None:
             raise ValueError(f"Article is already in the recycle bin: {article_id}")
-        plans.append((article_id, article_dir, trash_dir, _web_helpers()._read_json(article_dir / "manifest.json")))
+        plans.append((article_id, article_dir, trash_dir, workspace.read_json(article_dir / "manifest.json")))
 
     results: list[dict[str, Any]] = []
     moved: list[tuple[str, Path, Path]] = []
@@ -188,16 +191,13 @@ def trash_articles(article_ids: list[str]) -> list[dict[str, Any]]:
 
 
 def list_trashed_articles() -> list[dict[str, Any]]:
-    """Return recycle-bin records whose workspaces still exist."""
+    """Include interrupted deletions so their remaining cleanup can be retried."""
     from src.core.trash import ArticleTrashStore
 
-    return [
-        record
-        for record in ArticleTrashStore().list()
-        if _article_trash_dir(record["id"]).is_dir()
-    ]
+    return ArticleTrashStore().list()
 
 
+@serialized
 def restore_trashed_articles(article_ids: list[str]) -> list[dict[str, Any]]:
     """Move articles from the recycle bin back into the active library."""
     if not article_ids:
@@ -212,6 +212,9 @@ def restore_trashed_articles(article_ids: list[str]) -> list[dict[str, Any]]:
         record = store.get(article_id)
         if record is None:
             raise ValueError(f"Article is not in the recycle bin: {article_id}")
+        from src.core.content import ArticleContentStore
+        if ArticleContentStore().is_deleted(article_id):
+            raise ValueError("Permanent deletion is pending; retry deletion instead of restoring")
         trash_dir = _article_trash_dir(article_id)
         article_dir = (output_dir / article_id).resolve()
         if article_dir.parent != output_dir or article_dir.exists():
@@ -243,6 +246,7 @@ def restore_trashed_articles(article_ids: list[str]) -> list[dict[str, Any]]:
     return results
 
 
+@serialized
 def permanently_delete_trashed_articles(article_ids: list[str]) -> list[str]:
     """Permanently delete trashed workspaces and their database metadata."""
     if not article_ids:
@@ -258,24 +262,29 @@ def permanently_delete_trashed_articles(article_ids: list[str]) -> list[str]:
             raise ValueError(f"Article is not in the recycle bin: {article_id}")
     deleted: list[str] = []
     for article_id in unique_ids:
+        from src.core.content import ArticleContentStore
+
+        ArticleContentStore().mark_deleted(article_id)
         trash_dir = _article_trash_dir(article_id)
         if trash_dir.is_dir():
             shutil.rmtree(trash_dir)
         CollectionStore().delete_assignment(article_id)
         ArticleActivityStore().delete_article(article_id)
-        trash_store.remove(article_id)
         from src.core.content import mirror_delete
 
         mirror_delete(article_id)
+        trash_store.remove(article_id)
         deleted.append(article_id)
     return deleted
 
 
+@serialized
 def save_reviewed_markdown(
     article_id: str,
     reviewed_markdown: str,
     *,
     image_states: dict[str, str] | None = None,
+    expected_revision: str | None = None,
 ) -> dict[str, Any]:
     """Atomically update reviewed.md and staged image states while preserving raw.md."""
     if not isinstance(reviewed_markdown, str):
@@ -286,11 +295,11 @@ def save_reviewed_markdown(
         image_states = {}
     if not isinstance(image_states, dict):
         raise ValueError("image_states must be an object")
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
+    check_revision(article_dir, expected_revision)
     manifest_path = article_dir / "manifest.json"
     reviewed_path = article_dir / "reviewed.md"
-    manifest = web._read_json(manifest_path)
+    manifest = workspace.read_json(manifest_path)
     raw_path = article_dir / "raw.md"
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     assets_dir = article_dir / "assets"
@@ -323,21 +332,21 @@ def save_reviewed_markdown(
             if removed_path.is_file():
                 moves.append((removed_path, active_path))
 
-    from src.core.article_metadata import render_protected_review, strip_editor_artifacts
+    from src.core.article_metadata import render_protected_review, strip_editor_artifacts, editable_article_markdown
 
     normalized_markdown = strip_editor_artifacts(reviewed_markdown)
     for asset_name, state in normalized_states.items():
         if state == "removed":
-            normalized_markdown = web._replace_image_target(normalized_markdown, asset_name, None)
+            normalized_markdown = article_rendering._replace_image_target(normalized_markdown, asset_name, None)
             continue
-        normalized_markdown = web._replace_image_target(
+        normalized_markdown = article_rendering._replace_image_target(
             normalized_markdown,
             asset_name,
             f"assets/{asset_name}",
         )
         present = {
-            web._markdown_image_name(match.group(2))
-            for match in web.MARKDOWN_IMAGE_RE.finditer(normalized_markdown)
+            article_rendering._markdown_image_name(match.group(2))
+            for match in article_rendering.MARKDOWN_IMAGE_RE.finditer(normalized_markdown)
         }
         if asset_name not in present:
             from src.core.review.image_filter import _restore_images_to_original_positions
@@ -348,8 +357,8 @@ def save_reviewed_markdown(
                 {f"assets/{asset_name}"},
             )
             present = {
-                web._markdown_image_name(match.group(2))
-                for match in web.MARKDOWN_IMAGE_RE.finditer(normalized_markdown)
+                article_rendering._markdown_image_name(match.group(2))
+                for match in article_rendering.MARKDOWN_IMAGE_RE.finditer(normalized_markdown)
             }
             if asset_name not in present:
                 normalized_markdown = (
@@ -376,7 +385,7 @@ def save_reviewed_markdown(
     image_filter["promotion_images"] = sorted(promotion_images)
 
     protected_markdown = render_protected_review(normalized_markdown, manifest, raw_markdown)
-    persisted_markdown = web._persistable_reviewed_markdown(protected_markdown, removed_names)
+    persisted_markdown = article_rendering._persistable_reviewed_markdown(protected_markdown, removed_names)
     original_reviewed = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else None
     original_manifest = manifest_path.read_text(encoding="utf-8") if manifest_path.is_file() else None
     completed_moves: list[tuple[Path, Path]] = []
@@ -384,9 +393,9 @@ def save_reviewed_markdown(
         for source, destination in moves:
             source.rename(destination)
             completed_moves.append((source, destination))
-        web._atomic_write_text(reviewed_path, persisted_markdown)
+        workspace.atomic_write_text(reviewed_path, persisted_markdown)
         if normalized_states:
-            web._atomic_write_text(
+            workspace.atomic_write_text(
                 manifest_path,
                 json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             )
@@ -395,9 +404,11 @@ def save_reviewed_markdown(
             if destination.exists() and not source.exists():
                 destination.rename(source)
         if original_reviewed is not None:
-            web._atomic_write_text(reviewed_path, original_reviewed)
+            workspace.atomic_write_text(reviewed_path, original_reviewed)
+        else:
+            reviewed_path.unlink(missing_ok=True)
         if original_manifest is not None:
-            web._atomic_write_text(manifest_path, original_manifest)
+            workspace.atomic_write_text(manifest_path, original_manifest)
         raise
     from src.core.content import mirror_content
 
@@ -406,13 +417,14 @@ def save_reviewed_markdown(
         "ok": True,
         "article_id": article_id,
         "image_states": normalized_states,
+        "revision": content_revision(article_dir),
+        "editableMarkdown": editable_article_markdown(persisted_markdown),
     }
 
 
 def get_reflection(article_id: str) -> dict[str, Any]:
     """Return reflection Markdown and its persisted upload preference."""
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
     from src.core.reflection import read_reflection, read_upload_enabled
 
     markdown = read_reflection(article_dir)
@@ -424,6 +436,7 @@ def get_reflection(article_id: str) -> dict[str, Any]:
     }
 
 
+@serialized
 def save_reflection(
     article_id: str,
     markdown: str | None = None,
@@ -441,8 +454,7 @@ def save_reflection(
     if markdown is None and upload_enabled is None:
         raise ValueError("Provide markdown, upload_enabled, or both")
 
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
     from src.core.reflection import set_upload_enabled, write_reflection
 
     if markdown is not None:
@@ -483,8 +495,7 @@ def _annotation_payload(annotation: dict[str, Any]) -> dict[str, Any]:
 
 def get_article_annotations(article_id: str) -> dict[str, Any]:
     """Return quote annotations and the digest of the current reviewed source."""
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
     reviewed_path = article_dir / "reviewed.md"
     reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
     from src.core.annotations import read_annotations, reviewed_digest
@@ -498,6 +509,7 @@ def get_article_annotations(article_id: str) -> dict[str, Any]:
     }
 
 
+@serialized
 def create_article_annotation(
     article_id: str,
     *,
@@ -508,8 +520,7 @@ def create_article_annotation(
     note: str,
 ) -> dict[str, Any]:
     """Persist one reader-selected quote and Markdown interpretation."""
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
     reviewed_path = article_dir / "reviewed.md"
     if not reviewed_path.is_file():
         raise ValueError(f"reviewed.md not found for article: {article_id}")
@@ -528,10 +539,10 @@ def create_article_annotation(
     return _annotation_payload(annotation)
 
 
+@serialized
 def update_article_annotation(article_id: str, annotation_id: str, *, note: str) -> dict[str, Any]:
     """Update one quote interpretation without changing its anchor."""
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
     from src.core.annotations import update_annotation
 
     annotation = update_annotation(article_dir, annotation_id, note=note)
@@ -539,10 +550,10 @@ def update_article_annotation(article_id: str, annotation_id: str, *, note: str)
     return _annotation_payload(annotation)
 
 
+@serialized
 def delete_article_annotation(article_id: str, annotation_id: str) -> dict[str, Any]:
     """Delete one quote annotation."""
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
     from src.core.annotations import delete_annotation
 
     annotation = delete_annotation(article_dir, annotation_id)
@@ -550,6 +561,7 @@ def delete_article_annotation(article_id: str, annotation_id: str) -> dict[str, 
     return _annotation_payload(annotation)
 
 
+@serialized
 def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[str, Any]:
     """Update only missing author/publication fields through a controlled boundary."""
     if not isinstance(updates, dict):
@@ -561,12 +573,11 @@ def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[st
     if not updates:
         raise ValueError("At least one metadata field is required")
 
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
     manifest_path = article_dir / "manifest.json"
     reviewed_path = article_dir / "reviewed.md"
     raw_path = article_dir / "raw.md"
-    manifest = web._read_json(manifest_path)
+    manifest = workspace.read_json(manifest_path)
     raw_markdown = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else ""
     reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else raw_markdown
     from src.core.article_metadata import article_metadata_state, render_protected_review, strip_editor_artifacts
@@ -604,8 +615,8 @@ def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[st
         })
 
     protected_markdown = render_protected_review(reviewed_markdown, manifest, raw_markdown)
-    web._atomic_write_text(reviewed_path, protected_markdown)
-    web._atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    workspace.atomic_write_text(reviewed_path, protected_markdown)
+    workspace.atomic_write_text(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     from src.core.content import mirror_content
 
     mirror_content(article_id, reviewed_markdown=protected_markdown)
@@ -616,20 +627,21 @@ def update_article_metadata(article_id: str, updates: dict[str, Any]) -> dict[st
     }
 
 
+@serialized
 def set_article_image_state(
     article_id: str,
     asset_name: str,
     state: str,
     *,
     reviewed_markdown: str | None = None,
+    expected_revision: str | None = None,
 ) -> dict[str, Any]:
     """Move one image between active and removed states and update reviewed.md."""
     if not asset_name or Path(asset_name).name != asset_name:
         raise ValueError("Invalid asset name")
     if state not in {"active", "removed"}:
         raise ValueError("state must be active or removed")
-    web = _web_helpers()
-    article_dir = web._safe_article_dir(article_id)
+    article_dir = workspace.safe_article_dir(article_id)
     reviewed_path = article_dir / "reviewed.md"
     if reviewed_markdown is None:
         reviewed_markdown = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else ""
@@ -637,6 +649,7 @@ def set_article_image_state(
         article_id,
         reviewed_markdown,
         image_states={asset_name: state},
+        expected_revision=expected_revision,
     )
     return {"ok": True, "article_id": article_id, "name": asset_name, "state": state}
 
@@ -699,7 +712,7 @@ def place_article(
     collection_description: str = "",
 ) -> dict[str, Any]:
     """Place an article by stable ID or an explicitly authorized path."""
-    _web_helpers()._safe_article_dir(article_id)
+    workspace.safe_article_dir(article_id)
     from src.core.collections import CollectionStore
 
     store = CollectionStore()
@@ -919,7 +932,7 @@ def save_pipeline_settings(payload: dict[str, Any], *, locale: str = "en-US") ->
     updated = Config.model_validate(data)
     web = _web_helpers()
     for destination, content in custom_files:
-        web._atomic_write_text(destination, content)
+        workspace.atomic_write_text(destination, content)
     web._atomic_write_config(updated)
     clear_config_cache()
     return web._pipeline_payload(load_config(), locale)
@@ -971,3 +984,9 @@ def delete_review_perspective(perspective_id: str, *, locale: str = "en-US") -> 
     if payload["activePerspective"] == perspective_id:
         payload["activePerspective"] = next(item["id"] for item in payload["perspectives"] if item.get("builtin"))
     return save_pipeline_settings(payload, locale=locale)
+
+
+def search_articles(query: str, **filters) -> dict:
+    """Search the shared, rebuildable article index."""
+    from src.core.search import search_articles as search
+    return search(query, **filters)

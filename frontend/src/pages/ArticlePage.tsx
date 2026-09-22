@@ -1,19 +1,21 @@
 import { ArrowCounterClockwise, ArrowLeft, ArrowSquareOut, CaretDown, CheckCircle, Eye, EyeSlash, FileText, FloppyDisk, FolderOpen, Image, MagicWand, Notebook, PencilSimple, Quotes, SidebarSimple, SpinnerGap, Trash, UploadSimple, WarningCircle, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useBeforeUnload, useBlocker, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
+import { articleDraftReducer, emptyArticleDraft } from "../articleDraft";
+import { SearchPassage } from "../components/SearchPassage";
 import { ArticleOutline } from "../components/ArticleOutline";
 import { InlineSelect } from "../components/InlineSelect";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { localizedPlatformLabel } from "../localization";
-import type { ArticleAnnotation, CollectionNode, OutputLanguage, QuoteAnchorDraft } from "../types";
+import type { ArticleAnnotation, ArticleWorkspaceDetail, CollectionNode, OutputLanguage, QuoteAnchorDraft } from "../types";
 
 function collectionOptions(nodes: CollectionNode[], path: string[] = []): Array<{ value: string; label: string; description?: string }> {
   return nodes.flatMap((node) => {
@@ -43,7 +45,9 @@ export function ArticlePage() {
   const query = useQuery({ queryKey: ["article", articleId, i18n.resolvedLanguage], queryFn: () => api.getArticle(articleId), enabled: Boolean(articleId) });
   const collectionQuery = useQuery({ queryKey: ["collections", i18n.resolvedLanguage], queryFn: api.getCollections });
   const pipelineSettingsQuery = useQuery({ queryKey: ["pipeline-settings", i18n.resolvedLanguage], queryFn: api.getPipelineSettings });
-  const [draft, setDraft] = useState("");
+  const [draftState, dispatchDraft] = useReducer(articleDraftReducer, emptyArticleDraft);
+  const draft = draftState.text;
+  const setDraft = (text: string) => dispatchDraft({ type: "edit", text });
   const [readOnly, setReadOnly] = useState(true);
   const [uploadJobId, setUploadJobId] = useState<string | null>(null);
   const [reviewJobId, setReviewJobId] = useState<string | null>(null);
@@ -80,12 +84,15 @@ export function ArticlePage() {
 
   useEffect(() => {
     if (!query.data) return;
-    setDraft(query.data.editableMarkdown);
+    dispatchDraft({ type: "receive", articleId, text: query.data.editableMarkdown, revision: query.data.revision, hasImageChanges: Object.keys(pendingImageStates).length > 0 });
     setUploadJobId(query.data.activeUpload?.id ?? null);
     setReviewJobId(query.data.activeReview?.id ?? null);
     setCollectionId(query.data.collection?.collection_id ?? "");
     setMetadataAuthor(query.data.metadata.author.origin === "missing" ? "" : query.data.metadata.author.value);
     setMetadataPublishedAt(query.data.metadata.publishedAt.origin === "missing" ? "" : query.data.metadata.publishedAt.value);
+  }, [query.data, articleId]);
+  useEffect(() => {
+    if (!query.data) return;
     if (!reflectionOpen) {
       setPolishJobId(query.data.activePolish?.id ?? null);
       setReflectionDraft(query.data.reflection.markdown);
@@ -182,7 +189,7 @@ export function ArticlePage() {
     setReviewLanguage((current) => current === "follow_ui" ? pipelineSettingsQuery.data.outputLanguage : current);
   }, [pipelineSettingsQuery.data, reviewPerspective]);
   const dirty = Boolean(query.data && (
-    draft !== query.data.editableMarkdown
+    draft !== draftState.saved
     || Object.keys(pendingImageStates).length > 0
   ));
   const blocker = useBlocker(({ currentLocation, nextLocation }) =>
@@ -232,35 +239,46 @@ export function ArticlePage() {
     void queryClient.invalidateQueries({ queryKey: ["collections"] });
   }, [articleId, queryClient, reviewJobQuery.data?.status]);
 
+  const persistDraft = async () => {
+    const submitted = draft;
+    const imageStates = pendingImageStates;
+    await queryClient.cancelQueries({ queryKey: ["article", articleId] });
+    const result = await api.saveReviewedMarkdown(articleId, submitted, imageStates, draftState.revision);
+    dispatchDraft({ type: "saved", articleId, submitted, text: result.editableMarkdown, revision: result.revision });
+    setPendingImageStates((current) => Object.fromEntries(Object.entries(current).filter(([name, state]) => imageStates[name] !== state)));
+    queryClient.setQueryData<ArticleWorkspaceDetail>(["article", articleId, i18n.resolvedLanguage], (current) => current ? { ...current, editableMarkdown: result.editableMarkdown, revision: result.revision } : current);
+    return result;
+  };
   const saveMutation = useMutation({
-    mutationFn: () => api.saveReviewedMarkdown(articleId, draft, pendingImageStates),
+    mutationFn: persistDraft,
     onSuccess: async () => {
-      setPendingImageStates({});
       await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
       await queryClient.invalidateQueries({ queryKey: ["articles"] });
     }
   });
   const uploadMutation = useMutation({
     mutationFn: async () => {
-      if (dirty) await api.saveReviewedMarkdown(articleId, draft, pendingImageStates);
+      if (dirty) await persistDraft();
       return api.uploadArticle(articleId);
     },
     onSuccess: async (job) => {
-      setPendingImageStates({});
       setUploadJobId(job.id);
       await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
     }
   });
   const reviewMutation = useMutation({
     mutationFn: async () => {
-      if (dirty) await api.saveReviewedMarkdown(articleId, draft, pendingImageStates);
+      if (dirty) await persistDraft();
       return api.reviewArticle(articleId, reviewPerspective, reviewLanguage);
     },
     onSuccess: async (job) => {
-      setPendingImageStates({});
       setReviewJobId(job.id);
       await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
     }
+  });
+  const mirrorMutation = useMutation({
+    mutationFn: () => api.retryMirror(articleId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["article", articleId] })
   });
   const saveReflectionMutation = useMutation({
     mutationFn: (payload: { markdown?: string; uploadEnabled?: boolean }) => api.saveReflection(articleId, payload),
@@ -473,6 +491,7 @@ export function ArticlePage() {
       <div className={`article-layout${inspectionOpen ? "" : " inspection-collapsed"}`}>
         <ArticleOutline markdown={draft} />
         <article className="reader-surface editor-surface">
+          <SearchPassage articleId={articleId} />
           <MarkdownEditor
             articleId={articleId}
             value={draft}
@@ -508,6 +527,14 @@ export function ArticlePage() {
         </article>
 
         <aside className="inspection-rail" aria-hidden={!inspectionOpen}>
+          <section className="inspection-section">
+            <h2>{t("article.mirrorTitle")}</h2>
+            <p role={article.mirrorStatus.status === "failed" ? "alert" : undefined}>{t(`article.mirror_${article.mirrorStatus.status}`)}</p>
+            {article.mirrorStatus.updatedAt && <small>{new Date(article.mirrorStatus.updatedAt).toLocaleString()}</small>}
+            <p className="reflection-empty-hint">{t("article.mirrorScope")}</p>
+            <button className="button-secondary" type="button" disabled={mirrorMutation.isPending} onClick={() => mirrorMutation.mutate()}>{t("article.mirrorRetry")}</button>
+            {mirrorMutation.isError && <p role="alert">{(mirrorMutation.error as Error).message}</p>}
+          </section>
           <section className={`inspection-section inspection-source-section${sourceExpanded ? " inspection-source-expanded" : ""}`}>
             <button className="inspection-collapse-toggle" type="button" aria-expanded={sourceExpanded} onClick={() => setSourceExpanded((expanded) => !expanded)}>
               <span className="inspection-title"><FileText size={19} /><h2>{t("article.source")}</h2></span>

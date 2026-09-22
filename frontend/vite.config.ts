@@ -47,6 +47,8 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes("/node_modules/vditor/")) return "editor-vendor";
+          if (id.includes("/node_modules/@radix-ui/") || id.includes("/node_modules/radix-ui/")) return "theme-vendor";
           if (id.includes("/node_modules/i18next/") || id.includes("/node_modules/react-i18next/")) {
             return "i18n-vendor";
           }

@@ -63,6 +63,8 @@ export interface TrashedArticle {
 }
 
 export interface ArticleDetail extends ArticleSummary {
+  revision: string;
+  mirrorStatus: { status: "synced" | "failed" | "unknown"; updatedAt?: string; error?: string };
   publishedAt: string | null;
   contentType: string;
   rawMarkdown: string;
@@ -254,3 +256,6 @@ export interface SettingsUpdate extends SettingsData {
 }
 
 export type SettingsSecretTarget = "ai" | "firecrawl" | "siyuan";
+
+export type BatchItem = { id: string; url: string; status: string; stage: string; articleId: string | null; error?: string | null; reason?: string };
+export type BatchJob = { id: string; status: string; mode: string; createdAt: string; provider: string; perspective: string; items: BatchItem[]; pauseRequested: boolean; cancelRequested: boolean; error?: string };
