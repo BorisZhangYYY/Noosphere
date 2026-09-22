@@ -1,4 +1,7 @@
-# Installation and Deployment
+# Installation and deployment
+
+Before starting the updated Compose stack, configure `NOOSPHERE_ACCESS_TOKEN` and `NOOSPHERE_DATABASE_PASSWORD` as described in the [upgrade guide](reliability-upgrade.md). Existing database passwords must be preserved until explicitly rotated.
+
 
 Noosphere exposes one business system through three interfaces. A Docker deployment serves both the web workspace and MCP endpoint; the local Python installation provides the CLI and can also start the MCP service.
 
@@ -39,7 +42,7 @@ Available endpoints:
 - Web workspace: `http://localhost:8080/app/`
 - MCP SSE endpoint: `http://localhost:8080/sse`
 - Health check: `http://localhost:8080/health`
-- PostgreSQL host port: `5432`
+- PostgreSQL is private to the Compose network; no database host port is published.
 
 The Compose stack builds `noosphere:latest` locally. To use the published image instead, remove the `build:` block in `docker-compose.yml` and configure:
 

@@ -168,3 +168,7 @@ delete_article_annotation(article_id="ARTICLE_ID", annotation_id="ANNOTATION_ID"
 ```
 
 These operations never modify the article, reflection, or upload payload.
+
+## Revision-aware content updates
+
+Read the article revision before replacing its content. Updates now require `--expected-revision` in CLI or `expected_revision` in MCP. A stale revision is rejected; fetch the current article and reconcile the draft before retrying. See the [upgrade guide](reliability-upgrade.md) for authentication and examples.
