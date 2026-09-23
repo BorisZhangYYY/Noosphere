@@ -318,13 +318,14 @@ function CollectionBranch({
   );
 }
 
-export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
+export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () => void; onBatchCapture: () => void }) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
   const [search, setSearch] = useState("");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [captureMenuOpen, setCaptureMenuOpen] = useState(false);
   const [deletedCollectionsOpen, setDeletedCollectionsOpen] = useState(false);
   const [editingArticles, setEditingArticles] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -550,9 +551,44 @@ export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
               </div>
             )}
           </div>
-          <button type="button" onClick={onCapture} aria-label={t("capture.button")} title={t("capture.button")}>
-            <Plus size={16} weight="bold" />
-          </button>
+          <div className="knowledge-header-menu">
+            <button
+              type="button"
+              aria-expanded={captureMenuOpen}
+              aria-haspopup="menu"
+              aria-label={t("capture.button")}
+              title={t("capture.button")}
+              onClick={() => setCaptureMenuOpen((open) => !open)}
+            >
+              <Plus size={16} weight="bold" />
+            </button>
+            {captureMenuOpen && (
+              <div className="knowledge-header-menu-popover" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setCaptureMenuOpen(false);
+                    onCapture();
+                  }}
+                >
+                  <FilePlus size={16} />
+                  <span><strong>{t("capture.singleArticle")}</strong><small>{t("capture.singleArticleHelp")}</small></span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setCaptureMenuOpen(false);
+                    onBatchCapture();
+                  }}
+                >
+                  <FilePlus size={16} />
+                  <span><strong>{t("capture.batchArticles")}</strong><small>{t("capture.batchArticlesHelp")}</small></span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       <label className="knowledge-search">

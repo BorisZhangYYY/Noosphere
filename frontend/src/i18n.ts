@@ -118,7 +118,11 @@ const resources = {
         submit: "Capture",
         helper: "Processing continues in the background. Follow it from Workspace.",
         reviewMode: "Review mode",
-        perspective: "Review perspective"
+        perspective: "Review perspective",
+        singleArticle: "Single article",
+        singleArticleHelp: "Capture one article from a URL",
+        batchArticles: "Multiple articles",
+        batchArticlesHelp: "Paste or import a list of URLs"
       },
       status: {
         captured: "Captured",
@@ -717,7 +721,11 @@ const resources = {
         submit: "开始抓取",
         helper: "处理任务将在后台继续运行，可在工作台查看进度。",
         reviewMode: "审阅模式",
-        perspective: "审阅视角"
+        perspective: "审阅视角",
+        singleArticle: "单篇抓取",
+        singleArticleHelp: "粘贴一个链接，抓取一篇文章",
+        batchArticles: "多篇批量",
+        batchArticlesHelp: "粘贴或导入多条链接，逐项处理"
       },
       status: {
         captured: "已抓取",

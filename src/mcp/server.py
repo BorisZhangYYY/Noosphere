@@ -757,6 +757,9 @@ def create_app() -> Starlette:
     """Return a Starlette ASGI app serving the MCP SSE endpoint and health check."""
     from src.api.web import (
         activate_ai_provider,
+        auth_login,
+        auth_logout,
+        auth_status,
         retry_article_mirror,
         batch_article_trash_action,
         batch_trash_articles,
@@ -805,6 +808,9 @@ def create_app() -> Starlette:
     routes = [
         Route("/", lambda request: RedirectResponse("/app/"), methods=["GET"]),
         Route("/health", _health_handler, methods=["GET"]),
+        Route("/api/v1/auth/status", auth_status, methods=["GET"]),
+        Route("/api/v1/auth/login", auth_login, methods=["POST"]),
+        Route("/api/v1/auth/logout", auth_logout, methods=["POST"]),
         Route("/api/v1/batches", batches, methods=["GET", "POST"]),
         Route("/api/v1/batches/preview", batches, methods=["POST"]),
         Route("/api/v1/batches/{batch_id}", batch_action, methods=["POST"]),

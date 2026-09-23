@@ -1,6 +1,9 @@
 import { lazy, Suspense } from "react";
 import { createHashRouter, Navigate, RouterProvider } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "./api";
 import { AppShell } from "./components/AppShell";
+import { LoginPage } from "./pages/LoginPage";
 import { LoadingPanel } from "./components/StatePanel";
 
 const BatchPage = lazy(() => import("./pages/BatchPage").then(module => ({ default: module.BatchPage })));
@@ -32,6 +35,13 @@ const router = createHashRouter([
 ]);
 
 export function App() {
+  const auth = useQuery({ queryKey: ["auth-status"], queryFn: api.authStatus, staleTime: 60_000, retry: false });
+  if (auth.isPending) {
+    return <div className="route-loading"><LoadingPanel /></div>;
+  }
+  if (auth.data?.required && !auth.data.authenticated) {
+    return <LoginPage />;
+  }
   return (
     <Suspense fallback={<div className="route-loading"><LoadingPanel /></div>}>
       <RouterProvider router={router} />

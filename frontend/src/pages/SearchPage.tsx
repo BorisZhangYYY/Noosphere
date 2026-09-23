@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import type { CollectionNode } from "../types";
+import { cleanPassage } from "../markdownClean";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 
 function collectionOptions(nodes: CollectionNode[], prefix = ""): { id: string; label: string }[] { return nodes.flatMap(node => [{ id: node.id, label: prefix + node.name }, ...collectionOptions(node.children, prefix + node.name + " / ")]); }
@@ -37,7 +38,10 @@ export function SearchPage() {
     <div className="search-results">{query.data?.results.map(result => <article key={result.article.id} className="search-result">
       <h2><Link to={`/articles/${encodeURIComponent(result.article.id)}`}>{result.article.title}</Link></h2>
       <p className="search-result-meta">{result.article.author} · {result.article.platformLabel}</p>
-      {result.matches.map(match => <div key={match.field} className="search-passage"><span>{scopes[match.field]}</span><p>{Array.from(match.text).map((char, index) => match.highlights.some(([start, end]) => index >= start && index < end) ? <mark key={index}>{char}</mark> : char)}</p><Link to={`/articles/${encodeURIComponent(result.article.id)}?${new URLSearchParams({ search: params.get("q") ?? "", field: match.field, digest: match.digest, start: String(match.start) })}`}>{zh ? "打开片段" : "Open passage"}</Link></div>)}
+      {result.matches.map(match => {
+        const cleaned = cleanPassage(match.text, match.highlights, zh ? "[图片]" : "[image]");
+        return <div key={match.field} className="search-passage"><span>{scopes[match.field]}</span><p>{Array.from(cleaned.text).map((char, index) => cleaned.highlights.some(([start, end]) => index >= start && index < end) ? <mark key={index}>{char}</mark> : char)}</p><Link to={`/articles/${encodeURIComponent(result.article.id)}?${new URLSearchParams({ search: params.get("q") ?? "", field: match.field, digest: match.digest, start: String(match.start) })}`}>{zh ? "打开片段" : "Open passage"}</Link></div>;
+      })}
     </article>)}</div>
     {query.data && query.data.total > 30 && <nav className="discovery-toolbar" aria-label={zh ? "搜索分页" : "Search pages"}>{[ -30, 30 ].map(delta => <button type="button" key={delta} disabled={delta < 0 ? Number(params.get("offset") ?? 0) === 0 : Number(params.get("offset") ?? 0) + 30 >= query.data!.total} onClick={() => { const next = new URLSearchParams(params); next.set("offset", String(Math.max(0, Number(params.get("offset") ?? 0) + delta))); setParams(next); }}>{delta < 0 ? (zh ? "上一页" : "Previous") : (zh ? "下一页" : "Next")}</button>)}</nav>}
   </main>;
