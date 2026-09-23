@@ -9,6 +9,7 @@ import {
   Plus,
   Question,
   SidebarSimple,
+  SignOut,
   Sun,
   Translate,
   X
@@ -19,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { Atmosphere } from "./Atmosphere";
+import { BatchDialog } from "./BatchDialog";
 import { useTheme } from "../theme";
 import { InlineSelect } from "./InlineSelect";
 import { KnowledgeSidebar } from "./KnowledgeSidebar";
@@ -38,6 +40,7 @@ const helpSources = [
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [captureUrl, setCaptureUrl] = useState("");
   const { t, i18n } = useTranslation();
@@ -49,6 +52,13 @@ export function AppShell() {
   const { resolvedTheme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const logoutMutation = useMutation({
+    mutationFn: api.logout,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["auth-status"] });
+      await queryClient.invalidateQueries();
+    }
+  });
   const knowledgeMode = location.pathname === "/library"
     || location.pathname.startsWith("/articles/")
     || location.pathname.startsWith("/collections/");
@@ -104,7 +114,7 @@ export function AppShell() {
           ))}
         </nav>
 
-        <KnowledgeSidebar onCapture={() => setCaptureOpen(true)} />
+        <KnowledgeSidebar onCapture={() => setCaptureOpen(true)} onBatchCapture={() => setBatchOpen(true)} />
 
         <div className="sidebar-footer">
           <NavLink className={({ isActive }) => `sidebar-utility-button${isActive ? " active" : ""}`} to="/settings" aria-label={t("nav.settings")} title={t("nav.settings")} onClick={() => setMobileOpen(false)}>
@@ -119,6 +129,15 @@ export function AppShell() {
           <button className="language-button" onClick={() => void i18n.changeLanguage(i18n.resolvedLanguage === "zh" ? "en" : "zh")} aria-label={t("controls.switchLanguage")}>
             <Translate size={19} />
             <span>{i18n.resolvedLanguage === "zh" ? "EN" : "中"}</span>
+          </button>
+          <button
+            className="sidebar-utility-button"
+            onClick={() => logoutMutation.mutate()}
+            disabled={logoutMutation.isPending}
+            aria-label={i18n.resolvedLanguage === "zh" ? "退出登录" : "Sign out"}
+            title={i18n.resolvedLanguage === "zh" ? "退出登录" : "Sign out"}
+          >
+            <SignOut size={18} />
           </button>
         </div>
       </aside>
@@ -153,6 +172,8 @@ export function AppShell() {
           </section>
         </div>
       )}
+
+      {batchOpen && <BatchDialog onClose={() => setBatchOpen(false)} />}
 
       {captureOpen && (
         <div className="dialog-layer modal-root-layer" role="presentation" onMouseDown={() => setCaptureOpen(false)}>

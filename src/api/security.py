@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import ipaddress
 import os
@@ -9,6 +10,19 @@ from urllib.parse import urlsplit
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+SESSION_COOKIE = "noosphere_session"
+SESSION_MAX_AGE = 30 * 24 * 3600
+
+# Paths reachable without credentials so the SPA can load and show its
+# in-app login page. API and MCP transports stay protected.
+_PUBLIC_EXACT_PATHS = {"/health", "/api/v1/auth/status", "/api/v1/auth/login", "/api/v1/auth/logout"}
+_PUBLIC_PREFIXES = ("/app", "/favicon")
+
+
+def session_signature(token: str) -> str:
+    """Derive the cookie value from the access token without storing it."""
+    return hmac.new(token.encode(), b"noosphere-web-session", hashlib.sha256).hexdigest()
 
 
 def local_peer(request: Request) -> bool:
@@ -34,9 +48,11 @@ def authenticated(request: Request) -> bool:
             credential = base64.b64decode(credential, validate=True).decode().split(":", 1)[1]
         except (ValueError, UnicodeError, IndexError):
             return False
-    elif scheme.casefold() != "bearer":
-        return False
-    return hmac.compare_digest(credential.encode(), expected.encode())
+        return hmac.compare_digest(credential.encode(), expected.encode())
+    if scheme.casefold() == "bearer":
+        return hmac.compare_digest(credential.encode(), expected.encode())
+    cookie = request.cookies.get(SESSION_COOKIE, "")
+    return bool(cookie) and hmac.compare_digest(cookie.encode(), session_signature(expected).encode())
 
 
 class AccessControl:
@@ -46,7 +62,10 @@ class AccessControl:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope.get("path") == "/health":
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        path = scope.get("path", "")
+        if path in _PUBLIC_EXACT_PATHS or any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES):
             return await self.app(scope, receive, send)
         request = Request(scope)
         token_configured = bool(os.environ.get("NOOSPHERE_ACCESS_TOKEN"))
@@ -54,10 +73,12 @@ class AccessControl:
         if not token_configured:
             allowed = local_peer(request) and request.url.hostname in {"localhost", "127.0.0.1", "::1", "testserver"}
         if not allowed:
+            # No WWW-Authenticate challenge: the SPA renders its own login page
+            # instead of the browser's native Basic Auth dialog.
             response = JSONResponse(
-                {"error": "Authentication required. Configure NOOSPHERE_ACCESS_TOKEN and sign in with that token as the password."},
+                {"error": "Authentication required. Sign in on the login page with your access token."},
                 status_code=401 if token_configured else 403,
-                headers={"WWW-Authenticate": 'Basic realm="Noosphere", charset="UTF-8"', "Cache-Control": "no-store"},
+                headers={"Cache-Control": "no-store"},
             )
             return await response(scope, receive, send)
         origin = request.headers.get("origin")

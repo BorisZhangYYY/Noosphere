@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
+import { cleanPassage } from "../markdownClean";
 
 export function SearchPassage({ articleId }: { articleId: string }) {
   const [params] = useSearchParams();
@@ -16,6 +17,6 @@ export function SearchPassage({ articleId }: { articleId: string }) {
     <Link to={`/search?q=${encodeURIComponent(params.get("search") ?? "")}`}>{zh ? "返回搜索" : "Back to search"}</Link>
     {query.isPending && <p>{zh ? "正在定位…" : "Locating passage…"}</p>}
     {query.error && <p role="alert">{String(query.error)}</p>}
-    {query.data?.changed ? <p>{zh ? "此内容已修改，请重新搜索以定位最新片段。" : "This content has changed. Search again to locate the current passage."}</p> : <pre>{query.data?.text}</pre>}
+    {query.data?.changed ? <p>{zh ? "此内容已修改，请重新搜索以定位最新片段。" : "This content has changed. Search again to locate the current passage."}</p> : <pre>{cleanPassage(query.data?.text ?? "", [], zh ? "[图片]" : "[image]").text}</pre>}
   </section>;
 }
