@@ -2,6 +2,19 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
+## v0.3.2.7-fix — Web workspace display and access polish
+
+The completed browser-login, capture-entry, search-excerpt and responsive-layout corrections are recorded in `CHANGELOG.md` and `docs/releases/v0.3.2.7-fix.md`.
+
+### Release gates
+
+- [x] Frontend tests, type-check and production build pass; Python compile, configuration JSON validation and the complete test suite pass (228 tests, plus 14 frontend tests, on 2026-09-25).
+- [x] Visual smoke tests pass for login, workspace capture, batch, search, dashboard, sources, review, settings, collection and article routes at desktop, tablet and mobile sizes.
+- [x] Version metadata, changelog and user-facing documentation describe `v0.3.2.7-fix`.
+- [x] The production Docker image builds and passes a local authenticated container smoke test.
+
+The patch release operations are authorized. Publication and merge outcomes are tracked by the v0.3.2.7-fix GitHub release, tag-triggered image workflow and release pull request.
+
 ## v0.3.2.7 — Combined release preparation
 
 On 2026-09-21 the user explicitly requested one release containing all completed reliability, search and batch work. This is a one-time scope exception to the eight-issue split; the normal release-planning rule remains unchanged. Completed capabilities are recorded in CHANGELOG.md and documented in `docs/reliability-upgrade.md` and `docs/search-and-batches.md`.

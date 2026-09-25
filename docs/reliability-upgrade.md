@@ -18,7 +18,7 @@ Reuse these values on subsequent starts. You may store them in an untracked, per
 
 For an **existing** installation, set `NOOSPHERE_DATABASE_PASSWORD` to its existing database password first. Changing an environment variable does not change a password in an already initialized PostgreSQL volume. The previous Compose default was `noosphere`; rotate that database password through PostgreSQL administration before replacing the environment value. Never remove the data volume to resolve an authentication error.
 
-Open the web app and use `noosphere` as the username and `NOOSPHERE_ACCESS_TOKEN` as the password in the browser sign-in dialog. The username is informational; the password is checked. MCP and REST clients must send `Authorization: Bearer <access-token>`. CLI `jobs` queries use `NOOSPHERE_ACCESS_TOKEN` from the environment.
+Open the web app and enter `NOOSPHERE_ACCESS_TOKEN` on the Noosphere login page. The browser stores only an HttpOnly session cookie derived from the token; it does not store the token itself. MCP and REST clients must send `Authorization: Bearer <access-token>`; HTTP Basic authentication remains available for compatible command-line clients. CLI `jobs` queries use `NOOSPHERE_ACCESS_TOKEN` from the environment.
 
 The app binds its published Docker port to `127.0.0.1` by default. To deliberately enable LAN access, set `NOOSPHERE_BIND_ADDRESS` to an appropriate interface address. PostgreSQL has no published host port. For remote use, terminate HTTPS at your reverse proxy, preserve the original Host, and configure the access token in the app. Forwarded peer headers are not trusted for authentication. Cross-origin browser requests are rejected.
 

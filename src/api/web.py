@@ -1661,3 +1661,52 @@ async def retry_article_mirror(request: Request) -> JSONResponse:
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=404)
     return JSONResponse(status, status_code=503 if status["status"] == "failed" else 200)
+
+
+async def auth_status(request: Request) -> JSONResponse:
+    from src.api.security import authenticated
+
+    token = os.environ.get("NOOSPHERE_ACCESS_TOKEN", "")
+    return JSONResponse(
+        {
+            "required": bool(token),
+            "authenticated": (not token) or authenticated(request),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def auth_login(request: Request) -> JSONResponse:
+    import hmac as _hmac
+
+    from src.api.security import SESSION_COOKIE, SESSION_MAX_AGE, session_signature
+
+    token = os.environ.get("NOOSPHERE_ACCESS_TOKEN", "")
+    if not token:
+        return JSONResponse({"error": "NOOSPHERE_ACCESS_TOKEN is not configured on the server"}, status_code=400)
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    password = payload.get("password") if isinstance(payload, dict) else None
+    if not isinstance(password, str) or not _hmac.compare_digest(password.encode(), token.encode()):
+        return JSONResponse({"error": "Incorrect access token"}, status_code=401)
+    response = JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
+    response.set_cookie(
+        SESSION_COOKIE,
+        session_signature(token),
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        path="/",
+        secure=request.url.scheme == "https",
+    )
+    return response
+
+
+async def auth_logout(request: Request) -> JSONResponse:
+    from src.api.security import SESSION_COOKIE
+
+    response = JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response

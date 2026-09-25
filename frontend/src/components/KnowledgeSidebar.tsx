@@ -16,7 +16,7 @@ import {
   X
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type DragEvent, useEffect, useMemo, useState } from "react";
+import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
@@ -318,13 +318,14 @@ function CollectionBranch({
   );
 }
 
-export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
+export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () => void; onBatchCapture: () => void }) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
   const [search, setSearch] = useState("");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [captureMenuOpen, setCaptureMenuOpen] = useState(false);
   const [deletedCollectionsOpen, setDeletedCollectionsOpen] = useState(false);
   const [editingArticles, setEditingArticles] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -336,6 +337,8 @@ export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
   const [articleToDelete, setArticleToDelete] = useState<ArticleSummary | null>(null);
   const [draggingArticleId, setDraggingArticleId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  const headerMenuRef = useRef<HTMLDivElement>(null);
+  const captureMenuRef = useRef<HTMLDivElement>(null);
   const selectedArticleId = articleIdFromPath(location.pathname);
   const articleQuery = useQuery({
     queryKey: ["articles", i18n.resolvedLanguage],
@@ -368,6 +371,28 @@ export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
   }, [articles, search]);
   const rootArticles = visibleArticles.filter((article) => !article.collection?.collection_id);
   const deletedCollections = deletedCollectionRoots(managedCollectionQuery.data?.collections ?? []);
+
+  useEffect(() => {
+    if (!headerMenuOpen && !captureMenuOpen) return;
+    const closeMenus = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!headerMenuRef.current?.contains(target) && !captureMenuRef.current?.contains(target)) {
+        setHeaderMenuOpen(false);
+        setCaptureMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setHeaderMenuOpen(false);
+      setCaptureMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeMenus);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenus);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [captureMenuOpen, headerMenuOpen]);
 
   async function refresh() {
     await Promise.all([
@@ -490,7 +515,7 @@ export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
       <header className="library-sidebar-header">
         <h2>{t("knowledge.title")}</h2>
         <div className="library-header-actions">
-          <div className="knowledge-header-menu">
+          <div className="knowledge-header-menu" ref={headerMenuRef}>
             <button
               type="button"
               className={headerMenuOpen || editingArticles ? "active" : ""}
@@ -498,7 +523,7 @@ export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
               aria-haspopup="menu"
               aria-label={t("knowledge.moreActions")}
               title={t("knowledge.moreActions")}
-              onClick={() => setHeaderMenuOpen((open) => !open)}
+              onClick={() => { setCaptureMenuOpen(false); setHeaderMenuOpen((open) => !open); }}
             >
               <DotsThree size={19} weight="bold" />
             </button>
@@ -550,9 +575,44 @@ export function KnowledgeSidebar({ onCapture }: { onCapture: () => void }) {
               </div>
             )}
           </div>
-          <button type="button" onClick={onCapture} aria-label={t("capture.button")} title={t("capture.button")}>
-            <Plus size={16} weight="bold" />
-          </button>
+          <div className="knowledge-header-menu" ref={captureMenuRef}>
+            <button
+              type="button"
+              aria-expanded={captureMenuOpen}
+              aria-haspopup="menu"
+              aria-label={t("capture.button")}
+              title={t("capture.button")}
+              onClick={() => { setHeaderMenuOpen(false); setCaptureMenuOpen((open) => !open); }}
+            >
+              <Plus size={16} weight="bold" />
+            </button>
+            {captureMenuOpen && (
+              <div className="knowledge-header-menu-popover" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setCaptureMenuOpen(false);
+                    onCapture();
+                  }}
+                >
+                  <FilePlus size={16} />
+                  <span><strong>{t("capture.singleArticle")}</strong><small>{t("capture.singleArticleHelp")}</small></span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setCaptureMenuOpen(false);
+                    onBatchCapture();
+                  }}
+                >
+                  <FilePlus size={16} />
+                  <span><strong>{t("capture.batchArticles")}</strong><small>{t("capture.batchArticlesHelp")}</small></span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       <label className="knowledge-search">

@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.2.7-fix] - 2026-09-25
+
+### Changed
+
+- Replaced the browser-native credential prompt with a responsive in-app login and an HttpOnly session cookie while preserving Bearer and Basic authentication for API clients.
+- Consolidated single-article and batch capture under the Knowledge workspace add menu, with a responsive batch dialog and a consistent batch-history workspace.
+- Restyled search, batch, login and short-article layouts to match the existing workspace across light/dark desktop, tablet and mobile views.
+
+### Fixed
+
+- Removed Markdown images, links, metadata and formatting noise from search excerpts while preserving highlight offsets after removed lines and Unicode characters.
+- Removed the fixed read-only editor height that left large blank gaps before reflections on short articles.
+- Closed workspace menus reliably on outside click or Escape, restored dialog focus, kept mobile navigation from remaining open behind capture dialogs, and made the single-capture close button non-submitting.
+- Preserved the v0.3.2.7 remote-access boundary: the login page is public only when an access token is configured, while tokenless remote requests remain denied.
+
 ## [0.3.2.7] - 2026-09-22
 
 ### Security

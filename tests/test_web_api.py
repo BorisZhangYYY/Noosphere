@@ -1376,3 +1376,36 @@ def test_capture_rejects_non_http_url(web_client) -> None:
     client, _, _ = web_client
     response = client.post("/api/v1/captures", json={"url": "file:///etc/passwd"})
     assert response.status_code == 400
+
+
+def test_cookie_login_flow_replaces_browser_basic_auth(web_client, monkeypatch) -> None:
+    client, _, _ = web_client
+    monkeypatch.setenv("NOOSPHERE_ACCESS_TOKEN", "test-access-token")
+
+    status = client.get("/api/v1/auth/status")
+    assert status.status_code == 200
+    assert status.json() == {"required": True, "authenticated": False}
+    assert status.headers["cache-control"] == "no-store"
+
+    denied = client.get("/api/v1/articles")
+    assert denied.status_code == 401
+    assert "www-authenticate" not in {key.lower() for key in denied.headers.keys()}
+
+    # The SPA must load without credentials so it can render the login page.
+    spa = client.get("/app/")
+    assert spa.status_code != 401
+
+    wrong = client.post("/api/v1/auth/login", json={"password": "nope"})
+    assert wrong.status_code == 401
+
+    login = client.post("/api/v1/auth/login", json={"password": "test-access-token"})
+    assert login.status_code == 200
+    assert login.headers["cache-control"] == "no-store"
+    cookie = login.cookies.get("noosphere_session")
+    assert cookie
+
+    assert client.get("/api/v1/auth/status").json()["authenticated"] is True
+    assert client.get("/api/v1/articles").status_code == 200
+
+    client.post("/api/v1/auth/logout")
+    assert client.get("/api/v1/auth/status").json()["authenticated"] is False

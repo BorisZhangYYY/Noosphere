@@ -14,12 +14,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ error: response.statusText }));
+    if (response.status === 401 && path !== "/api/v1/auth/login") {
+      window.dispatchEvent(new Event("noosphere-auth-required"));
+    }
     throw new Error(payload.error ?? `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
 }
 
 export const api = {
+  authStatus: () => request<{ required: boolean; authenticated: boolean }>("/api/v1/auth/status"),
+  login: (password: string) => request<{ ok: boolean }>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
+  logout: () => request<{ ok: boolean }>("/api/v1/auth/logout", { method: "POST" }),
   listBatches: () => request<{ batches: BatchJob[] }>("/api/v1/batches"),
   previewBatch: (urls: string[]) => request<{ items: BatchItem[] }>("/api/v1/batches/preview", { method: "POST", body: JSON.stringify({ urls }) }),
   createBatch: (payload: { urls: string[]; mode: string; language: string; collectionId: string }) => request<BatchJob>("/api/v1/batches", { method: "POST", body: JSON.stringify(payload) }),

@@ -40,6 +40,8 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 
 For the v0.3.2.7 upgrade, including required Docker credentials and revision-aware saves, see [the upgrade guide](docs/reliability-upgrade.md).
 
+The `v0.3.2.7-fix` polish release replaces the browser credential prompt with an in-app login, consolidates single and batch capture under the workspace add menu, cleans search excerpts, and corrects responsive display regressions. See the [patch release notes](docs/releases/v0.3.2.7-fix.md).
+
 ## Three Ways to Install and Use Noosphere
 
 All three entry points share article workspaces, configuration, collections, review perspectives, and operation history. Choose the interface that fits the operator; do not deploy a separate database for each interface.
