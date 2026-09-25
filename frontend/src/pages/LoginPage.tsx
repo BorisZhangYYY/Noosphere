@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { LockKey, MoonStars } from "@phosphor-icons/react";
+import { LockKey } from "@phosphor-icons/react";
 import { api } from "../api";
+import { Atmosphere } from "../components/Atmosphere";
 
 export function LoginPage() {
   const { i18n } = useTranslation();
@@ -11,14 +12,16 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const login = useMutation({
     mutationFn: api.login,
-    onSuccess: async () => {
+    onSuccess: () => {
       setPassword("");
-      await queryClient.invalidateQueries();
+      queryClient.setQueryData(["auth-status"], { required: true, authenticated: true });
+      void queryClient.invalidateQueries({ predicate: query => query.queryKey[0] !== "auth-status" });
     }
   });
 
   return (
     <main className="login-page">
+      <Atmosphere />
       <form
         className="login-card"
         onSubmit={(event) => {
@@ -26,9 +29,7 @@ export function LoginPage() {
           if (password) login.mutate(password);
         }}
       >
-        <div className="login-mark" aria-hidden="true">
-          <MoonStars size={30} weight="duotone" />
-        </div>
+        <img className="login-mark" src="/app/noosphere-mark.svg" alt="" />
         <h1>Noosphere</h1>
         <p className="login-description">
           {zh ? "输入访问令牌进入你的知识工作区。" : "Enter your access token to open your knowledge workspace."}

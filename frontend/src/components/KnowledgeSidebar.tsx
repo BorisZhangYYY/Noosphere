@@ -16,7 +16,7 @@ import {
   X
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type DragEvent, useEffect, useMemo, useState } from "react";
+import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
@@ -337,6 +337,8 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
   const [articleToDelete, setArticleToDelete] = useState<ArticleSummary | null>(null);
   const [draggingArticleId, setDraggingArticleId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  const headerMenuRef = useRef<HTMLDivElement>(null);
+  const captureMenuRef = useRef<HTMLDivElement>(null);
   const selectedArticleId = articleIdFromPath(location.pathname);
   const articleQuery = useQuery({
     queryKey: ["articles", i18n.resolvedLanguage],
@@ -369,6 +371,28 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
   }, [articles, search]);
   const rootArticles = visibleArticles.filter((article) => !article.collection?.collection_id);
   const deletedCollections = deletedCollectionRoots(managedCollectionQuery.data?.collections ?? []);
+
+  useEffect(() => {
+    if (!headerMenuOpen && !captureMenuOpen) return;
+    const closeMenus = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!headerMenuRef.current?.contains(target) && !captureMenuRef.current?.contains(target)) {
+        setHeaderMenuOpen(false);
+        setCaptureMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setHeaderMenuOpen(false);
+      setCaptureMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeMenus);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenus);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [captureMenuOpen, headerMenuOpen]);
 
   async function refresh() {
     await Promise.all([
@@ -491,7 +515,7 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
       <header className="library-sidebar-header">
         <h2>{t("knowledge.title")}</h2>
         <div className="library-header-actions">
-          <div className="knowledge-header-menu">
+          <div className="knowledge-header-menu" ref={headerMenuRef}>
             <button
               type="button"
               className={headerMenuOpen || editingArticles ? "active" : ""}
@@ -499,7 +523,7 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
               aria-haspopup="menu"
               aria-label={t("knowledge.moreActions")}
               title={t("knowledge.moreActions")}
-              onClick={() => setHeaderMenuOpen((open) => !open)}
+              onClick={() => { setCaptureMenuOpen(false); setHeaderMenuOpen((open) => !open); }}
             >
               <DotsThree size={19} weight="bold" />
             </button>
@@ -551,14 +575,14 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
               </div>
             )}
           </div>
-          <div className="knowledge-header-menu">
+          <div className="knowledge-header-menu" ref={captureMenuRef}>
             <button
               type="button"
               aria-expanded={captureMenuOpen}
               aria-haspopup="menu"
               aria-label={t("capture.button")}
               title={t("capture.button")}
-              onClick={() => setCaptureMenuOpen((open) => !open)}
+              onClick={() => { setHeaderMenuOpen(false); setCaptureMenuOpen((open) => !open); }}
             >
               <Plus size={16} weight="bold" />
             </button>

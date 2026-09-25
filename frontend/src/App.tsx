@@ -1,10 +1,11 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { createHashRouter, Navigate, RouterProvider } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { AppShell } from "./components/AppShell";
 import { LoginPage } from "./pages/LoginPage";
-import { LoadingPanel } from "./components/StatePanel";
+import { ErrorPanel, LoadingPanel } from "./components/StatePanel";
+import i18n from "./i18n";
 
 const BatchPage = lazy(() => import("./pages/BatchPage").then(module => ({ default: module.BatchPage })));
 const SearchPage = lazy(() => import("./pages/SearchPage").then(module => ({ default: module.SearchPage })));
@@ -35,9 +36,18 @@ const router = createHashRouter([
 ]);
 
 export function App() {
+  const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ["auth-status"], queryFn: api.authStatus, staleTime: 60_000, retry: false });
+  useEffect(() => {
+    const requireAuth = () => queryClient.setQueryData(["auth-status"], { required: true, authenticated: false });
+    window.addEventListener("noosphere-auth-required", requireAuth);
+    return () => window.removeEventListener("noosphere-auth-required", requireAuth);
+  }, [queryClient]);
   if (auth.isPending) {
     return <div className="route-loading"><LoadingPanel /></div>;
+  }
+  if (auth.isError) {
+    return <main className="login-page"><div className="login-status"><ErrorPanel message={(auth.error as Error).message} /><button className="button-secondary" type="button" onClick={() => void auth.refetch()}>{i18n.resolvedLanguage?.startsWith("zh") ? "重试" : "Retry"}</button></div></main>;
   }
   if (auth.data?.required && !auth.data.authenticated) {
     return <LoginPage />;

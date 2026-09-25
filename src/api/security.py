@@ -17,7 +17,7 @@ SESSION_MAX_AGE = 30 * 24 * 3600
 # Paths reachable without credentials so the SPA can load and show its
 # in-app login page. API and MCP transports stay protected.
 _PUBLIC_EXACT_PATHS = {"/health", "/api/v1/auth/status", "/api/v1/auth/login", "/api/v1/auth/logout"}
-_PUBLIC_PREFIXES = ("/app", "/favicon")
+_LOGIN_PAGE_PREFIXES = ("/app", "/favicon")
 
 
 def session_signature(token: str) -> str:
@@ -65,10 +65,12 @@ class AccessControl:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         path = scope.get("path", "")
-        if path in _PUBLIC_EXACT_PATHS or any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES):
+        if path in _PUBLIC_EXACT_PATHS:
             return await self.app(scope, receive, send)
         request = Request(scope)
         token_configured = bool(os.environ.get("NOOSPHERE_ACCESS_TOKEN"))
+        if token_configured and any(path.startswith(prefix) for prefix in _LOGIN_PAGE_PREFIXES):
+            return await self.app(scope, receive, send)
         allowed = authenticated(request)
         if not token_configured:
             allowed = local_peer(request) and request.url.hostname in {"localhost", "127.0.0.1", "::1", "testserver"}

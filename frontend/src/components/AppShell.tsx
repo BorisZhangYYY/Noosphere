@@ -54,9 +54,9 @@ export function AppShell() {
   const location = useLocation();
   const logoutMutation = useMutation({
     mutationFn: api.logout,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["auth-status"] });
-      await queryClient.invalidateQueries();
+    onSuccess: () => {
+      queryClient.removeQueries({ predicate: query => query.queryKey[0] !== "auth-status" });
+      queryClient.setQueryData(["auth-status"], { required: true, authenticated: false });
     }
   });
   const knowledgeMode = location.pathname === "/library"
@@ -114,7 +114,10 @@ export function AppShell() {
           ))}
         </nav>
 
-        <KnowledgeSidebar onCapture={() => setCaptureOpen(true)} onBatchCapture={() => setBatchOpen(true)} />
+        <KnowledgeSidebar
+          onCapture={() => { setMobileOpen(false); setCaptureOpen(true); }}
+          onBatchCapture={() => { setMobileOpen(false); setBatchOpen(true); }}
+        />
 
         <div className="sidebar-footer">
           <NavLink className={({ isActive }) => `sidebar-utility-button${isActive ? " active" : ""}`} to="/settings" aria-label={t("nav.settings")} title={t("nav.settings")} onClick={() => setMobileOpen(false)}>
@@ -178,7 +181,7 @@ export function AppShell() {
       {captureOpen && (
         <div className="dialog-layer modal-root-layer" role="presentation" onMouseDown={() => setCaptureOpen(false)}>
           <form className="capture-dialog" role="dialog" aria-modal="true" aria-labelledby="capture-title" onSubmit={(event) => { event.preventDefault(); captureMutation.mutate({ url: captureUrl, reviewMode, perspective, outputLanguage }); }} onMouseDown={(event) => event.stopPropagation()}>
-            <button className="dialog-close" onClick={() => setCaptureOpen(false)} aria-label={t("nav.close")}>
+            <button className="dialog-close" type="button" onClick={() => setCaptureOpen(false)} aria-label={t("nav.close")}>
               <X size={19} />
             </button>
             <p className="context-label">{t("capture.eyebrow")}</p>

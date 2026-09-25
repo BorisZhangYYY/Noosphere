@@ -16,6 +16,15 @@ import pytest
 pytestmark = pytest.mark.skipif(os.getenv("NOOSPHERE_BROWSER_TESTS") != "1", reason="Opt-in browser test requires built frontend and Playwright Chromium")
 
 
+async def sign_in(page, token="browser-test-token"):
+    """Authenticate through the same in-app flow used by a real browser."""
+    field = page.locator('.login-page input[type="password"]')
+    await field.wait_for()
+    await field.fill(token)
+    await page.locator('.login-page button[type="submit"]').click()
+    await page.locator(".app-root").wait_for()
+
+
 @pytest.fixture
 def browser_server(tmp_path, monkeypatch):
     directory = tmp_path / "articles" / "browser_article"
@@ -57,12 +66,13 @@ async def test_drafts_survive_dialog_refresh_and_save_then_conflict(browser_serv
     base, directory = browser_server
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch()
-        context = await browser.new_context(http_credentials={"username": "noosphere", "password": "browser-test-token"}, viewport={"width": 1440, "height": 1000})
+        context = await browser.new_context(viewport={"width": 1440, "height": 1000})
         await context.add_init_script("localStorage.setItem('noosphere-language', 'en')")
         page = await context.new_page()
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         await page.goto(base + "/app/#/articles/browser_article")
+        await sign_in(page)
         await page.get_by_role("button", name="Edit", exact=True).click()
         editor = page.locator('.vditor-wysiwyg [contenteditable="true"]')
         await expect(editor).to_be_visible()
@@ -116,10 +126,11 @@ async def test_reading_layout_and_theme_remain_usable(browser_server, tmp_path, 
     base, _ = browser_server
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch()
-        context = await browser.new_context(http_credentials={"username": "noosphere", "password": "browser-test-token"}, viewport={"width": width, "height": 900})
+        context = await browser.new_context(viewport={"width": width, "height": 900})
         await context.add_init_script(f"localStorage.setItem('noosphere-language', '{language}'); localStorage.setItem('noosphere-theme', '{theme}')")
         page = await context.new_page()
         await page.goto(base + "/app/#/articles/browser_article")
+        await sign_in(page)
         await expect(page.locator('.reader-surface')).to_contain_text("Original paragraph.")
         await expect(page.locator('html')).to_have_attribute("lang", "zh-CN" if language == "zh" else "en")
         await expect(page.locator('.radix-themes')).to_have_class(__import__('re').compile(theme))
@@ -142,12 +153,13 @@ async def test_search_and_batch_workspace(browser_server, tmp_path):
     base, directory = browser_server
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch()
-        context = await browser.new_context(http_credentials={"username": "noosphere", "password": "browser-test-token"}, viewport={"width": 1280, "height": 900})
+        context = await browser.new_context(viewport={"width": 1280, "height": 900})
         await context.add_init_script("localStorage.setItem('noosphere-language', 'en')")
         page = await context.new_page()
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         await page.goto(base + '/app/#/search?q=Original')
+        await sign_in(page)
         await expect(page.get_by_role('heading', name='Full-text search')).to_be_visible()
         await expect(page.locator('.search-result')).to_have_count(1)
         await expect(page.locator('.search-passage mark').first).to_be_visible()
@@ -167,5 +179,58 @@ async def test_search_and_batch_workspace(browser_server, tmp_path):
         await expect(page.locator('.search-result')).to_have_count(1)
         assert await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
         await page.screenshot(path=str(tmp_path / 'search-mobile.png'), full_page=True)
+        assert not errors
+        await browser.close()
+
+
+@pytest.mark.asyncio
+async def test_in_app_login_logout_and_global_route_layout(browser_server, tmp_path):
+    from playwright.async_api import async_playwright, expect
+    base, _ = browser_server
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        context = await browser.new_context(viewport={"width": 390, "height": 844})
+        await context.add_init_script("localStorage.setItem('noosphere-language', 'en'); localStorage.setItem('noosphere-theme', 'dark')")
+        page = await context.new_page()
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        await page.goto(base + "/app/#/")
+        await expect(page.get_by_role("heading", name="Noosphere")).to_be_visible()
+        await page.screenshot(path=str(tmp_path / "login-mobile-dark.png"), full_page=True)
+        await page.get_by_role("textbox", name="Access token").fill("wrong-token")
+        await page.get_by_role("button", name="Sign in", exact=True).click()
+        await expect(page.get_by_role("alert")).to_contain_text("Incorrect token")
+        await sign_in(page)
+
+        await page.get_by_role("button", name="Open navigation").click()
+        await page.get_by_role("button", name="Capture URL").click()
+        await page.get_by_role("menuitem", name="Multiple articles").click()
+        await expect(page.get_by_role("dialog", name="Capture multiple articles")).to_be_visible()
+        await page.screenshot(path=str(tmp_path / "batch-dialog-mobile-dark.png"), full_page=True)
+        await page.keyboard.press("Escape")
+        await expect(page.get_by_role("dialog", name="Capture multiple articles")).to_be_hidden()
+
+        for route in ("/", "/search?q=Original", "/batches", "/settings", "/library", "/articles/browser_article"):
+            await page.goto(base + "/app/#" + route)
+            await expect(page.locator(".app-root")).to_be_visible()
+            assert await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), route
+            await page.wait_for_timeout(350)
+            slug = route.split("?", 1)[0].strip("/").replace("/", "-") or "dashboard"
+            await page.screenshot(path=str(tmp_path / f"{slug}-mobile-dark.png"), full_page=True)
+
+        await page.set_viewport_size({"width": 1280, "height": 900})
+        for route in ("/", "/search?q=Original", "/batches", "/settings", "/library", "/articles/browser_article"):
+            await page.goto(base + "/app/#" + route)
+            await expect(page.locator(".app-root")).to_be_visible()
+            assert await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), route
+            slug = route.split("?", 1)[0].strip("/").replace("/", "-") or "dashboard"
+            await page.screenshot(path=str(tmp_path / f"{slug}-desktop-dark.png"), full_page=True)
+
+        await page.set_viewport_size({"width": 390, "height": 844})
+        await page.wait_for_timeout(350)
+        await page.get_by_role("button", name="Open navigation").click()
+        await page.get_by_role("button", name="Sign out").click()
+        await expect(page.get_by_role("button", name="Sign in", exact=True)).to_be_visible()
         assert not errors
         await browser.close()

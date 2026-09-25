@@ -30,10 +30,10 @@ export function cleanPassage(source: string, highlights: [number, number][], ima
   let lineStart = 0;
   let lastIndex = 0;
 
-  const emit = (text: string, sourceIndex: number) => {
+  const emitInserted = (text: string) => {
     for (let i = 0; i < text.length; i += 1) {
       out += text[i];
-      map.push(sourceIndex >= 0 ? sourceIndex + i : -1);
+      map.push(-1);
     }
   };
 
@@ -52,12 +52,19 @@ export function cleanPassage(source: string, highlights: [number, number][], ima
     lineStart += line.length;
   }
 
+  const emitFilteredSlice = (start: number, end = filtered.length) => {
+    for (let i = start; i < end; i += 1) {
+      out += filtered[i];
+      map.push(filteredMap[i]);
+    }
+  };
+
   for (const match of filtered.matchAll(TOKEN_RE)) {
     const start = match.index;
-    emit(filtered.slice(lastIndex, start), lastIndex);
+    emitFilteredSlice(lastIndex, start);
     const token = match[0];
     if (token.startsWith("![")) {
-      emit(imagePlaceholder, -1);
+      emitInserted(imagePlaceholder);
     } else if ((match[1] !== undefined || match[2] !== undefined) && token.startsWith("[")) {
       // Inline link (terminated or truncated): keep the anchor text.
       const anchor = match[1] ?? match[2] ?? "";
@@ -70,7 +77,7 @@ export function cleanPassage(source: string, highlights: [number, number][], ima
     // Emphasis runs, html tags and line-leading block markers are dropped.
     lastIndex = start + token.length;
   }
-  emit(filtered.slice(lastIndex), lastIndex);
+  emitFilteredSlice(lastIndex);
 
   // Re-project highlight ranges: an output char is highlighted when its
   // original index falls inside any source highlight range.

@@ -53,3 +53,20 @@ test('drops horizontal-rule-only lines', () => {
   const { text } = cleanPassage('上文\n---\n下文', [], '[图片]');
   assert.equal(text, '上文\n下文');
 });
+
+test('keeps highlights aligned after dropped metadata lines', () => {
+  const raw = '> Platform: 微信公众号\n正文里的关键词';
+  const start = raw.indexOf('关键词');
+  const { text, highlights } = cleanPassage(raw, [[start, start + 3]], '[图片]');
+  assert.equal(text, '正文里的关键词');
+  assert.deepEqual(highlights, [[4, 7]]);
+  assert.equal(text.slice(highlights[0][0], highlights[0][1]), '关键词');
+});
+
+test('preserves UTF-16 offsets when emoji precede a highlight', () => {
+  const raw = '😀 关键词';
+  const start = raw.indexOf('关键词');
+  const { text, highlights } = cleanPassage(raw, [[start, start + 3]], '[图片]');
+  assert.deepEqual(highlights, [[3, 6]]);
+  assert.equal(text.slice(highlights[0][0], highlights[0][1]), '关键词');
+});

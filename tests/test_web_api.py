@@ -1385,6 +1385,7 @@ def test_cookie_login_flow_replaces_browser_basic_auth(web_client, monkeypatch) 
     status = client.get("/api/v1/auth/status")
     assert status.status_code == 200
     assert status.json() == {"required": True, "authenticated": False}
+    assert status.headers["cache-control"] == "no-store"
 
     denied = client.get("/api/v1/articles")
     assert denied.status_code == 401
@@ -1399,6 +1400,7 @@ def test_cookie_login_flow_replaces_browser_basic_auth(web_client, monkeypatch) 
 
     login = client.post("/api/v1/auth/login", json={"password": "test-access-token"})
     assert login.status_code == 200
+    assert login.headers["cache-control"] == "no-store"
     cookie = login.cookies.get("noosphere_session")
     assert cookie
 

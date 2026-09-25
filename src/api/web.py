@@ -1667,10 +1667,13 @@ async def auth_status(request: Request) -> JSONResponse:
     from src.api.security import authenticated
 
     token = os.environ.get("NOOSPHERE_ACCESS_TOKEN", "")
-    return JSONResponse({
-        "required": bool(token),
-        "authenticated": (not token) or authenticated(request),
-    })
+    return JSONResponse(
+        {
+            "required": bool(token),
+            "authenticated": (not token) or authenticated(request),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 async def auth_login(request: Request) -> JSONResponse:
@@ -1688,7 +1691,7 @@ async def auth_login(request: Request) -> JSONResponse:
     password = payload.get("password") if isinstance(payload, dict) else None
     if not isinstance(password, str) or not _hmac.compare_digest(password.encode(), token.encode()):
         return JSONResponse({"error": "Incorrect access token"}, status_code=401)
-    response = JSONResponse({"ok": True})
+    response = JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
     response.set_cookie(
         SESSION_COOKIE,
         session_signature(token),
@@ -1704,6 +1707,6 @@ async def auth_login(request: Request) -> JSONResponse:
 async def auth_logout(request: Request) -> JSONResponse:
     from src.api.security import SESSION_COOKIE
 
-    response = JSONResponse({"ok": True})
+    response = JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
     response.delete_cookie(SESSION_COOKIE, path="/")
     return response

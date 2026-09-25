@@ -14,6 +14,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ error: response.statusText }));
+    if (response.status === 401 && path !== "/api/v1/auth/login") {
+      window.dispatchEvent(new Event("noosphere-auth-required"));
+    }
     throw new Error(payload.error ?? `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
