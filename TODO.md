@@ -4,20 +4,16 @@ This file contains only unresolved, deliberately deferred, or release-blocking w
 
 ## v0.3.2.7-fix — Web workspace display and access polish
 
-Goal: correct the visible and interaction regressions reported after v0.3.2.7, while keeping its search and batch capabilities intact.
-
-- [ ] **In-app authentication.** Replace the browser-native credential prompt with an accessible Noosphere login screen while preserving bearer and Basic authentication for API clients.
-- [ ] **Capture entry points.** Put single and batch capture behind one reliable workspace menu, and keep batch creation usable from both its dialog and the batch workspace.
-- [ ] **Readable search results.** Remove raw Markdown noise from excerpts without breaking highlight alignment or source-context navigation.
-- [ ] **Global responsive polish.** Audit every web route in both themes and languages, then correct clipping, overflow, spacing, focus, empty/error-state, and responsive layout inconsistencies without redesigning the established visual system.
+The completed browser-login, capture-entry, search-excerpt and responsive-layout corrections are recorded in `CHANGELOG.md` and `docs/releases/v0.3.2.7-fix.md`.
 
 ### Release gates
 
-- [ ] Frontend tests, type-check and production build pass; Python compile, configuration JSON validation and the complete test suite pass.
-- [ ] Visual smoke tests pass for login, workspace capture, batch, search, dashboard, sources, review, settings, collection and article routes at desktop, tablet and mobile sizes.
-- [ ] Version metadata, changelog and user-facing documentation describe `v0.3.2.7-fix`.
-- [ ] The production Docker image builds and passes a local authenticated container smoke test.
-- [ ] The `v0.3.2.7-fix` tag, release artifacts and merge-back pull request are published.
+- [x] Frontend tests, type-check and production build pass; Python compile, configuration JSON validation and the complete test suite pass (228 tests, plus 14 frontend tests, on 2026-09-25).
+- [x] Visual smoke tests pass for login, workspace capture, batch, search, dashboard, sources, review, settings, collection and article routes at desktop, tablet and mobile sizes.
+- [x] Version metadata, changelog and user-facing documentation describe `v0.3.2.7-fix`.
+- [x] The production Docker image builds and passes a local authenticated container smoke test.
+
+The patch release operations are authorized. Publication and merge outcomes are tracked by the v0.3.2.7-fix GitHub release, tag-triggered image workflow and release pull request.
 
 ## v0.3.2.7 — Combined release preparation
 

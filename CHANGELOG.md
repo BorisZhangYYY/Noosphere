@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.2.7-fix] - 2026-09-25
+
 ### Changed
 
 - Replaced the browser-native credential prompt with a responsive in-app login and an HttpOnly session cookie while preserving Bearer and Basic authentication for API clients.
