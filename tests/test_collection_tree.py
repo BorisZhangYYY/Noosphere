@@ -319,3 +319,112 @@ async def test_ai_unknown_or_low_confidence_choice_returns_to_root(
     assert "unknown collection" in unknown["reason"]
     assert low_confidence["collection_id"] is None
     assert low_confidence["confidence"] == pytest.approx(0.42)
+
+
+@pytest.mark.asyncio
+async def test_suggest_collection_description_includes_tree_context(
+    collection_store,
+    monkeypatch,
+) -> None:
+    from src.core.collections import suggest_collection_description
+
+    parent = collection_store.create_collection(name="AI 相关")
+    collection_store.create_collection(name="AI 测评", description="模型与产品的能力评测", parent_id=parent["id"])
+
+    async def fake_generate(self, system_prompt: str, user_prompt: str):
+        assert "Collection description request" in user_prompt
+        assert "AI 相关" in user_prompt
+        assert "AI 测评" in user_prompt
+        assert '"task": "create"' in user_prompt
+        return SimpleNamespace(
+            text=json.dumps({
+                "description": "AI 工具的落地实践与使用指南。",
+                "reasoning": "The name signals tooling practice.",
+            }),
+            model="test-model",
+            provider="test",
+        )
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", fake_generate)
+    monkeypatch.setattr("src.integrations.ai_client.resolve_ai_settings", lambda config: SimpleNamespace())
+    result = await suggest_collection_description("AI 工具", parent_id=parent["id"], hint="聚焦实操")
+
+    assert result["description"] == "AI 工具的落地实践与使用指南。"
+    assert result["reasoning"]
+    assert result["model"] == "test-model"
+
+
+@pytest.mark.asyncio
+async def test_suggest_collection_description_at_root_has_empty_context(
+    collection_store,
+    monkeypatch,
+) -> None:
+    from src.core.collections import suggest_collection_description
+
+    async def fake_generate(self, system_prompt: str, user_prompt: str):
+        assert '"parent_path": []' in user_prompt
+        assert '"sibling_collections": []' in user_prompt
+        return SimpleNamespace(
+            text=json.dumps({"description": "游戏相关文章。", "reasoning": "Root gaming bucket."}),
+            model="test-model",
+            provider="test",
+        )
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", fake_generate)
+    monkeypatch.setattr("src.integrations.ai_client.resolve_ai_settings", lambda config: SimpleNamespace())
+    result = await suggest_collection_description("游戏相关")
+
+    assert result["description"] == "游戏相关文章。"
+
+
+@pytest.mark.asyncio
+async def test_suggest_collection_description_rejects_unknown_parent(
+    collection_store,
+    monkeypatch,
+) -> None:
+    from src.core.collections import suggest_collection_description
+
+    async def unexpected_generate(*args, **kwargs):
+        raise AssertionError("AI must not run for an unknown parent")
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", unexpected_generate)
+    with pytest.raises(ValueError, match="Collection not found"):
+        await suggest_collection_description("孤儿分类", parent_id="missing-id")
+
+
+@pytest.mark.asyncio
+async def test_polish_collection_description_keeps_intent(
+    collection_store,
+    monkeypatch,
+) -> None:
+    from src.core.collections import polish_collection_description
+
+    async def fake_generate(self, system_prompt: str, user_prompt: str):
+        assert '"task": "polish"' in user_prompt
+        assert "现有描述" in user_prompt
+        return SimpleNamespace(
+            text=json.dumps({"description": "更清晰的描述。", "reasoning": "Kept the intent."}),
+            model="test-model",
+            provider="test",
+        )
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", fake_generate)
+    monkeypatch.setattr("src.integrations.ai_client.resolve_ai_settings", lambda config: SimpleNamespace())
+    result = await polish_collection_description("AI 工具", "现有描述")
+
+    assert result["description"] == "更清晰的描述。"
+
+
+@pytest.mark.asyncio
+async def test_polish_collection_description_requires_existing_text(
+    collection_store,
+    monkeypatch,
+) -> None:
+    from src.core.collections import polish_collection_description
+
+    async def unexpected_generate(*args, **kwargs):
+        raise AssertionError("AI must not run without an existing description")
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", unexpected_generate)
+    with pytest.raises(ValueError, match="required to polish"):
+        await polish_collection_description("AI 工具", "   ")

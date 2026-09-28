@@ -1367,6 +1367,36 @@ async def update_collection(request: Request) -> JSONResponse:
     return JSONResponse({"collection": collection})
 
 
+async def polish_collection_description(request: Request) -> JSONResponse:
+    """Polish a human-written collection description without persisting it."""
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Request body must be valid JSON"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "Collection description payload must be an object"}, status_code=400)
+    name = str(payload.get("name") or "").strip()
+    description = str(payload.get("description") or "")
+    if not name:
+        return JSONResponse({"error": "Collection name is required"}, status_code=400)
+    if not description.strip():
+        return JSONResponse({"error": "Collection description is required"}, status_code=400)
+    try:
+        from src.core.collections import polish_collection_description as polish_operation
+
+        result = await polish_operation(
+            name,
+            description,
+            locale=_request_language(request),
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({
+        "description": result["description"],
+        "reasoning": result["reasoning"],
+    })
+
+
 async def update_article_collection(request: Request) -> JSONResponse:
     try:
         article_dir = _safe_article_dir(request.path_params["article_id"])

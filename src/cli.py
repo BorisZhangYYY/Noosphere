@@ -239,6 +239,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Required description for a Collection created by --create-missing.",
     )
     collections_place.add_argument("--json", action="store_true")
+    collections_describe = collections_subparsers.add_parser(
+        "describe",
+        help="Draft a description for an existing collection with AI, optionally applying it.",
+    )
+    collections_describe.add_argument("collection_id")
+    collections_describe.add_argument("--hint", default="", help="Optional free-form guidance for the AI.")
+    collections_describe.add_argument(
+        "--apply",
+        action="store_true",
+        help="Persist the AI description on the collection instead of only printing it.",
+    )
+    collections_describe.add_argument("--json", action="store_true")
 
     images_parser = subparsers.add_parser("images", help="Inspect, remove, and restore article images.")
     images_subparsers = images_parser.add_subparsers(dest="images_command", required=True)
@@ -649,6 +661,42 @@ async def _main_async(args: argparse.Namespace) -> int:
                         retired=deleted,
                     ),
                 }
+            elif args.collections_command == "describe":
+                from src.core.collections import (
+                    CollectionStore,
+                    polish_collection_description,
+                    suggest_collection_description,
+                )
+
+                store = CollectionStore()
+                collection = store.get_collection(args.collection_id, include_retired=True)
+                if collection is None:
+                    raise ValueError(f"Collection not found: {args.collection_id}")
+                if collection.get("description"):
+                    result = await polish_collection_description(
+                        collection["name"],
+                        collection["description"],
+                        hint=args.hint,
+                    )
+                else:
+                    result = await suggest_collection_description(
+                        collection["name"],
+                        parent_id=collection.get("parent_id"),
+                        hint=args.hint,
+                    )
+                payload = {
+                    "collection_id": args.collection_id,
+                    "description": result["description"],
+                    "reasoning": result["reasoning"],
+                    "model": result["model"],
+                    "provider": result["provider"],
+                }
+                if args.apply:
+                    payload["collection"] = update_collection(
+                        args.collection_id,
+                        description=result["description"],
+                    )
+                    payload["applied"] = True
             else:
                 collection_path = None
                 if args.collection_path:

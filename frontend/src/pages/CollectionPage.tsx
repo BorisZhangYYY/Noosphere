@@ -5,6 +5,7 @@ import {
   FileText,
   Note,
   PencilSimple,
+  Sparkle,
   X
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -55,6 +56,10 @@ export function CollectionPage() {
       setEditingCollectionId(null);
       await queryClient.invalidateQueries({ queryKey: ["collections"] });
     }
+  });
+  const polishMutation = useMutation({
+    mutationFn: () => api.polishCollectionDescription({ name: collection.name, description }),
+    onSuccess: (result) => setDescription(result.description)
   });
 
   useEffect(() => {
@@ -108,6 +113,14 @@ export function CollectionPage() {
                 onChange={(event) => setDescription(event.target.value)}
               />
               <div>
+                <button
+                  className="button-secondary compact-button"
+                  type="button"
+                  disabled={!description.trim() || polishMutation.isPending}
+                  onClick={() => polishMutation.mutate()}
+                >
+                  <Sparkle size={15} />{t("knowledge.polishIntroduction")}
+                </button>
                 <button className="button-primary compact-button" type="submit" disabled={updateMutation.isPending}>
                   <Check size={15} />{t("common.save")}
                 </button>
@@ -115,6 +128,9 @@ export function CollectionPage() {
                   <X size={15} />{t("common.cancel")}
                 </button>
               </div>
+              {polishMutation.isError ? (
+                <small className="collection-polish-error">{t("knowledge.polishIntroductionFailed")}</small>
+              ) : null}
             </form>
           ) : (
             <blockquote>

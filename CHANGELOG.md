@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added an AI-assisted collection description workflow shared by Web API, MCP, and CLI: MCP agents may opt into `auto_description` when creating a collection to draft an inclusion-focused description from the collection name, parent path, and siblings, and a new `polish_collection_description` MCP tool rewrites an existing description without applying it unless requested. The CLI gains `collections describe [--apply] [--hint]` which drafts a description for collections without one and polishes collections that already have one.
+- Added a stateless `POST /api/v1/collections/description/polish` endpoint and a collection-page "Polish with AI" button so users can refine their own introduction text before saving it.
+
+### Notes
+
+- The capture/review pipeline classifier remains closed-set and never creates collections; AI collection creation stays an explicit MCP opt-in so automated runs cannot invent or mutate the collection tree.
+
 ## [0.3.2.7-fix] - 2026-09-25
 
 ### Changed
