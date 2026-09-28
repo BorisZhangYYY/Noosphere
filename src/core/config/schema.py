@@ -186,6 +186,7 @@ class PipelineConfig(BaseModel):
         "en-US": "prompts/common_review.en.md",
     })
     classification_prompt_path: str = "prompts/classify_article.md"
+    collection_description_prompt_path: str = "prompts/collection_description.md"
     perspectives: dict[str, ReviewPerspectiveConfig] = Field(
         default_factory=lambda: {
             "original": ReviewPerspectiveConfig(

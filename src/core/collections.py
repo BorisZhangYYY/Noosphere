@@ -954,3 +954,114 @@ async def place_reviewed_article(
             source="ai",
         )
     return assignment
+
+
+def _find_collection_node(
+    nodes: list[dict[str, Any]],
+    collection_id: str,
+) -> dict[str, Any] | None:
+    for node in nodes:
+        if node["id"] == collection_id:
+            return node
+        found = _find_collection_node(node["children"], collection_id)
+        if found is not None:
+            return found
+    return None
+
+
+async def suggest_collection_description(
+    name: str,
+    *,
+    parent_id: str | None = None,
+    hint: str = "",
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    """Draft an AI description for a new collection from its name and tree context."""
+    store = CollectionStore()
+    parent_path: list[str] = []
+    siblings: list[dict[str, str]] = []
+    if parent_id:
+        parent = store.get_collection(parent_id, include_retired=False, locale=locale)
+        if parent is None:
+            raise ValueError(f"Collection not found: {parent_id}")
+        parent_path = [segment["name"] for segment in parent.get("path") or []]
+        parent_node = _find_collection_node(store.list_tree(locale=locale), parent_id)
+        if parent_node is not None:
+            siblings = [
+                {"name": child["name"], "description": child.get("description") or ""}
+                for child in parent_node["children"]
+            ]
+    return await _run_collection_description_prompt(
+        name=name,
+        parent_path=parent_path,
+        siblings=siblings,
+        existing_description="",
+        hint=hint,
+    )
+
+
+async def polish_collection_description(
+    name: str,
+    description: str,
+    *,
+    hint: str = "",
+    locale: str = "en-US",
+) -> dict[str, Any]:
+    """Polish an existing collection description while keeping its intent."""
+    if not str(description or "").strip():
+        raise ValueError("Collection description is required to polish")
+    return await _run_collection_description_prompt(
+        name=name,
+        parent_path=[],
+        siblings=[],
+        existing_description=str(description).strip(),
+        hint=hint,
+    )
+
+
+async def _run_collection_description_prompt(
+    *,
+    name: str,
+    parent_path: list[str],
+    siblings: list[dict[str, str]],
+    existing_description: str,
+    hint: str,
+) -> dict[str, Any]:
+    from src.core.paths import resolve_project_path
+    from src.core.review.prompt_metadata import parse_prompt_file
+    from src.core.telemetry import reset_event_sink, suspend_event_sink
+    from src.integrations.ai_client import AIClient, resolve_ai_settings
+
+    config = load_config()
+    system_prompt = parse_prompt_file(
+        resolve_project_path(config.pipeline.collection_description_prompt_path)
+    ).body
+    request_payload: dict[str, Any] = {
+        "task": "polish" if existing_description else "create",
+        "collection_name": name,
+        "parent_path": parent_path,
+        "sibling_collections": siblings,
+        "user_hint": str(hint or "").strip(),
+    }
+    if existing_description:
+        request_payload["existing_description"] = existing_description
+
+    token = suspend_event_sink()
+    try:
+        response = await AIClient(resolve_ai_settings(config)).generate_text(
+            system_prompt,
+            "Collection description request:\n"
+            + json.dumps(request_payload, ensure_ascii=False),
+        )
+    finally:
+        reset_event_sink(token)
+    payload = _extract_json_object(response.text)
+    new_description = str(payload.get("description") or "").strip()
+    if not new_description:
+        raise ValueError("Collection description response did not contain a description")
+    return {
+        "description": new_description,
+        "reasoning": str(payload.get("reasoning") or "").strip(),
+        "model": response.model,
+        "provider": response.provider,
+    }

@@ -128,6 +128,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload)
     }),
+  polishCollectionDescription: (payload: { name: string; description: string }) =>
+    request<{ description: string; reasoning: string }>(localized("/api/v1/collections/description/polish"), {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   updateArticleCollection: (articleId: string, collectionId?: string) =>
     request(`/api/v1/articles/${encodeURIComponent(articleId)}/collection`, {
       method: "PATCH",

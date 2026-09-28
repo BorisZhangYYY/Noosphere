@@ -412,17 +412,41 @@ async def create_collection(
     name: str,
     description: str = "",
     parent_id: str = "",
+    auto_description: bool = False,
+    hint: str = "",
 ) -> dict[str, Any]:
-    """Create a collection at the root or inside any existing collection."""
+    """Create a collection at the root or inside any existing collection.
+
+    Set auto_description to draft the description with AI from the collection
+    name, its parent path, and its siblings before creating. The pipeline
+    classifier never creates collections; this explicit MCP opt-in keeps
+    collection creation under agent control.
+    """
     from src.application.service import create_collection as create_collection_operation
 
+    generated: dict[str, Any] | None = None
+    if auto_description:
+        from src.core.collections import suggest_collection_description
+
+        generated = await suggest_collection_description(
+            name,
+            parent_id=parent_id or None,
+            hint=hint,
+        )
+        description = generated["description"]
     collection = await _to_thread(
         create_collection_operation,
         name=name,
         description=description,
         parent_id=parent_id or None,
     )
-    return {"ok": True, "collection": collection}
+    result: dict[str, Any] = {"ok": True, "collection": collection}
+    if generated is not None:
+        result["description_generated"] = True
+        result["description_reasoning"] = generated["reasoning"]
+        result["model"] = generated["model"]
+        result["provider"] = generated["provider"]
+    return result
 
 
 @mcp.tool()
@@ -443,6 +467,45 @@ async def update_collection(
         retired=retired,
     )
     return {"ok": True, "collection": collection}
+
+
+@mcp.tool()
+async def polish_collection_description(
+    collection_id: str,
+    *,
+    apply: bool = False,
+    hint: str = "",
+) -> dict[str, Any]:
+    """Polish a collection description with AI; apply it only when requested."""
+    from src.core.collections import CollectionStore, polish_collection_description as polish_description
+
+    store = CollectionStore()
+    collection = store.get_collection(collection_id, include_retired=True)
+    if collection is None:
+        raise ValueError(f"Collection not found: {collection_id}")
+    result = await polish_description(
+        collection["name"],
+        collection.get("description") or "",
+        hint=hint,
+    )
+    if apply:
+        from src.application.service import update_collection as update_collection_operation
+
+        collection = await _to_thread(
+            update_collection_operation,
+            collection_id,
+            description=result["description"],
+        )
+    return {
+        "ok": True,
+        "collection_id": collection_id,
+        "status": "applied" if apply else "polished",
+        "description": result["description"],
+        "reasoning": result["reasoning"],
+        "model": result["model"],
+        "provider": result["provider"],
+        "collection": collection,
+    }
 
 
 @mcp.tool()
@@ -796,6 +859,7 @@ def create_app() -> Starlette:
         update_article_collection,
         update_pipeline_settings,
         update_collection as update_collection_route,
+        polish_collection_description as polish_collection_description_route,
         upload_web_article,
         reveal_settings_secret,
         test_settings_service,
@@ -857,6 +921,7 @@ def create_app() -> Starlette:
         Route("/api/v1/pipeline/settings", update_pipeline_settings, methods=["PATCH"]),
         Route("/api/v1/collections", get_collections, methods=["GET"]),
         Route("/api/v1/collections", create_collection_route, methods=["POST"]),
+        Route("/api/v1/collections/description/polish", polish_collection_description_route, methods=["POST"]),
         Route("/api/v1/collections/{collection_id}", update_collection_route, methods=["PATCH"]),
     ]
     frontend_dist = project_root() / "frontend" / "dist"
