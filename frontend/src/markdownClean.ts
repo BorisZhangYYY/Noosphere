@@ -13,6 +13,10 @@ export interface CleanedPassage {
   highlights: [number, number][];
 }
 
+export interface CleanedPassageBlock extends CleanedPassage {
+  kind: "heading" | "paragraph" | "list" | "quote";
+}
+
 // Matches, in order: images, links, html tags, emphasis runs, line-leading
 // block markers (heading / blockquote / list), and finally unterminated
 // images/links left behind when a passage window cuts syntax in half.
@@ -79,12 +83,30 @@ export function cleanPassage(source: string, highlights: [number, number][], ima
   }
   emitFilteredSlice(lastIndex);
 
+  // Removed images can leave a stack of empty Markdown lines in an excerpt.
+  const compactedMap: number[] = [];
+  let compactedText = "";
+  let consecutiveNewlines = 0;
+  for (let i = 0; i < out.length; i += 1) {
+    const char = out[i];
+    if (char === "\n") consecutiveNewlines += 1;
+    else if (char !== " " && char !== "\t") consecutiveNewlines = 0;
+    if (char === "\n" && consecutiveNewlines > 2) continue;
+    if ((char === " " || char === "\t") && consecutiveNewlines >= 2) continue;
+    compactedText += char;
+    compactedMap.push(map[i]);
+  }
+  const leading = compactedText.length - compactedText.trimStart().length;
+  const trailing = compactedText.trimEnd().length;
+  const finalText = compactedText.slice(leading, trailing);
+  const finalMap = compactedMap.slice(leading, trailing);
+
   // Re-project highlight ranges: an output char is highlighted when its
   // original index falls inside any source highlight range.
   const cleaned: [number, number][] = [];
   let runStart = -1;
-  for (let i = 0; i <= map.length; i += 1) {
-    const original = i < map.length ? map[i] : -1;
+  for (let i = 0; i <= finalMap.length; i += 1) {
+    const original = i < finalMap.length ? finalMap[i] : -1;
     const hit = original >= 0 && highlights.some(([s, e]) => original >= s && original < e);
     if (hit && runStart < 0) runStart = i;
     if (!hit && runStart >= 0) {
@@ -93,5 +115,27 @@ export function cleanPassage(source: string, highlights: [number, number][], ima
     }
   }
 
-  return { text: out, highlights: cleaned };
+  return { text: finalText, highlights: cleaned };
+}
+
+export function cleanPassageBlocks(source: string, highlights: [number, number][]): CleanedPassageBlock[] {
+  const blocks: CleanedPassageBlock[] = [];
+  let offset = 0;
+  for (const line of source.split("\n")) {
+    const start = offset;
+    const end = start + line.length;
+    const lineHighlights = highlights
+      .filter(([hitStart, hitEnd]) => hitStart < end && hitEnd > start)
+      .map(([hitStart, hitEnd]) => [Math.max(0, hitStart - start), Math.min(line.length, hitEnd - start)] as [number, number]);
+    const cleaned = cleanPassage(line, lineHighlights, "");
+    if (cleaned.text) {
+      const trimmed = line.trimStart();
+      const kind = /^#{1,6}\s/.test(trimmed) ? "heading"
+        : /^(?:[-*+]\s|\d+\.\s)/.test(trimmed) ? "list"
+          : /^>\s?/.test(trimmed) ? "quote" : "paragraph";
+      blocks.push({ ...cleaned, kind });
+    }
+    offset = end + 1;
+  }
+  return blocks;
 }

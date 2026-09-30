@@ -1,7 +1,7 @@
 {
   "name": "noosphere-web",
   "private": true,
-  "version": "0.3.2.7-fix",
+  "version": "0.3.2.8",
   "type": "module",
   "scripts": {
     "dev": "vite",

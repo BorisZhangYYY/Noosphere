@@ -167,7 +167,10 @@ def _build_firecrawl_payload(
         "onlyMainContent": True,
     }
 
-    if wait_for or delay_before_return_html:
+    # Firecrawl's waitFor causes WeChat's static article renderer to time out;
+    # the page is already server-rendered, so leave the option out for it.
+    is_wechat_article = urlparse(url).netloc.lower().endswith("mp.weixin.qq.com")
+    if not is_wechat_article and (wait_for or delay_before_return_html):
         # Most JS-heavy pages need at least 5s; cap at 15s for Firecrawl API limits.
         payload["waitFor"] = min(max(int(delay_before_return_html * 1000), 5000), 15000)
 

@@ -114,6 +114,28 @@ def test_content_store_roundtrip(content_store) -> None:
     assert content_store.list_article_ids() == {"article-2"}
 
 
+def test_legacy_content_copy_without_status_file_is_detected(content_store) -> None:
+    from src.core.content import mirror_status
+
+    content_store.upsert_content("article-1", reviewed_markdown="# Existing copy")
+    status = mirror_status("article-1")
+
+    assert status["status"] == "synced"
+    assert status["updatedAt"] == content_store.content_updated_at("article-1")
+
+
+def test_older_article_gets_text_copy_when_first_opened(web_env) -> None:
+    from src.core.content import ArticleContentStore
+
+    assert ArticleContentStore().get_content(ARTICLE_ID) is None
+    with TestClient(create_app()) as client:
+        response = client.get(f"/api/v1/articles/{ARTICLE_ID}")
+
+    assert response.status_code == 200
+    assert response.json()["mirrorStatus"]["status"] == "synced"
+    assert ArticleContentStore().get_content(ARTICLE_ID)["reviewed_markdown"] == REVIEWED_MARKDOWN
+
+
 def test_missing_article_directory_is_reconstructed_from_database(web_env) -> None:
     output_dir, article_dir = web_env
     with TestClient(create_app()) as client:

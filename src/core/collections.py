@@ -429,6 +429,30 @@ class CollectionStore:
         )
         return item
 
+    def resolve_description_locale(
+        self,
+        collection_id: str,
+        requested_locale: str = "",
+    ) -> str | None:
+        """Require a deliberate target when localized descriptions shadow the base."""
+        if requested_locale not in {"", "base", "zh-CN", "en-US"}:
+            raise ValueError("Collection description locale must be base, zh-CN, or en-US")
+        if requested_locale:
+            return None if requested_locale == "base" else requested_locale
+        self.ensure_schema()
+        marker = self._placeholder
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT locale FROM noosphere_collection_localizations WHERE collection_id = {marker}",
+                (collection_id,),
+            ).fetchall()
+        if rows:
+            locales = ", ".join(sorted(str(row["locale"]) for row in rows))
+            raise ValueError(
+                f"Collection has localized descriptions ({locales}); choose locale base, zh-CN, or en-US"
+            )
+        return None
+
     def _localized_value(self, collection_id: str, locale: str) -> dict[str, str] | None:
         marker = self._placeholder
         with self._connect() as connection:
@@ -973,24 +997,28 @@ async def suggest_collection_description(
     name: str,
     *,
     parent_id: str | None = None,
+    exclude_collection_id: str | None = None,
     hint: str = "",
-    locale: str = "en-US",
+    locale: str | None = None,
 ) -> dict[str, Any]:
     """Draft an AI description for a new collection from its name and tree context."""
     store = CollectionStore()
     parent_path: list[str] = []
-    siblings: list[dict[str, str]] = []
+    tree = store.list_tree(locale=locale)
+    sibling_nodes = tree
     if parent_id:
         parent = store.get_collection(parent_id, include_retired=False, locale=locale)
         if parent is None:
             raise ValueError(f"Collection not found: {parent_id}")
         parent_path = [segment["name"] for segment in parent.get("path") or []]
-        parent_node = _find_collection_node(store.list_tree(locale=locale), parent_id)
+        parent_node = _find_collection_node(tree, parent_id)
         if parent_node is not None:
-            siblings = [
-                {"name": child["name"], "description": child.get("description") or ""}
-                for child in parent_node["children"]
-            ]
+            sibling_nodes = parent_node["children"]
+    siblings = [
+        {"name": node["name"], "description": node.get("description") or ""}
+        for node in sibling_nodes
+        if node["id"] != exclude_collection_id
+    ]
     return await _run_collection_description_prompt(
         name=name,
         parent_path=parent_path,
@@ -1005,7 +1033,7 @@ async def polish_collection_description(
     description: str,
     *,
     hint: str = "",
-    locale: str = "en-US",
+    locale: str | None = None,
 ) -> dict[str, Any]:
     """Polish an existing collection description while keeping its intent."""
     if not str(description or "").strip():

@@ -58,6 +58,7 @@ The web reader normally calculates prefix, suffix, and occurrence automatically.
 | `nsphr collections create --name "AI" --description "AI research"` | Create a root Collection. |
 | `nsphr collections create --name "AI interviews" --parent-id ID` | Create a child beneath any existing Collection. |
 | `nsphr collections update ID --name "Applied AI"` | Rename or describe a Collection. |
+| `nsphr collections describe ID --locale zh-CN --apply` | Draft or polish a Collection description with AI, then save the selected language. Omit `--apply` for a preview. |
 | `nsphr collections delete ID` | Recoverably delete a Collection and its descendant subtree. |
 | `nsphr collections restore ID` | Restore a recoverably deleted Collection subtree. |
 | `nsphr collections place ARTICLE_ID --collection-id ID` | Move an article to an existing Collection. |
@@ -65,6 +66,8 @@ The web reader normally calculates prefix, suffix, and occurrence automatically.
 | `nsphr collections place ARTICLE_ID` | Move an article to the Collection root. |
 
 Use stable Collection IDs in scripts. There is no depth limit. Automatic placement uses the same active IDs and cannot create new Collections. Path-based creation requires an explicit target, `--create-missing`, and a non-empty description; only the final segment may be created, so its parent path must already exist.
+
+`collections describe` accepts `--locale base|zh-CN|en-US`. If a Collection has localized versions, the locale is required so an applied draft updates the intended version. Without localized versions, it defaults to the base description. Add `--hint` to guide the draft.
 
 ## Images
 

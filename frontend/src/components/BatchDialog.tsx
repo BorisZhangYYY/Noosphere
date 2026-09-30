@@ -40,7 +40,7 @@ export function BatchDialog({ onClose }: { onClose: () => void }) {
         </button>
         <p className="context-label">{zh ? "批量处理" : "Batch"}</p>
         <h2 id="batch-dialog-title">{zh ? "一次提交多篇文章" : "Capture multiple articles"}</h2>
-        <p>{zh ? "粘贴链接或导入文本文件。默认跳过重复链接和已收录文章，逐项进度在批量工作台查看。" : "Paste links or import a text file. Duplicates and existing articles are skipped; follow progress in the batch workspace."}</p>
+        <p className="batch-dialog-description">{zh ? "粘贴链接或导入文本文件。默认跳过重复链接和已收录文章，逐项进度在批量工作台查看。" : "Paste links or import a text file. Duplicates and existing articles are skipped; follow progress in the batch workspace."}</p>
         <BatchForm compact onCreated={(job) => { onClose(); navigate(`/batches?batch=${encodeURIComponent(job.id)}`); }} />
       </section>
     </div>

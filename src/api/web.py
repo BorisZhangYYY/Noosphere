@@ -22,7 +22,7 @@ from src.core.config.schema import Config
 from src.core.markdown.cleaner import extract_title_from_markdown
 from src.integrations.assets import MARKDOWN_IMAGE_RE, split_image_target
 from src.core.workspace import RevisionConflict, content_revision, serialized
-from src.core.content import mirror_status
+from src.core.content import mirror_status, retry_mirror
 from src.core.workspace import read_json as _read_json
 from src.core.workspace import atomic_write_text as _atomic_write_text
 from src.core.workspace import safe_article_dir as _safe_article_dir
@@ -703,11 +703,14 @@ def _get_article_response(article_id: str, locale: str, editable_only: bool) -> 
 
     reflection = get_reflection(article_id)
     annotations = get_article_annotations(article_id)
+    content_copy_status = mirror_status(article_dir.name)
+    if content_copy_status["status"] == "unknown":
+        content_copy_status = retry_mirror(article_dir.name)
 
     response_payload = {
         **summary,
         "revision": content_revision(article_dir),
-        "mirrorStatus": mirror_status(article_dir.name),
+        "mirrorStatus": content_copy_status,
         "publishedAt": protected_metadata["publishedAt"]["value"],
         "contentType": str(article.get("content_type") or "article"),
         "editableMarkdown": editable_article_markdown(display_markdown),

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useBeforeUnload, useBlocker, useNavigate, useParams } from "react-router-dom";
+import { useBeforeUnload, useBlocker, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { articleDraftReducer, emptyArticleDraft } from "../articleDraft";
 import { SearchPassage } from "../components/SearchPassage";
@@ -40,9 +40,12 @@ async function digestText(value: string): Promise<string> {
 export function ArticlePage() {
   const { t, i18n } = useTranslation();
   const { articleId = "" } = useParams();
+  const [searchParams] = useSearchParams();
+  const rawSearch = Boolean(searchParams.get("digest") && searchParams.get("field") === "raw");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["article", articleId, i18n.resolvedLanguage], queryFn: () => api.getArticle(articleId), enabled: Boolean(articleId) });
+  const rawQuery = useQuery({ queryKey: ["article-full", articleId, i18n.resolvedLanguage], queryFn: () => api.getArticleFull(articleId), enabled: Boolean(articleId) && rawSearch });
   const collectionQuery = useQuery({ queryKey: ["collections", i18n.resolvedLanguage], queryFn: api.getCollections });
   const pipelineSettingsQuery = useQuery({ queryKey: ["pipeline-settings", i18n.resolvedLanguage], queryFn: api.getPipelineSettings });
   const [draftState, dispatchDraft] = useReducer(articleDraftReducer, emptyArticleDraft);
@@ -54,7 +57,8 @@ export function ArticlePage() {
   const [reviewPerspective, setReviewPerspective] = useState("");
   const [reviewLanguage, setReviewLanguage] = useState<OutputLanguage>("follow_ui");
   const [collectionId, setCollectionId] = useState("");
-  const [sourceExpanded, setSourceExpanded] = useState(false);
+  const [sourceExpanded, setSourceExpanded] = useState(true);
+  const [backupExpanded, setBackupExpanded] = useState(false);
   const [inspectionOpen, setInspectionOpen] = useState(true);
   const [metadataAuthor, setMetadataAuthor] = useState("");
   const [metadataPublishedAt, setMetadataPublishedAt] = useState("");
@@ -101,7 +105,8 @@ export function ArticlePage() {
   }, [query.data, reflectionOpen]);
   useEffect(() => {
     setReadOnly(true);
-    setSourceExpanded(false);
+    setSourceExpanded(true);
+    setBackupExpanded(false);
     setPreviewAsset(null);
     setPendingImageAction(null);
     setPendingImageStates({});
@@ -117,6 +122,12 @@ export function ArticlePage() {
     setFocusAnnotationRequest(null);
     setPendingAnnotationDelete(null);
   }, [articleId]);
+  useEffect(() => {
+    if (searchParams.get("digest") && searchParams.get("field") === "author") {
+      setInspectionOpen(true);
+      setSourceExpanded(true);
+    }
+  }, [searchParams]);
   useEffect(() => {
     if (!quoteSelection) return;
     const clear = () => setQuoteSelection(null);
@@ -491,7 +502,7 @@ export function ArticlePage() {
       <div className={`article-layout${inspectionOpen ? "" : " inspection-collapsed"}`}>
         <ArticleOutline markdown={draft} />
         <article className="reader-surface editor-surface">
-          <SearchPassage articleId={articleId} />
+          <SearchPassage articleId={articleId} annotations={article.annotations.items} onOpenAnnotation={openAnnotation} />
           <MarkdownEditor
             articleId={articleId}
             value={draft}
@@ -508,6 +519,10 @@ export function ArticlePage() {
             onResolvedAnnotationIds={(ids) => setResolvedAnnotationIds((current) => current.join("\n") === ids.join("\n") ? current : ids)}
             focusAnnotationRequest={focusAnnotationRequest}
           />
+          {rawSearch && rawQuery.data?.rawMarkdown && <section className="article-source-search" aria-label={i18n.resolvedLanguage?.startsWith("zh") ? "原文" : "Original article"}>
+            <h2>{i18n.resolvedLanguage?.startsWith("zh") ? "原文" : "Original article"}</h2>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ src, alt }) => <img src={src?.startsWith("assets/") ? `/api/v1/articles/${encodeURIComponent(articleId)}/${src}` : src} alt={alt ?? ""} /> }}>{rawQuery.data.rawMarkdown}</ReactMarkdown>
+          </section>}
           <section className="reflection-section" aria-label={t("article.reflectionTitle")}>
             <header className="reflection-section-header">
               <div>
@@ -527,14 +542,6 @@ export function ArticlePage() {
         </article>
 
         <aside className="inspection-rail" aria-hidden={!inspectionOpen}>
-          <section className="inspection-section">
-            <h2>{t("article.mirrorTitle")}</h2>
-            <p role={article.mirrorStatus.status === "failed" ? "alert" : undefined}>{t(`article.mirror_${article.mirrorStatus.status}`)}</p>
-            {article.mirrorStatus.updatedAt && <small>{new Date(article.mirrorStatus.updatedAt).toLocaleString()}</small>}
-            <p className="reflection-empty-hint">{t("article.mirrorScope")}</p>
-            <button className="button-secondary" type="button" disabled={mirrorMutation.isPending} onClick={() => mirrorMutation.mutate()}>{t("article.mirrorRetry")}</button>
-            {mirrorMutation.isError && <p role="alert">{(mirrorMutation.error as Error).message}</p>}
-          </section>
           <section className={`inspection-section inspection-source-section${sourceExpanded ? " inspection-source-expanded" : ""}`}>
             <button className="inspection-collapse-toggle" type="button" aria-expanded={sourceExpanded} onClick={() => setSourceExpanded((expanded) => !expanded)}>
               <span className="inspection-title"><FileText size={19} /><h2>{t("article.source")}</h2></span>
@@ -719,6 +726,25 @@ export function ArticlePage() {
               {article.hasUploaded ? t("article.reupload") : t("article.upload")}
             </button>
             <p className="rail-note">{t("article.backgroundUploadHelp")}</p>
+          </section>
+          <section className={`inspection-section mirror-section${backupExpanded ? " mirror-section-expanded" : ""}`}>
+            <button className="inspection-collapse-toggle" type="button" aria-expanded={backupExpanded} onClick={() => setBackupExpanded((expanded) => !expanded)}>
+              <span className="inspection-title"><FloppyDisk size={19} /><h2>{t("article.mirrorTitle")}</h2></span>
+              <CaretDown className="inspection-collapse-caret" size={17} weight="bold" />
+            </button>
+            <p className={`mirror-status mirror-status-${article.mirrorStatus.status}`} role={article.mirrorStatus.status === "failed" ? "alert" : "status"}>
+              <span className="mirror-status-dot" aria-hidden="true" />
+              {t(`article.mirror_${article.mirrorStatus.status}`)}
+            </p>
+            {backupExpanded && <div className="mirror-details">
+              <p className="mirror-description">{t("article.mirrorDescription")}</p>
+              {article.mirrorStatus.updatedAt && <small className="mirror-updated-at">{t("article.mirrorUpdatedAt", { date: new Date(article.mirrorStatus.updatedAt).toLocaleString() })}</small>}
+              <p className="mirror-scope">{t("article.mirrorScope")}</p>
+              <button className="button-secondary mirror-action" type="button" disabled={mirrorMutation.isPending} onClick={() => mirrorMutation.mutate()}>
+                {t(article.mirrorStatus.status === "failed" ? "article.mirrorRetry" : article.mirrorStatus.status === "unknown" ? "article.mirrorCreate" : "article.mirrorRefresh")}
+              </button>
+              {mirrorMutation.isError && <p role="alert">{(mirrorMutation.error as Error).message}</p>}
+            </div>}
           </section>
         </aside>
       </div>

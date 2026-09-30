@@ -4,11 +4,11 @@ These first-version features are included in v0.3.2.7.
 
 ## Full-text search
 
-Choose **Full-text search** in the Knowledge sidebar, or enter a query in the sidebar and press Enter. The existing sidebar list still filters article metadata while typing.
+Choose **Full-text search** beneath **Workspace** in the main navigation, or enter a query in the Knowledge sidebar and press Enter. The existing sidebar list still filters article metadata while typing.
 
 Search covers titles, authors, reviewed articles, reflections and annotations. Choose **Original** explicitly to search raw source text. Multiple terms must occur in the same content field; quoted terms match a sequence of normalized tokens. Chinese characters are indexed individually, so two-character Chinese queries work alongside English names and version numbers. This is lexical search, not semantic question answering.
 
-Results group matching fields under each article and highlight matching excerpts. Filter by collection (including descendants), platform and capture date. Opening a passage displays a larger source-text context inside the article. If its source changed after the search, the workspace asks you to search again instead of displaying a stale passage as current. This first version does not automatically scroll the rendered article to a matching paragraph.
+Results group matching fields under each article and highlight matching excerpts. Local article images in excerpts display as thumbnails. Filter by collection (including descendants), platform and capture date. Click an excerpt to open the article at the matching text with a theme-aware highlight. Matches in reflections and original text open their respective article sections; annotation matches open the existing annotation viewer. If the source changed after the search, the workspace asks you to search again instead of highlighting a stale location.
 
 The local `search.sqlite3` index is derived data. Each search reconciles file signatures, including external file edits and removals; unchanged content is reused. **Rebuild index** recreates the index, including after index corruption. Raw Markdown, personal notes and annotations are not modified by indexing. Deleted article markers exclude leftover files. The first search over a large library can take longer. A background indexing queue remains future work. Large-library benchmarking is not part of the current verification scope.
 
@@ -26,7 +26,7 @@ HTTP: `GET /api/v1/search?q=...&scope=...&collection=...&platform=...&after=YYYY
 
 ## Batch workspace
 
-Choose **Batch workspace** in the sidebar. Paste one URL per line, or load a UTF-8 text file up to 1 MB. A batch accepts up to 100 URLs. Lines beginning with `#` are ignored by the text importer.
+Choose **Batch capture** from the **+** menu in the Knowledge sidebar. Paste one URL per line, or load a UTF-8 text file up to 1 MB. A batch accepts up to 100 URLs. Lines beginning with `#` are ignored by the text importer. Submitting a batch opens its progress in the batch workspace.
 
 Use **Check URLs** to preview invalid URLs, within-batch duplicates and already captured articles. URL fragments and hostname casing are normalized; query parameters remain intact so source identifiers are preserved. Existing articles are skipped. Use the individual article review action to review an existing article again.
 

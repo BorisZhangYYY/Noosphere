@@ -11,6 +11,7 @@ The web workspace is an operational surface for those capabilities. It is not th
 - Collection index nodes organize captured articles; they are not general editable note documents.
 - Collections are user-owned, arbitrarily nested, and identified by stable IDs.
 - Automatic AI placement may choose only an existing active Collection and must keep uncertain articles at the root.
+- An explicitly requested MCP Collection creation may draft its description only when the caller sets `auto_description=true`; this does not grant the placement classifier permission to create Collections.
 - An agent acting on an explicit user-named path may create only its missing final Collection when the caller separately authorizes creation and supplies its description; missing parent paths remain an error.
 - Noosphere may emit structured Collection, label-facet, and metadata results for downstream tools.
 - Noosphere must remain usable without any particular downstream knowledge-management project.

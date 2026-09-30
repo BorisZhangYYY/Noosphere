@@ -44,6 +44,7 @@ Quote interpretations are independent `annotations.json` records. Create tools a
 - `list_collections`
 - `create_collection`
 - `update_collection`
+- `polish_collection_description`
 - `delete_collection`
 - `restore_collection`
 - `place_article`
@@ -56,6 +57,8 @@ Safe organization flow:
 4. Call `place_article`, or omit `collection_id` to place the article at the Collection root.
 
 Use `update_collection` to rename or describe a Collection. `delete_collection` and `restore_collection` operate recoverably on the complete descendant subtree. Automatic AI placement is closed-set: it may select an existing active ID but never create, rename, or propose a Collection.
+
+`create_collection(auto_description=true)` explicitly drafts a description from the collection name, parent path, and sibling Collections before creation. `polish_collection_description` previews an existing description and saves it only with `apply=true`. Pass `locale="zh-CN"`, `locale="en-US"`, or `locale="base"` when localized descriptions exist; without a locale the tool asks for an explicit target instead of silently changing a description hidden by localization.
 
 When a user explicitly names a missing destination, an MCP client may instead pass `collection_path`, `create_missing=true`, and a non-empty `collection_description` to `place_article`. Noosphere creates only the final path segment; every parent segment must already exist. The creation flag is never inferred from an AI classification result.
 

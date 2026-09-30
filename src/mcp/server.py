@@ -475,18 +475,21 @@ async def polish_collection_description(
     *,
     apply: bool = False,
     hint: str = "",
+    locale: str = "",
 ) -> dict[str, Any]:
-    """Polish a collection description with AI; apply it only when requested."""
+    """Polish a collection description with AI; choose a locale when localized versions exist."""
     from src.core.collections import CollectionStore, polish_collection_description as polish_description
 
     store = CollectionStore()
-    collection = store.get_collection(collection_id, include_retired=True)
+    selected_locale = store.resolve_description_locale(collection_id, locale)
+    collection = store.get_collection(collection_id, include_retired=True, locale=selected_locale)
     if collection is None:
         raise ValueError(f"Collection not found: {collection_id}")
     result = await polish_description(
         collection["name"],
         collection.get("description") or "",
         hint=hint,
+        locale=selected_locale,
     )
     if apply:
         from src.application.service import update_collection as update_collection_operation
@@ -495,10 +498,12 @@ async def polish_collection_description(
             update_collection_operation,
             collection_id,
             description=result["description"],
+            locale=selected_locale,
         )
     return {
         "ok": True,
         "collection_id": collection_id,
+        "locale": selected_locale or "base",
         "status": "applied" if apply else "polished",
         "description": result["description"],
         "reasoning": result["reasoning"],

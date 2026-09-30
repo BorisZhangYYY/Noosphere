@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.2.8] - 2026-09-30
+
+### Fixed
+
+- Skip Firecrawl's `waitFor` option for WeChat articles, avoiding the 408 timeout path documented in Issue #35.
+- Complete the workspace search, Markdown preview, article navigation, backup, batch entry, and collection-description improvements from the v0.3.2.8 release scope.
+
+### Changed
+
+- Renamed the article rail's confusing “Content recovery” control to “Article text backup,” with clear copy status, scope, and manual save actions.
+- Moved full-text search into the main navigation and kept batch capture in the Knowledge workspace add menu.
+- Replaced native search and batch option menus with theme-aware controls, and show local article images in search excerpts.
+
 ### Added
 
 - Added an AI-assisted collection description workflow shared by Web API, MCP, and CLI: MCP agents may opt into `auto_description` when creating a collection to draft an inclusion-focused description from the collection name, parent path, and siblings, and a new `polish_collection_description` MCP tool rewrites an existing description without applying it unless requested. The CLI gains `collections describe [--apply] [--hint]` which drafts a description for collections without one and polishes collections that already have one.
@@ -14,6 +27,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Notes
 
 - The capture/review pipeline classifier remains closed-set and never creates collections; AI collection creation stays an explicit MCP opt-in so automated runs cannot invent or mutate the collection tree.
+
+### Fixed
+
+- Balanced the batch upload dialog description so it no longer leaves a lone character on a second line.
+- Search excerpts now open the article at the matching text with a light- or dark-theme highlight instead of displaying a separate passage box. Original-text and reflection matches open in their article sections, and annotation matches open the existing annotation viewer.
+- Search previews now skip article header metadata and display excerpt headings, paragraphs, and list items with their match highlight intact.
+- Search results and article navigation use the same fine red underline for matching text in both themes; the article underline appears briefly with comfortable spacing. Search previews render Markdown structure, links, tables, code, and images in their original positions.
+- Put article source details first in the inspection rail and move text backup controls into a compact maintenance section at the bottom; clarify when an older article has no copy yet.
+- Create a database text copy for older articles when they are first opened, and recognize existing copies even when their separate status record is missing.
+- Keep an in-progress Collection introduction intact when an earlier AI polish finishes after the user edits, cancels, or opens another Collection.
+- Apply CLI and MCP description polish to the selected localized version, and require an explicit language when a Collection has localized descriptions.
+- Include other root Collections in AI description suggestions while excluding the Collection being described from its own siblings.
 
 ## [0.3.2.7-fix] - 2026-09-25
 

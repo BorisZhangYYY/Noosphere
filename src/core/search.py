@@ -19,6 +19,8 @@ from src.core.workspace import article_lock, read_json
 _LOCK = RLock()
 _FIELDS = {"title", "author", "reviewed", "reflection", "annotations", "raw"}
 _FILES = ("manifest.json", "reviewed.md", "reflection.md", "annotations.json", "raw.md")
+_LOCAL_IMAGE_RE = re.compile(r'!\[([^\]]*)\]\((assets/[^\s)]+)\)')
+_MARKDOWN_RESOURCE_RE = re.compile(r'!?\[[^\]\n]*\]\([^\n)]*\)')
 
 
 def terms(text: str) -> list[str]:
@@ -135,18 +137,48 @@ def _synchronize(output, changed):
         return {"articles": len(found), "updated": changed, "removed": len(removed)}
 
 
-def excerpt(text: str, parts: list[str]) -> dict:
+def excerpt(text: str, parts: list[str], *, field: str = "") -> dict:
     folded = text.casefold()
-    matches = [(folded.find(part.casefold()), len(part)) for part in parts if part.casefold() in folded]
+    body_start = 0
+    if field in {"reviewed", "raw"}:
+        header_end = re.search(r"(?m)^---[ \t]*\r?\n", text)
+        if header_end and re.search(r"(?m)^>\s*(?:Source|Platform|Author|Published|Captured|Type)\s*[:：]", text[:header_end.start()], re.I):
+            body_start = header_end.end()
+    matches = [(folded.find(part.casefold(), body_start), len(part)) for part in parts if part.casefold() in folded[body_start:]]
+    if not matches:
+        matches = [(folded.find(part.casefold()), len(part)) for part in parts if part.casefold() in folded]
     position = min((p for p, _ in matches), default=0)
-    start = max(0, position - 80)
+    start = max(body_start if position >= body_start else 0, position - 80)
     end = min(len(text), max(start + 280, position + 100))
+    line_start = text.rfind("\n", body_start if position >= body_start else 0, start)
+    if line_start >= 0 and start - line_start <= 320:
+        start = line_start + 1
+    line_end = text.find("\n", end)
+    if line_end >= 0 and line_end - end <= 320:
+        end = line_end
+    preceding_blocks = list(re.finditer(r"\n[ \t]*\n", text[body_start:start]))
+    if preceding_blocks:
+        block_start = body_start + preceding_blocks[-1].end()
+        if start - block_start <= 600:
+            start = block_start
+    following_block = re.search(r"\n[ \t]*\n", text[end:])
+    if following_block and following_block.start() <= 600:
+        end += following_block.start()
+    for resource in _MARKDOWN_RESOURCE_RE.finditer(text):
+        if resource.start() < end and resource.end() > start:
+            start = min(start, resource.start())
+            end = max(end, resource.end())
     snippet = text[start:end]
     highlights = []
     for part in parts:
         for match in re.finditer(re.escape(part), snippet, re.I):
             highlights.append([match.start(), match.end()])
-    return {"text": snippet, "start": start, "highlights": highlights}
+    images = [
+        {"alt": match.group(1), "path": match.group(2)}
+        for match in _LOCAL_IMAGE_RE.finditer(text)
+        if match.start() < end and match.end() > start
+    ]
+    return {"text": snippet, "start": start, "highlights": highlights, "images": images}
 
 
 def search_articles(query: str, *, scope: str = "all", collection_id: str = "", platform: str = "", after: str = "", before: str = "", offset: int = 0, limit: int = 30, locale: str = "en-US") -> dict:
@@ -190,7 +222,7 @@ def search_articles(query: str, *, scope: str = "all", collection_id: str = "", 
             continue
         result = grouped.setdefault(article_id, {"article": article, "matches": []})
         if len(result["matches"]) < 6:
-            result["matches"].append({"field": row["field"], "digest": row["digest"], **excerpt(row["original"], parts)})
+            result["matches"].append({"field": row["field"], "digest": row["digest"], **excerpt(row["original"], parts, field=row["field"])})
     return {"results": list(grouped.values())[offset:offset + limit], "total": len(grouped), "index": index}
 
 

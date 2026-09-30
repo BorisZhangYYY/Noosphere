@@ -378,6 +378,90 @@ async def test_suggest_collection_description_at_root_has_empty_context(
 
 
 @pytest.mark.asyncio
+async def test_suggest_collection_description_uses_root_siblings_but_excludes_itself(
+    collection_store,
+    monkeypatch,
+) -> None:
+    from src.core.collections import suggest_collection_description
+
+    existing = collection_store.create_collection(name="AI 相关", description="AI 新闻与实践")
+    target = collection_store.create_collection(name="游戏相关")
+
+    async def fake_generate(self, system_prompt: str, user_prompt: str):
+        request = json.loads(user_prompt.split("Collection description request:\n", 1)[1])
+        assert request["parent_path"] == []
+        assert request["sibling_collections"] == [
+            {"name": existing["name"], "description": existing["description"]}
+        ]
+        return SimpleNamespace(
+            text=json.dumps({"description": "游戏相关文章。", "reasoning": "Distinct root topic."}),
+            model="test-model",
+            provider="test",
+        )
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", fake_generate)
+    monkeypatch.setattr("src.integrations.ai_client.resolve_ai_settings", lambda config: SimpleNamespace())
+    await suggest_collection_description(target["name"], exclude_collection_id=target["id"])
+
+
+def test_description_locale_requires_selection_and_updates_only_selected_language(collection_store) -> None:
+    collection = collection_store.create_collection(name="AI", description="English base")
+    collection_store.update_collection(collection["id"], name="人工智能", description="中文原文", locale="zh-CN")
+
+    with pytest.raises(ValueError, match="choose locale"):
+        collection_store.resolve_description_locale(collection["id"])
+
+    selected = collection_store.resolve_description_locale(collection["id"], "zh-CN")
+    assert selected == "zh-CN"
+    collection_store.update_collection(collection["id"], description="中文润色", locale=selected)
+    assert collection_store.get_collection(collection["id"], locale="zh-CN")["description"] == "中文润色"
+    assert collection_store.get_collection(collection["id"])["description"] == "English base"
+    assert collection_store.resolve_description_locale(collection["id"], "base") is None
+
+
+@pytest.mark.asyncio
+async def test_mcp_and_cli_apply_description_to_selected_locale(
+    collection_store,
+    monkeypatch,
+    capsys,
+) -> None:
+    from src.cli import _main_async, parse_args
+    from src.mcp.server import polish_collection_description as mcp_polish_description
+
+    collection = collection_store.create_collection(name="AI", description="English base")
+    collection_store.update_collection(collection["id"], name="人工智能", description="中文原文", locale="zh-CN")
+
+    async def fake_generate(self, system_prompt: str, user_prompt: str):
+        request = json.loads(user_prompt.split("Collection description request:\n", 1)[1])
+        source = request["existing_description"]
+        return SimpleNamespace(
+            text=json.dumps({"description": f"{source} improved", "reasoning": "Clearer wording."}),
+            model="test-model",
+            provider="test",
+        )
+
+    monkeypatch.setattr("src.integrations.ai_client.AIClient.generate_text", fake_generate)
+    monkeypatch.setattr("src.integrations.ai_client.resolve_ai_settings", lambda config: SimpleNamespace())
+
+    with pytest.raises(ValueError, match="choose locale"):
+        await mcp_polish_description(collection["id"], apply=True)
+
+    mcp_result = await mcp_polish_description(collection["id"], locale="zh-CN", apply=True)
+    assert mcp_result["locale"] == "zh-CN"
+    assert collection_store.get_collection(collection["id"], locale="zh-CN")["description"] == "中文原文 improved"
+    assert collection_store.get_collection(collection["id"])["description"] == "English base"
+
+    exit_code = await _main_async(parse_args([
+        "collections", "describe", collection["id"], "--locale", "base", "--apply", "--json",
+    ]))
+    cli_result = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert cli_result["locale"] == "base"
+    assert collection_store.get_collection(collection["id"])["description"] == "English base improved"
+    assert collection_store.get_collection(collection["id"], locale="zh-CN")["description"] == "中文原文 improved"
+
+
+@pytest.mark.asyncio
 async def test_suggest_collection_description_rejects_unknown_parent(
     collection_store,
     monkeypatch,

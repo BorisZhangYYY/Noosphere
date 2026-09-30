@@ -169,6 +169,15 @@ class ArticleContentStore:
             ).fetchone()
         return {key: str(value or "") for key, value in dict(row).items()} if row else None
 
+    def content_updated_at(self, article_id: str) -> str | None:
+        self.ensure_schema()
+        with self._connect() as connection:
+            row = connection.execute(
+                f"SELECT updated_at FROM noosphere_article_content WHERE article_id = {self._placeholder}",
+                (article_id,),
+            ).fetchone()
+        return str(row["updated_at"]) if row else None
+
     def delete_content(self, article_id: str) -> None:
         """Remove the mirrored content row for *article_id*."""
         self.ensure_schema()
@@ -218,7 +227,14 @@ def mirror_status(article_id: str) -> dict:
     from src.core.workspace import read_json, validate_article_id
 
     validate_article_id(article_id)
-    return read_json(runtime_home() / "mirror-status" / f"{article_id}.json") or {"status": "unknown"}
+    status = read_json(runtime_home() / "mirror-status" / f"{article_id}.json")
+    if status:
+        return status
+    try:
+        updated_at = ArticleContentStore().content_updated_at(article_id)
+    except Exception:
+        return {"status": "unknown"}
+    return {"status": "synced", "updatedAt": updated_at} if updated_at else {"status": "unknown"}
 
 
 def retry_mirror(article_id: str) -> dict:
