@@ -2,6 +2,17 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
+## v0.3.2.8
+
+The release is prepared in `CHANGELOG.md` and `docs/releases/v0.3.2.8.md`.
+
+### Release gates
+
+- [x] Frontend tests, type-check and production build pass.
+- [x] Python source compilation and Firecrawl payload regression checks pass.
+- [x] Search and article navigation visual checks pass in light and dark themes.
+- [x] PR #34 merged; Issue #35 fixed in this release branch.
+
 ## v0.3.2.7-fix — Web workspace display and access polish
 
 The completed browser-login, capture-entry, search-excerpt and responsive-layout corrections are recorded in `CHANGELOG.md` and `docs/releases/v0.3.2.7-fix.md`.
@@ -26,7 +37,7 @@ The combined release operations are authorized. Publication and merge outcomes a
 
 ## Later product iterations
 
-- [ ] Background search indexing and rendered-paragraph scroll anchors. Large-library benchmarks are excluded at the user's request; use small functional regressions.
+- [ ] Background search indexing. Large-library benchmarks are excluded at the user's request; use small functional regressions.
 - [ ] Batch configuration snapshots, provider/site throttling and backoff, explicit recapture/re-review modes, idempotent external delivery, usage/cost reporting and bulk movement of existing articles.
 
 - [ ] Review diffs and recoverable article revision history.

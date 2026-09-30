@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import { ErrorPanel } from "./StatePanel";
+import { InlineSelect } from "./InlineSelect";
 import type { BatchJob, CollectionNode } from "../types";
 
 export function collectionOptions(nodes: CollectionNode[], prefix = ""): { id: string; label: string }[] {
@@ -44,25 +45,9 @@ export function BatchForm({ onCreated, compact = false }: { onCreated: (job: Bat
         <input type="file" accept=".txt,text/plain" onChange={async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 1024 * 1024) { setFileError(zh ? "文件不能超过 1 MB" : "File must be under 1 MB"); return; } setFileError(""); setText(await file.text()); preview.reset(); }} />
       </label>
       <div className="batch-options">
-        <label>{zh ? "处理方式" : "Workflow"}
-          <select value={mode} onChange={e => setMode(e.target.value)}>
-            <option value="capture">{zh ? "仅抓取" : "Capture only"}</option>
-            <option value="review">{zh ? "抓取并 AI 校对" : "Capture and AI review"}</option>
-          </select>
-        </label>
-        <label>{zh ? "输出语言" : "Output language"}
-          <select value={language} onChange={e => setLanguage(e.target.value)}>
-            <option value="source">{zh ? "跟随原文" : "Source language"}</option>
-            <option value="zh-CN">简体中文</option>
-            <option value="en-US">English</option>
-          </select>
-        </label>
-        <label>{zh ? "目标分类" : "Collection"}
-          <select value={collectionId} onChange={e => setCollectionId(e.target.value)}>
-            <option value="">{zh ? "未分类" : "Unfiled"}</option>
-            {collectionOptions(collections.data?.collections ?? []).map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </select>
-        </label>
+        <div className="discovery-select-field"><span>{zh ? "处理方式" : "Workflow"}</span><InlineSelect ariaLabel={zh ? "处理方式" : "Workflow"} value={mode} onChange={setMode} options={[{ value: "capture", label: zh ? "仅抓取" : "Capture only" }, { value: "review", label: zh ? "抓取并 AI 校对" : "Capture and AI review" }]} /></div>
+        <div className="discovery-select-field"><span>{zh ? "输出语言" : "Output language"}</span><InlineSelect ariaLabel={zh ? "输出语言" : "Output language"} value={language} onChange={setLanguage} options={[{ value: "source", label: zh ? "跟随原文" : "Source language" }, { value: "zh-CN", label: "简体中文" }, { value: "en-US", label: "English" }]} /></div>
+        <div className="discovery-select-field"><span>{zh ? "目标分类" : "Collection"}</span><InlineSelect ariaLabel={zh ? "目标分类" : "Collection"} value={collectionId} onChange={setCollectionId} options={[{ value: "", label: zh ? "未分类" : "Unfiled" }, ...collectionOptions(collections.data?.collections ?? []).map(c => ({ value: c.id, label: c.label }))]} /></div>
       </div>
       {mode === "review" && <p className="batch-form-note">{zh ? "使用提交时的当前模型和校对视角。配置变化后会停止后续处理，避免使用不同设置继续。" : "Uses the current model and perspective. A configuration change stops subsequent processing."}</p>}
       <div className="batch-form-actions">

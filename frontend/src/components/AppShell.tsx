@@ -8,6 +8,7 @@ import {
   Newspaper,
   Plus,
   Question,
+  MagnifyingGlass,
   SidebarSimple,
   SignOut,
   Sun,
@@ -27,7 +28,8 @@ import { KnowledgeSidebar } from "./KnowledgeSidebar";
 import type { CaptureJob, OutputLanguage, ReviewMode } from "../types";
 
 const navItems = [
-  { to: "/", labelKey: "nav.workspace", icon: House }
+  { to: "/", labelKey: "nav.workspace", icon: House },
+  { to: "/search", labelKey: "nav.fullSearch", icon: MagnifyingGlass }
 ];
 
 const helpSources = [
@@ -106,7 +108,7 @@ export function AppShell() {
               to={to}
               end
               onClick={() => setMobileOpen(false)}
-              className={({ isActive }) => `nav-item nav-item-workspace ${isActive ? "nav-item-active" : ""}`}
+              className={({ isActive }) => `nav-item ${isActive ? "nav-item-active" : ""}`}
             >
               <Icon size={20} weight="regular" />
               <span>{t(labelKey)}</span>

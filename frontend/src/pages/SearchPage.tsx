@@ -1,28 +1,77 @@
-import { useEffect, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useState, type ReactNode } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { api } from "../api";
 import type { CollectionNode } from "../types";
 import { cleanPassage } from "../markdownClean";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
+import { InlineSelect } from "../components/InlineSelect";
 
 function collectionOptions(nodes: CollectionNode[], prefix = ""): { id: string; label: string }[] { return nodes.flatMap(node => [{ id: node.id, label: prefix + node.name }, ...collectionOptions(node.children, prefix + node.name + " / ")]); }
 
-function HighlightedPassage({ text, highlights }: { text: string; highlights: [number, number][] }) {
-  const parts = [];
-  let cursor = 0;
-  for (const [start, end] of highlights) {
-    if (start > cursor) parts.push(text.slice(cursor, start));
-    parts.push(<mark key={`${start}-${end}`}>{text.slice(start, end)}</mark>);
-    cursor = end;
+function codePointToUtf16(text: string, offset: number) {
+  return Array.from(text).slice(0, offset).join("").length;
+}
+
+function markdownResourceUrl(src: string | undefined, articleId: string) {
+  if (!src) return undefined;
+  if (!src.startsWith("assets/")) return src;
+  return `/api/v1/articles/${encodeURIComponent(articleId)}/${src.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function SearchImage({ src, alt, fallback }: { src?: string; alt: string; fallback: string }) {
+  const [failed, setFailed] = useState(false);
+  return failed || !src ? <span className="search-image-fallback">{alt || fallback}</span>
+    : <img className="search-passage-image" src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />;
+}
+
+function highlightMarkdownChildren(children: ReactNode, terms: string[]): ReactNode {
+  if (typeof children === "string") {
+    if (!terms.length) return children;
+    const expression = new RegExp(terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).sort((a, b) => b.length - a.length).join("|"), "giu");
+    const parts: ReactNode[] = [];
+    let cursor = 0;
+    for (const match of children.matchAll(expression)) {
+      if (match.index > cursor) parts.push(children.slice(cursor, match.index));
+      parts.push(<mark key={`${match.index}-${match[0]}`}>{match[0]}</mark>);
+      cursor = match.index + match[0].length;
+    }
+    if (cursor < children.length) parts.push(children.slice(cursor));
+    return parts.length ? parts : children;
   }
-  if (cursor < text.length) parts.push(text.slice(cursor));
-  return <>{parts}</>;
+  if (Array.isArray(children)) return children.map(child => highlightMarkdownChildren(child, terms));
+  if (isValidElement<{ children?: ReactNode }>(children) && children.type !== "mark" && children.props.children !== undefined) {
+    return cloneElement(children, { children: highlightMarkdownChildren(children.props.children, terms) });
+  }
+  return children;
+}
+
+function SearchMarkdown({ text, highlights, articleId, fallback }: { text: string; highlights: [number, number][]; articleId: string; fallback: string }) {
+  const terms = [...new Set(highlights.map(([start, end]) => text.slice(start, end)).filter(Boolean))];
+  const highlighted = (children: ReactNode) => highlightMarkdownChildren(children, terms);
+  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+    p: ({ children }) => <p>{highlighted(children)}</p>,
+    li: ({ children }) => <li>{highlighted(children)}</li>,
+    h1: ({ children }) => <h3>{highlighted(children)}</h3>,
+    h2: ({ children }) => <h3>{highlighted(children)}</h3>,
+    h3: ({ children }) => <h3>{highlighted(children)}</h3>,
+    h4: ({ children }) => <h4>{highlighted(children)}</h4>,
+    h5: ({ children }) => <h4>{highlighted(children)}</h4>,
+    h6: ({ children }) => <h4>{highlighted(children)}</h4>,
+    td: ({ children }) => <td>{highlighted(children)}</td>,
+    th: ({ children }) => <th>{highlighted(children)}</th>,
+    code: ({ children, className }) => <code className={className}>{highlighted(children)}</code>,
+    a: ({ href, children }) => <a href={markdownResourceUrl(href, articleId)} target="_blank" rel="noopener noreferrer" onClick={event => event.stopPropagation()}>{highlighted(children)}</a>,
+    img: ({ src, alt }) => <SearchImage src={markdownResourceUrl(src, articleId)} alt={alt ?? ""} fallback={fallback} />
+  }}>{text}</ReactMarkdown>;
 }
 
 export function SearchPage() {
   const { i18n } = useTranslation();
+  const navigate = useNavigate();
   const zh = i18n.resolvedLanguage?.startsWith("zh");
   const [params, setParams] = useSearchParams();
   const [draft, setDraft] = useState(params.get("q") ?? "");
@@ -40,9 +89,9 @@ export function SearchPage() {
         <button className="button-primary" type="submit">{zh ? "搜索" : "Search"}</button>
       </div>
       <div className="search-filter-grid">
-        <label><span>{zh ? "搜索范围" : "Search scope"}</span><select value={params.get("scope") ?? "all"} onChange={e => update("scope", e.target.value)}>{Object.entries(scopes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-        <label><span>{zh ? "分类及子分类" : "Collection"}</span><select value={params.get("collection") ?? ""} onChange={e => update("collection", e.target.value)}><option value="">{zh ? "所有分类" : "All collections"}</option>{collectionOptions(collections.data?.collections ?? []).map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select></label>
-        <label><span>{zh ? "来源平台" : "Source platform"}</span><select value={params.get("platform") ?? ""} onChange={e => update("platform", e.target.value)}><option value="">{zh ? "所有来源" : "All sources"}</option><option value="wechat_mp">{zh ? "微信公众号" : "WeChat"}</option><option value="zhihu_zhuanlan">{zh ? "知乎" : "Zhihu"}</option><option value="xiaoheihe">{zh ? "小黑盒" : "Xiaoheihe"}</option><option value="x">X</option></select></label>
+        <div className="discovery-select-field"><span>{zh ? "搜索范围" : "Search scope"}</span><InlineSelect ariaLabel={zh ? "搜索范围" : "Search scope"} value={params.get("scope") ?? "all"} onChange={value => update("scope", value)} options={Object.entries(scopes).map(([value, label]) => ({ value, label }))} /></div>
+        <div className="discovery-select-field"><span>{zh ? "分类及子分类" : "Collection"}</span><InlineSelect ariaLabel={zh ? "分类及子分类" : "Collection"} value={params.get("collection") ?? ""} onChange={value => update("collection", value)} options={[{ value: "", label: zh ? "所有分类" : "All collections" }, ...collectionOptions(collections.data?.collections ?? []).map(c => ({ value: c.id, label: c.label }))]} /></div>
+        <div className="discovery-select-field"><span>{zh ? "来源平台" : "Source platform"}</span><InlineSelect ariaLabel={zh ? "来源平台" : "Source platform"} value={params.get("platform") ?? ""} onChange={value => update("platform", value)} options={[{ value: "", label: zh ? "所有来源" : "All sources" }, { value: "wechat_mp", label: zh ? "微信公众号" : "WeChat" }, { value: "zhihu_zhuanlan", label: zh ? "知乎" : "Zhihu" }, { value: "xiaoheihe", label: zh ? "小黑盒" : "Xiaoheihe" }, { value: "x", label: "X" }]} /></div>
         <label><span>{zh ? "开始日期" : "From"}</span><input type="date" value={params.get("after") ?? ""} onChange={e => update("after", e.target.value)} /></label>
         <label><span>{zh ? "结束日期" : "Until"}</span><input type="date" value={params.get("before") ?? ""} onChange={e => update("before", e.target.value)} /></label>
       </div>
@@ -55,8 +104,20 @@ export function SearchPage() {
       <h2><Link to={`/articles/${encodeURIComponent(result.article.id)}`}>{result.article.title}</Link></h2>
       <p className="search-result-meta">{result.article.author} · {result.article.platformLabel}</p>
       {result.matches.map(match => {
-        const cleaned = cleanPassage(match.text, match.highlights, zh ? "[图片]" : "[image]");
-        return <div key={match.field} className="search-passage"><span>{scopes[match.field]}</span><p><HighlightedPassage text={cleaned.text} highlights={cleaned.highlights} /></p><Link to={`/articles/${encodeURIComponent(result.article.id)}?${new URLSearchParams({ search: params.get("q") ?? "", field: match.field, digest: match.digest, start: String(match.start) })}`}>{zh ? "打开片段" : "Open passage"}</Link></div>;
+        const displayHighlights = match.highlights.map(([start, end]) => [codePointToUtf16(match.text, start), codePointToUtf16(match.text, end)] as [number, number]);
+        const firstHit = match.highlights[0];
+        const hit = firstHit ? match.text.slice(codePointToUtf16(match.text, firstHit[0]), codePointToUtf16(match.text, firstHit[1])) : "";
+        const location = new URLSearchParams({ search: params.get("q") ?? "", field: match.field, digest: match.digest, start: String(match.start + (firstHit?.[0] ?? 0)), hit });
+        const destination = `/articles/${encodeURIComponent(result.article.id)}?${location}`;
+        return <div key={match.field} className="search-passage" role="link" tabIndex={0} onClick={event => {
+          if (!(event.target instanceof Element) || !event.target.closest("a, button")) navigate(destination);
+        }} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); navigate(destination); } }} aria-label={`${scopes[match.field]}：${cleanPassage(match.text, [], "").text.slice(0, 90)}`}>
+          <span>{scopes[match.field]}</span>
+          <div className="search-snippet">
+            <SearchMarkdown text={match.text} highlights={displayHighlights} articleId={result.article.id} fallback={zh ? "文章图片无法显示" : "Article image unavailable"} />
+          </div>
+          <Link className="search-passage-location" to={destination}>{zh ? "在文章中查看 ↗" : "View in article ↗"}</Link>
+        </div>;
       })}
     </article>)}</div>
     {query.data && query.data.total > 30 && <nav className="search-pagination" aria-label={zh ? "搜索分页" : "Search pages"}>{[ -30, 30 ].map(delta => <button className="button-secondary" type="button" key={delta} disabled={delta < 0 ? Number(params.get("offset") ?? 0) === 0 : Number(params.get("offset") ?? 0) + 30 >= query.data!.total} onClick={() => { const next = new URLSearchParams(params); next.set("offset", String(Math.max(0, Number(params.get("offset") ?? 0) + delta))); setParams(next); }}>{delta < 0 ? (zh ? "上一页" : "Previous") : (zh ? "下一页" : "Next")}</button>)}</nav>}

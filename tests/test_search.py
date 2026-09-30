@@ -1,8 +1,57 @@
 """Search relevance, isolation and file reconciliation regressions."""
 import json
 from test_web_api import web_client
-from src.core.search import search_articles, synchronize, passage
+from src.core.search import search_articles, synchronize, passage, excerpt
 from src.application import service
+
+
+def test_excerpt_keeps_image_reference_when_markdown_crosses_window_edge():
+    text = 'needle' + 'x' * 260 + '![figure](assets/diagram.png)'
+    result = excerpt(text, ['needle'])
+    assert result['images'] == [{'alt': 'figure', 'path': 'assets/diagram.png'}]
+    assert '![figure](assets/diagram.png)' in result['text']
+
+
+def test_excerpt_keeps_markdown_blocks_and_image_at_its_original_position():
+    text = '## 标题\n\n**关键词** 前文。\n\n![示意图](assets/diagram.png)\n\n- 后续列表'
+    result = excerpt(text, ['关键词'], field='reviewed')
+
+    assert result['text'].index('**关键词**') < result['text'].index('![示意图]') < result['text'].index('- 后续列表')
+    hit = result['highlights'][0]
+    assert result['text'][hit[0]:hit[1]] == '关键词'
+
+
+def test_excerpt_keeps_table_header_and_code_fence_around_hits():
+    table = '| 名称 | 说明 |\n| --- | --- |\n' + ''.join(f'| Agent {index} | 前文内容 |\n' for index in range(8)) + '| MCP | 关键词 |\n| A2A | 后文 |'
+    result = excerpt('介绍\n\n' + table + '\n\n结尾', ['关键词'], field='reviewed')
+    assert '| 名称 | 说明 |' in result['text']
+    assert '| --- | --- |' in result['text']
+    assert '| A2A | 后文 |' in result['text']
+
+    code = '```python\n' + ''.join(f'print("before {index}")\n' for index in range(8)) + 'print("关键词")\nprint("after")\n```'
+    result = excerpt('介绍\n\n' + code + '\n\n结尾', ['关键词'], field='reviewed')
+    assert '```python' in result['text']
+    assert 'print("after")\n```' in result['text']
+
+
+def test_reviewed_excerpt_starts_after_article_metadata():
+    text = (
+        '# 碎星将军\n\n'
+        '> Source: [link](https://example.com/long-source)\n'
+        '> Captured: 2026-07-29T10:40:43+08:00\n\n'
+        '---\n\n'
+        '## AI 摘要\n\n'
+        '文章以“拉塔恩”为原型。\n'
+        '- 描述拉塔恩的生平。'
+    )
+    result = excerpt(text, ['拉塔恩'], field='reviewed')
+
+    assert result['text'].startswith('\n## AI 摘要')
+    assert 'Captured' not in result['text']
+    assert '2026-07-29' not in result['text']
+    hit = result['highlights'][0]
+    assert result['text'][hit[0]:hit[1]] == '拉塔恩'
+    assert text[result['start'] + hit[0]:result['start'] + hit[1]] == '拉塔恩'
 
 
 def test_chinese_two_character_and_mixed_phrase(web_client):

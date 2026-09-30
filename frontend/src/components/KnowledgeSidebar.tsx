@@ -626,7 +626,6 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
           onKeyDown={(event) => { if (event.key === "Enter") navigate(`/search?q=${encodeURIComponent(search)}`); }}
         />
       </label>
-      <div className="discovery-sidebar-links"><button type="button" onClick={() => navigate(`/search?q=${encodeURIComponent(search)}`)}>{i18n.resolvedLanguage?.startsWith("zh") ? "全文搜索" : "Full-text search"}</button><button type="button" onClick={() => navigate("/batches")}>{i18n.resolvedLanguage?.startsWith("zh") ? "批量工作台" : "Batch workspace"}</button></div>
       {createOpen && (
         <form
           className="collection-create-form"

@@ -9,7 +9,7 @@ import {
   X
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -37,6 +37,10 @@ export function CollectionPage() {
   const queryClient = useQueryClient();
   const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null);
   const [description, setDescription] = useState("");
+  const activeCollectionIdRef = useRef(collectionId);
+  const editingCollectionIdRef = useRef<string | null>(null);
+  const editRevisionRef = useRef(0);
+  activeCollectionIdRef.current = collectionId;
   const editingDescription = editingCollectionId === collectionId;
   const collectionQuery = useQuery({ queryKey: ["collections", i18n.resolvedLanguage], queryFn: api.getCollections });
   const articleQuery = useQuery({
@@ -51,18 +55,38 @@ export function CollectionPage() {
     (article) => article.collection?.collection_id === collectionId
   );
   const updateMutation = useMutation({
-    mutationFn: (value: string) => api.updateCollection(collectionId, { description: value }),
-    onSuccess: async () => {
-      setEditingCollectionId(null);
+    mutationFn: ({ id, value }: { id: string; value: string; revision: number }) =>
+      api.updateCollection(id, { description: value }),
+    onSuccess: async (_result, variables) => {
+      if (
+        activeCollectionIdRef.current === variables.id &&
+        editingCollectionIdRef.current === variables.id &&
+        editRevisionRef.current === variables.revision
+      ) {
+        editRevisionRef.current += 1;
+        editingCollectionIdRef.current = null;
+        setEditingCollectionId(null);
+      }
       await queryClient.invalidateQueries({ queryKey: ["collections"] });
     }
   });
   const polishMutation = useMutation({
-    mutationFn: () => api.polishCollectionDescription({ name: collection.name, description }),
-    onSuccess: (result) => setDescription(result.description)
+    mutationFn: ({ name, value }: { name: string; value: string; id: string; revision: number }) =>
+      api.polishCollectionDescription({ name, description: value }),
+    onSuccess: (result, variables) => {
+      if (
+        activeCollectionIdRef.current !== variables.id ||
+        editingCollectionIdRef.current !== variables.id ||
+        editRevisionRef.current !== variables.revision
+      ) return;
+      editRevisionRef.current += 1;
+      setDescription(result.description);
+    }
   });
 
   useEffect(() => {
+    editRevisionRef.current += 1;
+    editingCollectionIdRef.current = null;
     setEditingCollectionId(null);
     setDescription("");
   }, [collectionId]);
@@ -103,28 +127,45 @@ export function CollectionPage() {
               className="collection-description-editor"
               onSubmit={(event) => {
                 event.preventDefault();
-                updateMutation.mutate(description.trim());
+                updateMutation.mutate({
+                  id: collection.id,
+                  value: description.trim(),
+                  revision: editRevisionRef.current
+                });
               }}
             >
               <textarea
                 value={description}
                 autoFocus
                 maxLength={600}
-                onChange={(event) => setDescription(event.target.value)}
+                onChange={(event) => {
+                  editRevisionRef.current += 1;
+                  setDescription(event.target.value);
+                }}
               />
               <div>
                 <button
                   className="button-secondary compact-button"
                   type="button"
                   disabled={!description.trim() || polishMutation.isPending}
-                  onClick={() => polishMutation.mutate()}
+                  onClick={() => polishMutation.mutate({
+                    id: collection.id,
+                    name: collection.name,
+                    value: description,
+                    revision: editRevisionRef.current
+                  })}
                 >
                   <Sparkle size={15} />{t("knowledge.polishIntroduction")}
                 </button>
                 <button className="button-primary compact-button" type="submit" disabled={updateMutation.isPending}>
                   <Check size={15} />{t("common.save")}
                 </button>
-                <button className="button-secondary compact-button" type="button" onClick={() => setEditingCollectionId(null)}>
+                <button className="button-secondary compact-button" type="button" onClick={() => {
+                  editRevisionRef.current += 1;
+                  editingCollectionIdRef.current = null;
+                  setEditingCollectionId(null);
+                  polishMutation.reset();
+                }}>
                   <X size={15} />{t("common.cancel")}
                 </button>
               </div>
@@ -138,8 +179,11 @@ export function CollectionPage() {
               <button
                 type="button"
                 onClick={() => {
+                  editRevisionRef.current += 1;
+                  editingCollectionIdRef.current = collection.id;
                   setDescription(collection.description);
                   setEditingCollectionId(collection.id);
+                  polishMutation.reset();
                 }}
                 aria-label={t("knowledge.editIntroduction")}
               >

@@ -145,6 +145,13 @@ def test_collection_delete_and_restore_are_explicit_commands() -> None:
     assert restored.collection_id == "root-1"
 
 
+def test_collection_describe_accepts_explicit_description_locale() -> None:
+    args = parse_args(["collections", "describe", "root-1", "--locale", "zh-CN", "--apply"])
+
+    assert args.locale == "zh-CN"
+    assert args.apply is True
+
+
 def test_perspective_save_accepts_template_contract(tmp_path) -> None:
     prompt = tmp_path / "prompt.md"
     template = tmp_path / "template.md"

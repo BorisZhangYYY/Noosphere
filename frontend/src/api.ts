@@ -32,10 +32,11 @@ export const api = {
   controlBatch: (id: string, action: string, itemIds?: string[]) => request<BatchJob>(`/api/v1/batches/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action, itemIds }) }),
   searchPassage: (query: string) => request<{ changed: boolean; text: string; field: string }>(`/api/v1/search/passage?${query}`),
 
-  search: (query: string) => request<{ results: { article: ArticleSummary; matches: { field: string; digest: string; text: string; start: number; highlights: [number, number][] }[] }[]; total: number }>(localized(`/api/v1/search?${query}`)),
+  search: (query: string) => request<{ results: { article: ArticleSummary; matches: { field: string; digest: string; text: string; start: number; highlights: [number, number][]; images?: { alt: string; path: string }[] }[] }[]; total: number }>(localized(`/api/v1/search?${query}`)),
   rebuildSearch: () => request<{ articles: number }>("/api/v1/search/rebuild", { method: "POST" }),
   listArticles: () => request<{ articles: ArticleSummary[] }>(localized("/api/v1/articles")),
   getArticle: (articleId: string) => request<ArticleWorkspaceDetail>(localized(`/api/v1/articles/${encodeURIComponent(articleId)}?content=editable`)),
+  getArticleFull: (articleId: string) => request<ArticleDetail>(localized(`/api/v1/articles/${encodeURIComponent(articleId)}`)),
   retryMirror: (articleId: string) => request<ArticleDetail["mirrorStatus"]>(`/api/v1/articles/${encodeURIComponent(articleId)}/mirror/retry`, { method: "POST" }),
   listCaptureJobs: () => request<{ jobs: CaptureJob[] }>("/api/v1/captures"),
   retryCaptureJob: (jobId: string) => request<CaptureJob>(`/api/v1/captures/${encodeURIComponent(jobId)}/retry`, { method: "POST" }),

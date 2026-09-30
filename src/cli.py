@@ -246,6 +246,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     collections_describe.add_argument("collection_id")
     collections_describe.add_argument("--hint", default="", help="Optional free-form guidance for the AI.")
     collections_describe.add_argument(
+        "--locale",
+        choices=["base", "zh-CN", "en-US"],
+        default="",
+        help="Description language to edit. Required when this Collection has localized descriptions.",
+    )
+    collections_describe.add_argument(
         "--apply",
         action="store_true",
         help="Persist the AI description on the collection instead of only printing it.",
@@ -669,7 +675,8 @@ async def _main_async(args: argparse.Namespace) -> int:
                 )
 
                 store = CollectionStore()
-                collection = store.get_collection(args.collection_id, include_retired=True)
+                locale = store.resolve_description_locale(args.collection_id, args.locale)
+                collection = store.get_collection(args.collection_id, include_retired=True, locale=locale)
                 if collection is None:
                     raise ValueError(f"Collection not found: {args.collection_id}")
                 if collection.get("description"):
@@ -677,15 +684,19 @@ async def _main_async(args: argparse.Namespace) -> int:
                         collection["name"],
                         collection["description"],
                         hint=args.hint,
+                        locale=locale,
                     )
                 else:
                     result = await suggest_collection_description(
                         collection["name"],
                         parent_id=collection.get("parent_id"),
+                        exclude_collection_id=args.collection_id,
                         hint=args.hint,
+                        locale=locale,
                     )
                 payload = {
                     "collection_id": args.collection_id,
+                    "locale": locale or "base",
                     "description": result["description"],
                     "reasoning": result["reasoning"],
                     "model": result["model"],
@@ -695,6 +706,7 @@ async def _main_async(args: argparse.Namespace) -> int:
                     payload["collection"] = update_collection(
                         args.collection_id,
                         description=result["description"],
+                        locale=locale,
                     )
                     payload["applied"] = True
             else:
