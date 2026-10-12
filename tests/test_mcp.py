@@ -223,21 +223,21 @@ async def test_collection_delete_and_restore_tools_are_recoverable(monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_list_review_perspectives_returns_contract(monkeypatch) -> None:
+async def test_list_review_perspectives_returns_natural_template(monkeypatch) -> None:
     monkeypatch.setattr(
         "src.application.service.get_pipeline_settings",
         lambda **kwargs: {
             "activePerspective": "original",
             "reviewMode": "ai_then_manual",
             "outputLanguage": "source",
-            "perspectives": [{"id": "original", "outputSections": {"body": "Article"}}],
+            "perspectives": [{"id": "original", "template": "## Article\n\n(Preserve the complete source.)"}],
         },
     )
 
     result = await list_review_perspectives("en-US")
 
     assert result["active_perspective"] == "original"
-    assert result["perspectives"][0]["outputSections"] == {"body": "Article"}
+    assert result["perspectives"][0]["template"] == "## Article\n\n(Preserve the complete source.)"
 
 
 @pytest.mark.asyncio

@@ -246,6 +246,7 @@ async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective:
             stage = {
                 "download": "capture",
                 "image_review": "image_review",
+                "image_layout": "image_review",
                 "validation": "validation",
                 "upload": "upload",
             }.get(kind, "ai_review")
@@ -409,9 +410,13 @@ async def _run_article_review_job(job_id: str, article_id: str, perspective: str
                 job["reviewPreview"] = (job.get("reviewPreview", "") + (details or ""))[-24000:]
                 job["progress"] = min(78, int(job.get("progress", 12)) + 1)
                 return
-            stage = "validation" if kind == "validation" else "ai_review"
+            stage = kind if kind in {"image_review", "image_layout", "validation"} else "ai_review"
             job["stage"] = stage
-            job["progress"] = 82 if stage == "validation" else max(20, int(job.get("progress", 12)))
+            stage_progress = {"image_review": 80, "image_layout": 88, "validation": 89}.get(stage, 20)
+            job["progress"] = max(stage_progress, int(job.get("progress", 12)))
+            if message == "pipeline.events.aiReviewTruncatedFallback":
+                job["reviewPreview"] = ""
+                job["progress"] = 20
             _add_job_event(job, stage, message, details=details)
 
         token = set_event_sink(event_sink)
@@ -1212,6 +1217,8 @@ def _settings_payload(config: Config) -> dict[str, Any]:
             "apiBase": item.api_base,
             "apiKeyConfigured": bool(item.api_key),
             "visionCapable": item.vision_capable,
+            "maxOutputTokens": item.max_output_tokens,
+            "contextWindowTokens": item.context_window_tokens,
         })
     return {
         "aiProvider": provider_name,
@@ -1250,33 +1257,26 @@ async def get_settings(request: Request) -> JSONResponse:
 
 
 def _pipeline_payload(config: Config, language: str = "en-US") -> dict[str, Any]:
+    from src.core.paths import resolve_project_path
+
     perspectives = []
     for key, profile in config.pipeline.perspectives.items():
         localized = profile.localized(language)
         perspective_file = Path(localized.prompt_path)
-        template_file = Path(localized.template_path)
-        from src.core.paths import resolve_project_path
-
         perspectives.append({
             "id": key,
             "label": localized.label,
             "description": localized.description,
             "prompt": resolve_project_path(perspective_file).read_text(encoding="utf-8"),
-            "template": resolve_project_path(template_file).read_text(encoding="utf-8"),
+            "template": config.pipeline.resolve_review_contract(key, language)[1],
             "builtin": profile.builtin,
             "editable": not profile.builtin,
-            "outputSections": localized.output_sections,
-            "bodySection": localized.body_section,
         })
-    from src.core.paths import resolve_project_path
-
     return {
         "reviewMode": config.pipeline.review_mode,
         "outputLanguage": config.pipeline.output_language,
         "language": language,
         "activePerspective": config.pipeline.active_perspective,
-        "commonPrompt": resolve_project_path(config.pipeline.common_prompt_paths.get(language, config.pipeline.common_prompt_path)).read_text(encoding="utf-8"),
-        "commonEditable": False,
         "perspectives": perspectives,
     }
 
@@ -1516,6 +1516,10 @@ def _merge_settings(current: Config, payload: dict[str, Any]) -> Config:
                 raise ValueError(f"Unsupported AI provider type: {provider_type}")
             existing_provider["provider_type"] = provider_type
             existing_provider["vision_capable"] = bool(requested.get("visionCapable", False))
+            if "maxOutputTokens" in requested:
+                existing_provider["max_output_tokens"] = requested["maxOutputTokens"]
+            if "contextWindowTokens" in requested:
+                existing_provider["context_window_tokens"] = requested["contextWindowTokens"]
             if str(requested.get("apiKey") or "").strip():
                 existing_provider["api_key"] = str(requested["apiKey"]).strip()
             providers[name] = existing_provider
@@ -1555,6 +1559,10 @@ def _merge_settings(current: Config, payload: dict[str, Any]) -> Config:
         existing_provider["vision_capable"] = bool(
             payload.get("visionCapable", existing_provider.get("vision_capable", False))
         )
+        if "maxOutputTokens" in payload:
+            existing_provider["max_output_tokens"] = payload["maxOutputTokens"]
+        if "contextWindowTokens" in payload:
+            existing_provider["context_window_tokens"] = payload["contextWindowTokens"]
         if str(payload.get("apiKey") or "").strip():
             existing_provider["api_key"] = str(payload["apiKey"]).strip()
         providers[provider_name] = existing_provider

@@ -148,8 +148,11 @@ export interface ReviewJob {
   articleId: string;
   perspective: string;
   status: "queued" | "running" | "succeeded" | "failed";
-  stage: "queued" | "reviewing" | "ai_review" | "validation" | "classification" | "completed" | "failed";
+  stage: "queued" | "reviewing" | "ai_review" | "image_review" | "image_layout" | "validation" | "classification" | "completed" | "failed";
   progress: number;
+  createdAt?: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
   reviewPreview: string;
   events: CaptureJobEvent[];
   error: string | null;
@@ -208,8 +211,6 @@ export interface PipelinePerspective {
   template: string;
   builtin: boolean;
   editable: boolean;
-  outputSections: Record<string, string>;
-  bodySection: string;
 }
 
 export interface PipelineSettings {
@@ -217,8 +218,6 @@ export interface PipelineSettings {
   outputLanguage: OutputLanguage;
   language: "zh-CN" | "en-US";
   activePerspective: string;
-  commonPrompt: string;
-  commonEditable: boolean;
   perspectives: PipelinePerspective[];
 }
 
@@ -233,6 +232,8 @@ export interface AIProviderSettings {
   apiBase: string;
   apiKeyConfigured: boolean;
   visionCapable: boolean;
+  maxOutputTokens?: number;
+  contextWindowTokens?: number | null;
   apiKey?: string;
 }
 

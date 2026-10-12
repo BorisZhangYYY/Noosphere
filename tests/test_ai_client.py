@@ -109,3 +109,54 @@ def test_output_truncation_raises_specific_provider_error() -> None:
 
 def test_normal_completion_is_not_treated_as_truncation() -> None:
     assert output_truncation_reason({"choices": [{"finish_reason": "stop"}]}) is None
+
+
+@pytest.mark.parametrize('api_format,field', [
+    ('anthropic', 'max_tokens'), ('openai_chat', 'max_tokens'), ('openai_responses', 'max_output_tokens'),
+])
+@pytest.mark.asyncio
+async def test_vision_respects_configured_budget_instead_of_hidden_1024_cap(monkeypatch, api_format, field):
+    captured = {}
+
+    async def post(self, endpoint, payload, headers):
+        captured.update(payload)
+        return {'output_text': 'OK', 'content': [{'type': 'text', 'text': 'OK'}],
+                'choices': [{'message': {'content': 'OK'}}]}
+
+    monkeypatch.setattr(AIClient, '_post_json', post)
+    response = await AIClient(_settings(api_format=api_format, max_output_tokens=32768)).generate_vision(
+        'Review image.', [{'type': 'text', 'text': 'Summary'}])
+    assert captured[field] == 32768
+    assert response.text == 'OK'
+
+
+@pytest.mark.asyncio
+async def test_advertised_model_limits_clamp_budget_and_reject_context_overflow(monkeypatch):
+    from src.integrations.ai_client import AIProviderError
+    from src.integrations.model_limits import ModelLimits
+
+    async def limits(self):
+        return ModelLimits(context_tokens=64000, output_tokens=16000)
+
+    monkeypatch.setattr(AIClient, '_fetch_model_limits', limits)
+    client = AIClient(_settings(max_output_tokens=131072, context_window_tokens=32000))
+    await client.prepare_limits()
+    assert client.output_token_budget == 16000
+    assert client.input_token_budget == 16000
+    with pytest.raises(AIProviderError, match='no generation request was sent'):
+        await client.generate_text('System', '正文' * 10000)
+
+
+def test_model_metadata_parsing_supports_actual_provider_shapes():
+    from src.integrations.model_limits import ModelLimits, models_endpoint, parse_model_limits
+    data = {'data': [
+        {'id': 'deepseek-v4-pro', 'context_window': 1048576, 'max_output_tokens': 393216},
+        {'id': 'kimi-for-coding', 'context_length': 1048576, 'limit': {'context': 1048576}},
+        {'id': 'invalid', 'max_output_tokens': True, 'context_length': -1},
+    ]}
+    assert parse_model_limits(data, 'deepseek-v4-pro') == ModelLimits(1048576, None, 393216)
+    assert parse_model_limits(data, 'kimi-for-coding') == ModelLimits(1048576)
+    assert parse_model_limits(data, 'invalid') == ModelLimits()
+    assert parse_model_limits(data, 'missing') == ModelLimits()
+    assert models_endpoint('https://vendor.test/coding/v1/messages') == 'https://vendor.test/coding/v1/models'
+    assert models_endpoint('https://vendor.test/api/v4/chat/completions?version=x') == 'https://vendor.test/api/v4/models?version=x'

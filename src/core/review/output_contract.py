@@ -1,8 +1,4 @@
-"""Structured review payloads and deterministic Markdown rendering.
-
-The model owns prose only. Noosphere owns the title/metadata/section skeleton so
-provider formatting quirks can never corrupt the final document contract.
-"""
+"""Free-form review prose with a fixed response protocol and trusted metadata."""
 from __future__ import annotations
 
 import json
@@ -10,7 +6,6 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from src.core.review.ai_review_data import strip_markdown_fence
 from src.core.review.review_validation import (
     H1_RE,
     HORIZONTAL_RULE_RE,
@@ -21,7 +16,6 @@ from src.core.review.review_validation import (
 
 TOKEN_RE = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\s*\}\}")
 JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL | re.IGNORECASE)
-TRAILING_RULE_RE = re.compile(r"(?:^|\n)\s*(?:---|\*\*\*|___)\s*$")
 SOURCE_FIELDS = ("Source", "Platform", "Author", "Published", "Captured", "Type")
 
 
@@ -34,67 +28,78 @@ class MetadataCandidate:
 @dataclass(frozen=True)
 class ReviewPayload:
     title: str
-    slots: dict[str, str]
+    markdown: str
+    summary: str
     metadata_candidates: dict[str, MetadataCandidate] = field(default_factory=dict)
 
 
-def validate_output_template(template: str, sections: Mapping[str, str]) -> None:
-    required = {"title", "source_metadata", *sections.keys()}
-    present = set(TOKEN_RE.findall(template))
-    missing = sorted(required - present)
-    unknown = sorted(present - required)
-    if missing:
-        raise ValueError(f"Output template is missing fields: {', '.join(missing)}")
-    if unknown:
-        raise ValueError(f"Output template contains unknown fields: {', '.join(unknown)}")
-    duplicated = sorted(token for token in required if len(re.findall(r"\{\{\s*" + re.escape(token) + r"\s*\}\}", template)) != 1)
-    if duplicated:
-        raise ValueError(f"Output template fields must appear exactly once: {', '.join(duplicated)}")
+def article_format_instruction(template: str, sections: Mapping[str, str] | None = None) -> str:
+    """Read legacy variable templates as guidance without rewriting saved files."""
+    if not template.strip():
+        raise ValueError("Article format instructions must not be empty")
+    fields = set(TOKEN_RE.findall(template))
+    if not fields.intersection({"title", "source_metadata", *(sections or {})}):
+        return template.strip()
+    headings = sections or {}
+    instructions = {
+        "summary": "Summarize the main problem, conclusions and limitations in 3–5 substantive points.",
+        "prerequisites": "Explain only background and terminology needed to understand the article.",
+        "main_article": "Review the complete article, preserving its reasoning, evidence, code, tables, links and images.",
+    }
+    converted = re.sub(r"^\s*#\s*\{\{\s*title\s*\}\}\s*$", "", template, flags=re.MULTILINE)
+    converted = re.sub(r"^\s*\{\{\s*source_metadata\s*\}\}\s*$", "", converted, flags=re.MULTILINE)
+
+    def replace_field(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name in {"title", "source_metadata"}:
+            return ""
+        return "(" + instructions.get(name, f"Write the content requested by the review perspective for {headings.get(name, name)}.") + ")"
+
+    converted = TOKEN_RE.sub(replace_field, converted)
+    return re.sub(r"\n{3,}", "\n\n", converted).strip()
 
 
-def review_payload_instruction(sections: Mapping[str, str]) -> str:
-    """Return a provider-neutral JSON contract for the prose slots."""
-    slot_example = ",\n".join(f'      "{name}": "Markdown content for {heading}"' for name, heading in sections.items())
-    required = ", ".join(f'`{name}`' for name in sections)
+def review_payload_instruction() -> str:
+    """Keep the API envelope fixed while allowing any requested article format."""
     return (
         "# Response protocol\n\n"
         "Return exactly one JSON object. Do not return Markdown fences or prose outside JSON. "
-        "Noosphere renders the final title, trusted source metadata, headings, and separators. "
-        "You only write the title and content slots. Markdown is allowed inside each string.\n\n"
+        "Noosphere renders the title and trusted source metadata. Write the complete article body "
+        "according to the article-format instructions, including its headings and separators. "
+        "Do not repeat the top-level title or source metadata inside markdown.\n\n"
         "```json\n"
         "{\n"
         '  "title": "Reviewed article title",\n'
-        '  "slots": {\n'
-        f"{slot_example}\n"
-        "  },\n"
+        '  "markdown": "Complete article body in Markdown",\n'
+        '  "summary": "Internal factual article summary",\n'
         '  "metadata_candidates": {\n'
         '    "author": {"value": "Only when missing", "evidence": "Exact excerpt from the source"},\n'
         '    "published_at": null\n'
         "  }\n"
         "}\n"
         "```\n\n"
-        f"All slots are required: {required}. Preserve local image references exactly when they are relevant. "
+        "title, markdown and summary must be nonempty strings. summary is internal context: always return it, "
+        "even when the article format says not to display a summary; do not add a visible summary against those instructions. "
+        "This is the first text stage: preserve all existing local image references and their relative positions. "
         "Metadata candidates are optional and must be null unless the captured metadata is missing and the original "
         "article text contains explicit evidence. Copy a short evidence excerpt exactly; never infer from context."
     )
 
 
-def parse_review_payload(response: str, sections: Mapping[str, str]) -> ReviewPayload:
-    """Parse the model's JSON payload without accepting a second Markdown format."""
+def parse_review_payload(response: str) -> ReviewPayload:
+    """Validate response fields, without checking article section names or order."""
     data = parse_json_object(response)
-    title = str(data.get("title") or "").strip()
-    raw_slots = data.get("slots")
-    if not isinstance(raw_slots, dict):
-        raise ValueError("AI structured review payload is missing the `slots` object")
-    slots = {name: sanitize_slot_markdown(str(raw_slots.get(name) or "")) for name in sections}
-    missing = [name for name, value in slots.items() if not value]
-    if missing:
-        raise ValueError(f"AI structured review payload has empty slots: {', '.join(missing)}")
-    if not title:
-        raise ValueError("AI structured review payload has an empty title")
+    for name in ("title", "markdown", "summary"):
+        if not isinstance(data.get(name), str) or not data[name].strip():
+            raise ValueError(f"AI review payload requires a nonempty `{name}` string")
+    title = " ".join(data["title"].split())
+    markdown = clean_review_markdown(data["markdown"])
+    if not markdown:
+        raise ValueError("AI review payload has an empty article body")
     return ReviewPayload(
         title=title,
-        slots=slots,
+        markdown=markdown,
+        summary=data["summary"].strip(),
         metadata_candidates=parse_metadata_candidates(data),
     )
 
@@ -214,65 +219,21 @@ def normalize_source_metadata_boundary(markdown: str, source_markdown: str) -> s
 
 def render_review_payload(
     payload: ReviewPayload,
-    template: str,
-    sections: Mapping[str, str],
     source_markdown: str,
 ) -> str:
-    validate_output_template(template, sections)
-    values = {
-        "title": payload.title,
-        "source_metadata": trusted_source_metadata(source_markdown),
-        **payload.slots,
-    }
-    rendered = TOKEN_RE.sub(lambda match: values.get(match.group(1), ""), template)
-    return rendered.strip() + "\n"
+    body = clean_review_markdown(payload.markdown)
+    if not body:
+        raise ValueError("AI review payload has an empty article body")
+    return f"# {payload.title}\n\n{trusted_source_metadata(source_markdown)}\n\n---\n\n{body}\n"
 
 
-def sanitize_slot_markdown(content: str) -> str:
-    """Keep slot Markdown expressive while reserving H1/H2 for the renderer."""
-    lines: list[str] = []
-    in_fence = False
-    fence = ""
-    for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-        stripped = line.lstrip()
-        if stripped.startswith(("```", "~~~")):
-            marker = stripped[:3]
-            if not in_fence:
-                in_fence, fence = True, marker
-            elif marker == fence:
-                in_fence, fence = False, ""
-            lines.append(line)
-            continue
-        if not in_fence:
-            match = re.match(r"^(\s*)#{1,2}\s+(.+)$", line)
-            if match:
-                line = f"{match.group(1)}### {match.group(2)}"
-        lines.append(line)
-    cleaned = "\n".join(lines).strip()
-    while cleaned and (match := TRAILING_RULE_RE.search(cleaned)):
-        cleaned = cleaned[: match.start()].rstrip()
-    return cleaned
-
-
-def materialize_review_output(
-    response: str,
-    template: str,
-    sections: Mapping[str, str],
-    source_markdown: str | None = None,
-) -> str:
-    """Compatibility entrypoint, now preferring the structured payload contract."""
-    if source_markdown is not None:
-        return render_review_payload(parse_review_payload(response, sections), template, sections, source_markdown)
-
-    # Legacy callers/tests may still pass full Markdown. This branch is not used by
-    # the pipeline and can be removed once external integrations migrate.
-    markdown = strip_markdown_fence(response)
-    title_match = H1_RE.search(markdown)
-    title = title_match.group(1).strip() if title_match else "Untitled"
-    from src.core.review.review_validation import section_body
-
-    payload = ReviewPayload(
-        title=title,
-        slots={name: sanitize_slot_markdown(section_body(markdown, 2, heading)) for name, heading in sections.items()},
-    )
-    return render_review_payload(payload, template, sections, markdown)
+def clean_review_markdown(content: str) -> str:
+    """Remove duplicate document headers, preserving body headings and quoted evidence."""
+    cleaned = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+    cleaned = re.sub(r"^#\s+[^\n]*(?:\n|$)\s*", "", cleaned, count=1)
+    cleaned = re.sub(
+        r"^(?:>\s*(?:Source|Platform|Author|Published|Captured|Type|来源|平台|作者|发布时间|抓取时间|类型)\s*[:：][^\n]*(?:\n|$)\s*)+",
+        "", cleaned, flags=re.IGNORECASE,
+    ).strip()
+    cleaned = re.sub(r"^(?:---|\*\*\*|___)\s*(?:\n|$)\s*", "", cleaned, count=1)
+    return cleaned.strip()

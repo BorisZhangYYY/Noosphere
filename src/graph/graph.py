@@ -15,16 +15,19 @@ from src.core.models.manifest import write_article_manifest
 from src.core.paths.output_paths import article_output_paths
 from src.core.paths import resolve_project_path
 from src.core.review.image_filter import (
+    ImageFilterResult,
     ensure_relevant_images_present,
     remove_promotion_images_from_markdown,
     update_manifest_with_image_filter,
 )
+from src.core.review.image_layout import ImageLayout, image_catalog
 from src.core.reflection import read_reflection
 from src.core.review.review_report import inferred_manifest_path, read_review_ai_settings
 from src.core.review.review_validation import ValidationResult
 from src.graph.state import ArticleState
 from src.graph.tools import (
     classify_url,
+    coordinate_article_images,
     crawl_url,
     download_images,
     edit_article,
@@ -41,7 +44,6 @@ def build_pipeline_graph() -> StateGraph:
     builder.add_node("classify", _classify_node)
     builder.add_node("crawl", _crawl_node)
     builder.add_node("download", _download_node)
-    builder.add_node("filter_images", _filter_images_node)
     builder.add_node("ai_review", build_ai_review_subgraph().compile())
     builder.add_node("human_review", _human_review_node)
     builder.add_node("upload", _upload_node)
@@ -50,8 +52,7 @@ def build_pipeline_graph() -> StateGraph:
     builder.add_edge(START, "classify")
     builder.add_edge("classify", "crawl")
     builder.add_edge("crawl", "download")
-    builder.add_edge("download", "filter_images")
-    builder.add_edge("filter_images", "ai_review")
+    builder.add_edge("download", "ai_review")
     builder.add_conditional_edges(
         "ai_review",
         _after_ai_review_router,
@@ -187,7 +188,7 @@ async def _download_node(state: ArticleState) -> dict[str, object]:
 
 
 async def _filter_images_node(state: ArticleState) -> dict[str, object]:
-    """Classify local images as RELEVANT or PROMOTION before AI review."""
+    """Analyze local images using the first-stage summary, without moving them."""
     from src.core.telemetry import emit_event
 
     assets_dir = state.get("assets_dir")
@@ -203,9 +204,9 @@ async def _filter_images_node(state: ArticleState) -> dict[str, object]:
     try:
         result = await filter_images.ainvoke(
             {
-                "raw_markdown": state["raw_markdown"],
+                "raw_markdown": state["reviewed_markdown"],
                 "article_title": state.get("title", ""),
-                "article_summary": "",
+                "article_summary": state.get("review_summary", ""),
                 "assets_dir": assets_dir,
             }
         )
@@ -221,7 +222,7 @@ async def _filter_images_node(state: ArticleState) -> dict[str, object]:
         "image_review",
         "pipeline.events.imageReviewCompleted",
         (
-            f"{len(result.relevant_images)} relevant, {len(result.promotion_images)} removed, "
+            f"{len(result.relevant_images)} relevant, {len(result.promotion_images)} removal recommendations, "
             f"{len(result.failed_images)} unreviewed"
         ),
     )
@@ -326,12 +327,16 @@ def _persist_upload_result(article_id: str, state: ArticleState) -> dict[str, ob
 
 
 def build_ai_review_subgraph() -> StateGraph:
-    """Return the structured content → deterministic render sub-graph."""
+    """Review text, analyze images independently, then coordinate their placement."""
     builder = StateGraph(ArticleState)
 
     builder.add_node("edit", _edit_node)
+    builder.add_node("filter_images", _filter_images_node)
+    builder.add_node("coordinate_images", _coordinate_images_node)
     builder.add_edge(START, "edit")
-    builder.add_edge("edit", END)
+    builder.add_edge("edit", "filter_images")
+    builder.add_edge("filter_images", "coordinate_images")
+    builder.add_edge("coordinate_images", END)
 
     return builder
 
@@ -352,7 +357,6 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
             "content_type": state["content_type"],
             "perspective": state.get("review_perspective", ""),
             "output_language": state.get("output_language", "en-US"),
-            "image_filter_result": state.get("image_filter_result"),
         }
     )
     completed = await asyncio.to_thread(_commit_review, state.get("article_id") or Path(state["reviewed_path"]).parent.name, state, edit_result, attempts, expected_revision)
@@ -365,22 +369,10 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
 def _commit_review(article_id: str, state: ArticleState, edit_result: dict, attempts: int, expected_revision: str) -> dict:
     check_revision(Path(state["reviewed_path"]).parent, expected_revision)
     reviewed_markdown = edit_result["markdown"]
-    image_filter_result = state.get("image_filter_result")
     assets_dir = state.get("assets_dir")
-    removed_files: list[str] = []
     if assets_dir:
         assets_path = Path(assets_dir)
-        if image_filter_result is not None and image_filter_result.has_promotions:
-            reviewed_markdown, removed_files = remove_promotion_images_from_markdown(
-                reviewed_markdown,
-                image_filter_result.get_promotion_paths(),
-                assets_dir=assets_path,
-            )
-        preserved_paths = (
-            image_filter_result.get_preserved_paths()
-            if image_filter_result is not None
-            else _local_image_paths(state["raw_markdown"])
-        )
+        preserved_paths = _local_image_paths(state["raw_markdown"])
         reviewed_markdown = ensure_relevant_images_present(
             reviewed_markdown,
             preserved_paths,
@@ -417,15 +409,78 @@ def _commit_review(article_id: str, state: ArticleState, edit_result: dict, atte
         "attempts": attempts,
         "review_model": edit_result.get("model", ""),
         "review_provider": edit_result.get("provider", ""),
-        "removed_files": removed_files,
+        "review_summary": edit_result.get("summary", ""),
+        "review_revision": content_revision(reviewed_path.parent),
+        "removed_files": [],
         "metadata_enrichment_outcomes": enrichment_outcomes,
         "validation_result": None,
         "feedback": "",
-        "status": "reviewed",
+        "status": "text_reviewed",
     }
-    _write_success_report({**state, **completed})
     from src.core.content import mirror_content
     mirror_content(article_id, reviewed_markdown=reviewed_markdown)
+    return completed
+
+
+async def _coordinate_images_node(state: ArticleState) -> dict[str, object]:
+    from src.core.telemetry import emit_event
+
+    markdown = state["reviewed_markdown"]
+    assets_dir = Path(state["assets_dir"]) if state.get("assets_dir") else None
+    reviewed_path = Path(state["reviewed_path"])
+    manifest_path = inferred_manifest_path(reviewed_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
+    raw_path = reviewed_path.parent / str((manifest.get("paths") or {}).get("raw") or "raw.md")
+    source = raw_path.read_text(encoding="utf-8") if raw_path.is_file() else state["raw_markdown"]
+    catalog = image_catalog(markdown, source, assets_dir) if assets_dir else []
+    layout = ImageLayout(markdown, set(), [], [])
+    outcome: dict = {"status": "no_images", "operations": [], "text_edits": []}
+    if catalog:
+        await emit_event("image_layout", "pipeline.events.imageLayoutStarted")
+        try:
+            layout = await coordinate_article_images(
+                markdown, source, state.get("review_summary", ""), assets_dir,
+                state.get("image_filter_result"), state.get("review_perspective", ""),
+                state.get("output_language", "en-US"),
+            )
+            outcome = {"status": "completed", "operations": layout.operations, "text_edits": layout.text_edits}
+        except Exception as exc:
+            outcome = {"status": "preserved", "operations": [], "text_edits": [], "warning": str(exc)}
+            await emit_event("image_layout", "pipeline.events.imageLayoutPreserved", str(exc))
+    completed = await asyncio.to_thread(
+        _commit_image_layout, state.get("article_id") or Path(state["reviewed_path"]).parent.name,
+        state, layout, outcome, {entry.path for entry in catalog},
+    )
+    if catalog and outcome["status"] == "completed":
+        await emit_event("image_layout", "pipeline.events.imageLayoutCompleted")
+    return completed
+
+
+@serialized
+def _commit_image_layout(article_id: str, state: ArticleState, layout: ImageLayout, outcome: dict, paths: set[str]) -> dict:
+    reviewed_path = Path(state["reviewed_path"])
+    check_revision(reviewed_path.parent, state["review_revision"])
+    analysis = state.get("image_filter_result")
+    failures = dict(analysis.failed_images) if analysis else {path: "Vision review unavailable" for path in paths}
+    final_analysis = ImageFilterResult(
+        promotion_images=layout.removed_paths,
+        relevant_images=paths - layout.removed_paths - failures.keys(),
+        image_descriptions=analysis.image_descriptions if analysis else {},
+        image_functions=analysis.image_functions if analysis else {},
+        failed_images=failures,
+    ) if paths else analysis
+    removed_files: list[str] = []
+    if layout.removed_paths and state.get("assets_dir"):
+        _, removed_files = remove_promotion_images_from_markdown(
+            layout.markdown, layout.removed_paths, Path(state["assets_dir"]),
+        )
+    if layout.markdown != state["reviewed_markdown"]:
+        atomic_write_text(reviewed_path, layout.markdown)
+    completed = {"reviewed_markdown": layout.markdown, "image_filter_result": final_analysis,
+                 "removed_files": removed_files, "image_layout_result": outcome, "status": "reviewed"}
+    _write_success_report({**state, **completed})
+    from src.core.content import mirror_content
+    mirror_content(article_id, reviewed_markdown=layout.markdown)
     return completed
 
 
@@ -447,12 +502,16 @@ def _write_success_report(state: ArticleState) -> None:
     if not manifest_path.exists():
         return
 
-    write_completed_review_report(
+    report_path = write_completed_review_report(
         reviewed_path,
         manifest_path,
         model=state.get("review_model", ""),
         provider=state.get("review_provider", ""),
     )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["summary"] = state.get("review_summary", "")
+    report["image_layout"] = state.get("image_layout_result", {})
+    atomic_write_text(report_path, json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     from src.core.activity import ArticleActivityStore
     ArticleActivityStore().record(
         state.get("article_id", ""),
@@ -503,12 +562,10 @@ def build_extract_graph() -> StateGraph:
 
 
 def build_ai_review_graph() -> StateGraph:
-    """Return the AI-review-only graph: filter_images → ai_review sub-graph."""
+    """Return the three-stage AI-review-only graph."""
     builder = StateGraph(ArticleState)
-    builder.add_node("filter_images", _filter_images_node)
     builder.add_node("ai_review", build_ai_review_subgraph().compile())
-    builder.add_edge(START, "filter_images")
-    builder.add_edge("filter_images", "ai_review")
+    builder.add_edge(START, "ai_review")
     builder.add_edge("ai_review", END)
     return builder
 
@@ -647,6 +704,9 @@ def _default_initial_state() -> ArticleState:
         "assets": [],
         "download_failed": {},
         "reviewed_markdown": "",
+        "review_summary": "",
+        "review_revision": "",
+        "image_layout_result": {},
         "image_filter_result": None,
         "validation_result": None,
         "feedback": "",
@@ -710,8 +770,7 @@ async def run_ai_review_graph(
     raw_rel = paths_data.get("raw")
     if not raw_rel:
         raise ValueError(f"Raw Markdown path not found in manifest: {manifest_path}")
-    raw_path = manifest_path.parent / raw_rel
-    raw_markdown = source_markdown if source_markdown is not None else raw_path.read_text(encoding="utf-8")
+    raw_markdown = source_markdown if source_markdown is not None else reviewed_path.read_text(encoding="utf-8")
 
     assets_dir = manifest_path.parent / paths_data.get("assets", "assets") if paths_data.get("assets") else manifest_path.parent / "assets"
 

@@ -458,7 +458,6 @@ body.article-route-active .content-shell { height: 100dvh; min-height: 0; paddin
 .inspection-source-expanded .inspection-source-content { grid-template-rows: 1fr; opacity: 1; }
 .metadata-field-input { width: 100%; min-width: 0; padding: .48rem .6rem; border: 1px solid var(--line); border-radius: .55rem; background: var(--surface-raised); color: var(--text); font: inherit; }
 .metadata-field-input:focus { border-color: var(--accent-strong); outline: 2px solid color-mix(in srgb, var(--accent-strong) 20%, transparent); outline-offset: 1px; }
-.metadata-missing-tip { display: block; max-width: 24ch; margin-top: 5px; color: var(--warning); font-size: 9.5px; line-height: 1.45; text-wrap: pretty; }
 .metadata-save-button { width: 100%; margin: .75rem 0; }
 .metadata-evidence { display: grid; gap: .28rem; margin-top: .75rem; padding: .7rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--surface-soft); color: var(--text-muted); font-size: .78rem; }
 .metadata-evidence strong { color: var(--text); font-size: .76rem; }

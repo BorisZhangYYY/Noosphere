@@ -29,6 +29,8 @@ class ImageFilterResult:
     """Map from image path to AI-generated description of image content."""
     failed_images: dict[str, str] = field(default_factory=dict)
     """Images preserved without a classification because vision analysis failed."""
+    image_functions: dict[str, str] = field(default_factory=dict)
+    """Objective roles the images can serve in the article."""
 
     @property
     def has_promotions(self) -> bool:
@@ -76,7 +78,7 @@ class ImageFilterResult:
         }
 
 
-async def analyze_images_before_review(
+async def analyze_images(
     markdown: str,
     article_title: str,
     article_summary: str,
@@ -84,32 +86,14 @@ async def analyze_images_before_review(
     client: AIClient,
     image_review_prompt: str | None = None,
 ) -> ImageFilterResult:
-    """Analyze all images BEFORE the text rewrite to classify them.
-
-    This is the pre-review phase that uses AI Vision to understand what each
-    image contains, so the text rewrite AI knows which images to keep.
-
-    Args:
-        markdown: The raw article Markdown content.
-        article_title: Article title for context.
-        article_summary: Brief article summary for context.
-        assets_dir: Directory containing downloaded images.
-        client: AI client with vision support.
-        image_review_prompt: System prompt for image classification.
-
-    Returns:
-        ImageFilterResult with classifications and descriptions.
-    """
-    # Collect all local image references from markdown
+    """Analyze images in independent contexts using the reviewed article summary."""
     image_files = _collect_local_images(markdown, assets_dir)
     if not image_files:
         return ImageFilterResult()
 
-    # Load prompt if not provided
     if image_review_prompt is None:
         image_review_prompt = _load_default_image_review_prompt()
 
-    # Analyze all images in parallel
     semaphore = asyncio.Semaphore(5)
     cache = _load_image_filter_cache()
     tasks = [
@@ -125,6 +109,7 @@ async def analyze_images_before_review(
     relevant: set[str] = set()
     descriptions: dict[str, str] = {}
     failures: dict[str, str] = {}
+    functions: dict[str, str] = {}
 
     for image_path, result in zip(image_files, results):
         rel_path = _relative_image_path(image_path, assets_dir)
@@ -132,8 +117,9 @@ async def analyze_images_before_review(
             failures[rel_path] = f"{type(result).__name__}: {result}"
             continue
 
-        classification, description = result
+        classification, description, function = result
         descriptions[rel_path] = description
+        functions[rel_path] = function
         if classification == "PROMOTION":
             promotions.add(rel_path)
         else:
@@ -144,6 +130,7 @@ async def analyze_images_before_review(
         relevant_images=relevant,
         image_descriptions=descriptions,
         failed_images=failures,
+        image_functions=functions,
     )
 
 
@@ -155,22 +142,19 @@ async def _analyze_single_image_with_description(
     system_prompt: str,
     semaphore: asyncio.Semaphore,
     cache: dict[str, dict[str, str]],
-) -> tuple[str, str]:
-    """Analyze a single image and return (classification, description).
-
-    Classification is either RELEVANT or PROMOTION.
-    Description is a brief summary of what the image contains.
-
-    Results are cached by file SHA-256 to avoid repeating vision API calls for
-    identical images. Promotional images skip the description call entirely.
-    """
+) -> tuple[str, str, str]:
+    """Return a relevance recommendation, visible content and functional role."""
     async with semaphore:
         image_data = image_path.read_bytes()
-        file_hash = hashlib.sha256(image_data).hexdigest()
-
-        cached = cache.get(file_hash)
+        context = json.dumps({
+            "protocol": 2, "prompt": system_prompt, "title": article_title,
+            "summary": article_summary, "provider": client.settings.provider,
+            "model": client.settings.model, "api_base": client.settings.api_base,
+        }, sort_keys=True, ensure_ascii=False).encode()
+        cache_key = hashlib.sha256(context + b"\0" + image_data).hexdigest()
+        cached = cache.get(cache_key)
         if cached is not None:
-            return cached["classification"], cached["description"]
+            return cached["classification"], cached["description"], cached["function"]
 
         base64_data = base64.b64encode(image_data).decode("utf-8")
         media_type = _guess_media_type(image_path)
@@ -179,7 +163,6 @@ async def _analyze_single_image_with_description(
             "{summary}", article_summary
         )
 
-        # First call: classify RELEVANT vs PROMOTION
         classify_content = [
             {
                 "type": "image",
@@ -189,49 +172,35 @@ async def _analyze_single_image_with_description(
                     "data": base64_data,
                 },
             },
-            {"type": "text", "text": "Classify this image as RELEVANT or PROMOTION."},
+            {"type": "text", "text": (
+                "Return the image analysis JSON requested by the system. "
+                f"Article title: {article_title}\nArticle summary: {article_summary}"
+            )},
         ]
 
         response = await client.generate_vision(formatted_prompt, classify_content)
-        text = response.text.strip().upper()
-        if "PROMOTION" in text:
-            classification = "PROMOTION"
-        elif "RELEVANT" in text:
-            classification = "RELEVANT"
-        else:
-            raise ValueError(f"Vision model returned an unsupported classification: {response.text[:120]}")
+        classification, description, function = _parse_image_analysis(response.text)
+        cache[cache_key] = {"classification": classification, "description": description, "function": function}
+        return classification, description, function
 
-        # Promotional images do not need a detailed description; skip the second call.
-        if classification == "PROMOTION":
-            description = "Promotional content (filtered)"
-            cache[file_hash] = {"classification": classification, "description": description}
-            return classification, description
 
-        # Second call: get description for relevant images only
-        describe_content = [
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": media_type,
-                    "data": base64_data,
-                },
-            },
-            {"type": "text", "text": "Describe this image in one sentence."},
-        ]
+def _parse_image_analysis(response: str) -> tuple[str, str, str]:
+    from src.core.review.output_contract import parse_json_object
 
-        description = "No description available"
-        try:
-            response = await client.generate_vision(
-                "You are a helpful assistant. Describe the image concisely.",
-                describe_content,
-            )
-            description = response.text.strip()
-        except Exception:
-            return classification, description
+    if response.strip().upper() in {"RELEVANT", "PROMOTION"}:
+        return response.strip().upper(), "Description unavailable (legacy vision prompt)", "Unknown"
+    data = parse_json_object(response)
+    classification = str(data.get("classification", "")).upper()
+    if classification not in {"RELEVANT", "REMOVE", "PROMOTION"}:
+        raise ValueError("Vision analysis must classify the image as RELEVANT or REMOVE")
+    description, function = data.get("description"), data.get("function")
+    if not isinstance(description, str) or not description.strip() or not isinstance(function, str) or not function.strip():
+        raise ValueError("Vision analysis must describe the visible content and functional role")
+    return ("PROMOTION" if classification == "REMOVE" else classification), description.strip(), function.strip()
 
-        cache[file_hash] = {"classification": classification, "description": description}
-        return classification, description
+
+# The old entry point remains available to external callers of the legacy pipeline.
+analyze_images_before_review = analyze_images
 
 
 async def filter_promotion_images(
@@ -243,11 +212,8 @@ async def filter_promotion_images(
     client: AIClient,
     image_review_prompt: str | None = None,
 ) -> ImageFilterResult:
-    """Backwards-compatible wrapper for post-review filtering.
-
-    For pre-review analysis, use analyze_images_before_review() instead.
-    """
-    return await analyze_images_before_review(
+    """Backwards-compatible wrapper for summary-based image analysis."""
+    return await analyze_images(
         markdown=markdown,
         article_title=article_title,
         article_summary=article_summary,
@@ -633,25 +599,23 @@ def _collect_local_images(markdown: str, assets_dir: Path) -> list[Path]:
     """Collect all local image file paths referenced in markdown."""
     images: list[Path] = []
     seen: set[str] = set()
+    regions = _fenced_code_regions(markdown)
 
     for match in MARKDOWN_IMAGE_RE.finditer(markdown):
+        if any(start <= match.start() < end for start, end in regions):
+            continue
         target = match.group(2)
         url, _ = split_image_target(target)
         if url.startswith("http://") or url.startswith("https://"):
             continue
-        normalized = url.lstrip("./")
+        normalized = url.removeprefix("./")
         if normalized in seen:
             continue
         seen.add(normalized)
-        # Try both: path relative to assets dir (e.g. image_01.webp)
-        # and path relative to article dir (e.g. assets/image_01.webp)
-        image_path = assets_dir / normalized
-        if image_path.exists() and image_path.is_file():
-            images.append(image_path)
-        else:
-            image_path = assets_dir.parent / normalized
-            if image_path.exists() and image_path.is_file():
+        for image_path in (assets_dir / normalized, assets_dir.parent / normalized):
+            if image_path.resolve().is_relative_to(assets_dir.resolve()) and image_path.is_file():
                 images.append(image_path)
+                break
 
     return images
 
@@ -698,8 +662,9 @@ def _load_default_image_review_prompt() -> str:
             "Article summary: {summary}\n\n"
             "Rules:\n"
             "- RELEVANT: Screenshots, diagrams, charts, photos of people mentioned, technical illustrations\n"
-            "- PROMOTION: QR codes, ads, brand logos, promotional banners, 'follow us' graphics\n\n"
-            "Respond with ONLY one word: RELEVANT or PROMOTION"
+            "- REMOVE: Clearly unrelated advertising or engagement solicitation; keep uncertain images.\n\n"
+            'Return JSON: {"classification":"RELEVANT or REMOVE","description":"Visible content",'
+            '"function":"Role in this article"}'
         )
 
 
@@ -711,7 +676,7 @@ def _image_filter_cache_path() -> Path:
 
 
 def _load_image_filter_cache() -> dict[str, dict[str, str]]:
-    """Load the on-disk cache of image classifications keyed by SHA-256 hash."""
+    """Load image judgments keyed by image bytes and review context."""
     path = _image_filter_cache_path()
     if not path.exists():
         return {}
@@ -737,12 +702,17 @@ def update_manifest_with_image_filter(
 ) -> None:
     """Update manifest.json with image filtering results."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    previous = manifest.get("image_filter") or {}
+    active = filter_result.relevant_images | filter_result.promotion_images | filter_result.failed_images.keys()
+    removed = (set(previous.get("promotion_images", [])) - active) | filter_result.promotion_images
     manifest["image_filter"] = {
-        "promotion_images": sorted(filter_result.promotion_images),
-        "relevant_images": sorted(filter_result.relevant_images),
-        "filtered_count": len(filter_result.promotion_images),
+        **previous,
+        "promotion_images": sorted(removed),
+        "relevant_images": sorted((set(previous.get("relevant_images", [])) - active) | filter_result.relevant_images),
+        "filtered_count": len(removed),
         "removed_files": removed_files or [],
-        "image_descriptions": filter_result.image_descriptions,
+        "image_descriptions": {**previous.get("image_descriptions", {}), **filter_result.image_descriptions},
+        "image_functions": {**previous.get("image_functions", {}), **filter_result.image_functions},
         "failed_images": filter_result.failed_images,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
