@@ -153,6 +153,15 @@
   margin-inline: auto;
 }
 
+.markdown-editor img[draggable="true"] { cursor: grab; }
+.markdown-editor img[draggable="true"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.markdown-editor img.noosphere-image-dragging { opacity: .4; cursor: grabbing; }
+.noosphere-image-drop-line { position: absolute; top: 0; left: 0; height: 3px; border-radius: 2px; background: var(--accent-strong); pointer-events: none; will-change: transform; }
+.noosphere-image-drop-line[hidden] { display: none; }
+.noosphere-image-drop-line::before { content: ""; position: absolute; left: -3px; top: -2px; width: 7px; height: 7px; border-radius: 50%; background: inherit; }
+.noosphere-image-drag-preview { position: fixed; left: -10000px; top: 0; width: 160px; height: 100px; pointer-events: none; }
+.markdown-editor-dragging .noosphere-image-actions { visibility: hidden; }
+
 .markdown-editor .noosphere-image-shell[data-image-state="removed"] {
   max-height: clamp(180px, 24vw, 260px);
   overflow: hidden;
