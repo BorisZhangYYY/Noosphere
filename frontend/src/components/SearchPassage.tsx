@@ -154,6 +154,7 @@ export function SearchPassage({ articleId, annotations = [], onOpenAnnotation }:
       const root = document.querySelector(selector);
       const range = root && findRenderedMatch(root, hit, query.data!.text, anchorOffset, start);
       if (!range) return;
+      range.startContainer.parentElement?.dispatchEvent(new CustomEvent("noosphere-reveal-block", { bubbles: true }));
       range.startContainer.parentElement?.scrollIntoView({ behavior: "instant", block: "center" });
       clearFocus = showSearchFocus(range);
       finished = true;

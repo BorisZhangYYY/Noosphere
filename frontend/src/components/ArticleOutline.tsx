@@ -76,6 +76,7 @@ export function ArticleOutline({ markdown }: { markdown: string }) {
     const target = nodes.item(index);
     const scrollRoot = document.querySelector<HTMLElement>(".article-page .reader-surface");
     if (!target || !scrollRoot) return;
+    target.dispatchEvent(new CustomEvent("noosphere-reveal-block", { bubbles: true }));
     setActiveIndex(index);
     const targetTop = target.getBoundingClientRect().top - scrollRoot.getBoundingClientRect().top + scrollRoot.scrollTop;
     scrollRoot.scrollTo({ top: Math.max(0, targetTop - 24), behavior: "smooth" });

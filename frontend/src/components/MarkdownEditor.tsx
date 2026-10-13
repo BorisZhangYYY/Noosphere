@@ -5,7 +5,10 @@ import "vditor/dist/index.css";
 import "./MarkdownEditor.css";
 import { useTheme } from "../theme";
 import type { ArticleAnnotation, QuoteAnchorDraft } from "../types";
-import { createImageDropResolver, dragScrollDistance, dragScrollVelocity, imageDropMarkdown, nearestDragBlock } from "../imageDrag";
+import { createImageDropResolver, dragScrollDistance, dragScrollVelocity, imageDropMarkdown, nearestDragBlock, preserveDraggedImageReferences } from "../imageDrag";
+import { captureBlockSelection, createBlockDropResolver, isMovableArticleBlock, isMovableMarkdownBlock, moveMappedBlockMarkdown, articleBlockMap, restoreBlockSelection, remapMovedRange, reconcileBlockEdits, markdownStateKey, markdownBlocks, headingSectionEnd, articleBlockMovePlan } from "../blockDrag";
+import { installBlockControls } from "./blockControls";
+import { createHeadingFolds } from "./headingFolds";
 
 interface MarkdownEditorProps {
   articleId: string;
@@ -59,7 +62,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
   const annotationPropsRef = useRef({ annotations, annotationSourceDigest, onSelectQuote, onOpenAnnotation, onResolvedAnnotationIds });
   const restoringImageStructureRef = useRef(false);
   const applyingExternalValueRef = useRef(false);
-  const imageMoveHistoryRef = useRef(new Set<string>());
+  const structuralHistoryRef = useRef(new Map<string, string>());
   const { i18n, t } = useTranslation();
   const { resolvedTheme } = useTheme();
   const resolvedThemeRef = useRef(resolvedTheme);
@@ -75,6 +78,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
   useEffect(() => {
     if (!hostRef.current) return;
     const host = hostRef.current;
+    structuralHistoryRef.current.clear();
     let cancelled = false;
     let editor: Vditor | null = null;
     let observer: MutationObserver | null = null;
@@ -84,6 +88,21 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     const annotationRanges = new Map<string, Range>();
     const highlightName = "noosphere-article-annotations";
     const actions = new Map<string, HTMLDivElement>();
+    let blockControls: ReturnType<typeof installBlockControls> | null = null;
+    const headingFolds = createHeadingFolds({
+      root: () => host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset"),
+      readOnly: () => readOnlyRef.current,
+      serialize: html => editorRef.current?.vditor.lute.VditorDOM2Md(html) ?? html,
+    });
+    const foldHistory = new Map<string, number[]>();
+    const rememberFolds = (markdown: string, indices: number[]) => {
+      foldHistory.set(markdownStateKey(markdown), indices);
+      if (foldHistory.size > 160) foldHistory.delete(foldHistory.keys().next().value!);
+    };
+    const rememberStructuralValue = (canonical: string, markdown: string) => {
+      structuralHistoryRef.current.set(markdownStateKey(canonical), markdown);
+      if (structuralHistoryRef.current.size > 160) structuralHistoryRef.current.delete(structuralHistoryRef.current.keys().next().value!);
+    };
     const copyText = async (text: string) => {
       if (navigator.clipboard?.writeText) {
         try {
@@ -111,11 +130,14 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       }
     };
     let dragging: {
-      index: number; value: string; image: HTMLImageElement; root: HTMLElement;
+      kind: "image" | "block"; index: number; value: string; source: HTMLElement; root: HTMLElement;
       scrollContainer: Element; scrollBounds: { top: number; bottom: number };
       blocks: Map<HTMLElement, Array<{ element: HTMLElement; top: number; bottom: number }>>;
       resolve: ReturnType<typeof createImageDropResolver>;
       layoutDirty: boolean;
+      block?: { markdown: string; editorValue: string; sourcePath: number[]; mapping: Map<HTMLElement, number[]>;
+        selection: ReturnType<typeof captureBlockSelection>; validDrops: Map<string, boolean>;
+        sourceEnd: number; folded: number[]; blocks: ReturnType<typeof markdownBlocks> };
     } | null = null;
     let dropPosition: { target: HTMLElement; side: "before" | "after" } | null = null;
     let dragPointer: { x: number; y: number; fallback: Element | null } | null = null;
@@ -149,11 +171,13 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       const nextMarkdown = imageDropMarkdown(root, index, target, side,
         html => currentEditor.vditor.lute.VditorDOM2Md(html), valueRef.current);
       if (!nextMarkdown || nextMarkdown === valueRef.current) return;
-      imageMoveHistoryRef.current.add(stripEditorArtifacts(currentEditor.getValue()).trim());
-      imageMoveHistoryRef.current.add(nextMarkdown.trim());
+      const previous = stripEditorArtifacts(currentEditor.getValue());
+      rememberStructuralValue(previous, preserveDraggedImageReferences(previous, valueRef.current) ?? previous);
+      rememberStructuralValue(nextMarkdown, nextMarkdown);
       valueRef.current = nextMarkdown;
       applyingExternalValueRef.current = true;
       editorRef.current?.setValue(nextMarkdown);
+      rememberStructuralValue(stripEditorArtifacts(currentEditor.getValue()), nextMarkdown);
       onChangeRef.current(nextMarkdown);
       queueMicrotask(() => {
         applyingExternalValueRef.current = false;
@@ -161,7 +185,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       });
     };
     const clearDrag = () => {
-      dragging?.image.classList.remove("noosphere-image-dragging");
+      dragging?.source.classList.remove("noosphere-image-dragging", "noosphere-block-dragging");
       dragging = null;
       dropPosition = null;
       dragPointer = null;
@@ -189,7 +213,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         || !["auto", "scroll"].includes(getComputedStyle(scrollHost).overflowY))) scrollHost = scrollHost.parentElement;
       const scrollContainer = scrollHost ?? document.scrollingElement ?? document.documentElement;
       dragging = {
-        index: images.indexOf(image), value: valueRef.current, image, root, scrollContainer,
+        kind: "image", index: images.indexOf(image), value: valueRef.current, source: image, root, scrollContainer,
         scrollBounds: scrollHost?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight },
         blocks: new Map(), resolve: createImageDropResolver(root, images.indexOf(image), boundsFor), layoutDirty: false,
       };
@@ -225,7 +249,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         dragging.scrollBounds = dragging.scrollContainer === document.scrollingElement
           ? { top: 0, bottom: window.innerHeight } : boundsFor(dragging.scrollContainer);
         dragging.blocks.clear();
-        dragging.resolve = createImageDropResolver(root, dragging.index, boundsFor);
+        dragging.resolve = dragging.kind === "image" ? createImageDropResolver(root, dragging.index, boundsFor)
+          : blockDropResolver(root, dragging.source, dragging.block!);
         dragging.layoutDirty = false;
       }
       const rootBounds = boundsFor(root);
@@ -235,6 +260,9 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       let target = fallback && root.contains(fallback)
         ? fallback.closest<HTMLElement>(".vditor-wysiwyg__block")
           ?? fallback.closest<HTMLElement>("p, li, blockquote, table, hr, h1, h2, h3, h4, h5, h6") : null;
+      if (dragging.kind === "block") {
+        while (target && target.parentElement !== root) target = target.parentElement;
+      }
       const targetBounds = target ? boundsFor(target) : null;
       if (!targetBounds || y < targetBounds.top || y > targetBounds.bottom) {
         const nearestChild = (parent: HTMLElement): HTMLElement | null => {
@@ -251,13 +279,20 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
           return blocks[nearestDragBlock(blocks, y + dragging!.scrollContainer.scrollTop)]?.element ?? null;
         };
         target = nearestChild(root);
-        while (target && ["UL", "OL"].includes(target.tagName)) target = nearestChild(target);
+        if (dragging.kind === "image") while (target && ["UL", "OL"].includes(target.tagName)) target = nearestChild(target);
       }
       if (!root || !target || !root.contains(target)) { dropPosition = null; dropLine.hidden = true; return; }
       const bounds = boundsFor(target);
-      const side = target.tagName === "H1" || y >= bounds.top + bounds.height / 2 ? "after" : "before";
+      const side = (target === root.firstElementChild && target.tagName === "H1") || y >= bounds.top + bounds.height / 2 ? "after" : "before";
       const position = dragging.resolve(target, side);
       if (!position) { dropPosition = null; dropLine.hidden = true; return; }
+      if (dragging.block) {
+        const snapshot = dragging.block, targetPath = snapshot.mapping.get(position.target);
+        const key = targetPath?.join(".") + position.side;
+        if (targetPath && !snapshot.validDrops.has(key)) snapshot.validDrops.set(key,
+          moveMappedBlockMarkdown(snapshot.markdown, snapshot.sourcePath, targetPath, position.side, snapshot.sourceEnd) !== null);
+        if (!targetPath || !snapshot.validDrops.get(key)) { dropPosition = null; dropLine.hidden = true; return; }
+      }
       dropPosition = position;
       const frame = boundsFor(frameRef.current!);
       const transform = `translate3d(${position.marker.left - frame.left}px, ${position.marker.top - frame.top - 1.5}px, 0)`;
@@ -289,7 +324,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       scheduleDragFrame();
     };
     const handleDragOver = (event: DragEvent) => {
-      if (!dragging || readOnlyRef.current) return;
+      if (!dragging || dragging.kind !== "image" || readOnlyRef.current) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       dragPointer = { x: event.clientX, y: event.clientY, fallback: event.target instanceof Element ? event.target : null };
@@ -310,7 +345,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       lastDragFrameTime = 0;
     };
     const handleDrop = (event: DragEvent) => {
-      if (!dragging) return;
+      if (!dragging || dragging.kind !== "image") return;
       event.preventDefault();
       event.stopImmediatePropagation();
       cancelAnimationFrame(dragFrame);
@@ -318,6 +353,117 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       updateDropPosition(event.clientX, event.clientY, event.target instanceof Element ? event.target : null);
       if (dropPosition && dragging.value === valueRef.current) moveImage(dragging.index, dropPosition.target, dropPosition.side);
       clearDrag();
+    };
+    const blockSnapshot = (source: HTMLElement) => {
+      const currentEditor = editorRef.current;
+      const root = host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
+      if (!currentEditor || !root || !isMovableArticleBlock(source, root) || readOnlyRef.current) return null;
+      const editorValue = stripEditorArtifacts(currentEditor.getValue());
+      const live = preserveDraggedImageReferences(editorValue, valueRef.current);
+      if (live === null) return null;
+      const rendered = preserveDraggedImageReferences(currentEditor.vditor.lute.VditorDOM2Md(currentEditor.vditor.lute.Md2VditorDOM(valueRef.current)), valueRef.current);
+      const markdown = rendered === null ? live : reconcileBlockEdits(valueRef.current, rendered, live);
+      const { blocks, mapping } = articleBlockMap(root, markdown,
+        html => currentEditor.vditor.lute.VditorDOM2Md(html), text => currentEditor.vditor.lute.Md2VditorDOM(text));
+      headingFolds.refresh();
+      const folded = headingFolds.capture(mapping);
+      const path = mapping.get(source);
+      const sourceEnd = path?.length === 1 && folded.includes(path[0]) ? headingSectionEnd(blocks, path[0]) : (path?.[0] ?? 0) + 1;
+      return !path || !isMovableMarkdownBlock(blocks[path[0]]) ? null
+        : { markdown, editorValue, sourcePath: path, mapping, sourceEnd, folded, blocks, selection: captureBlockSelection(root, mapping), validDrops: new Map<string, boolean>() };
+    };
+    const normalizedBlockTarget = (snapshot: NonNullable<ReturnType<typeof blockSnapshot>>, target: HTMLElement, side: "before" | "after") => {
+      const path = snapshot.mapping.get(target);
+      if (!path || snapshot.sourcePath.length !== 1 || path.length !== 1) return target;
+      const plan = articleBlockMovePlan(snapshot.blocks, snapshot.sourcePath[0], path[0], side, new Set(snapshot.folded));
+      return Array.from(snapshot.mapping).find(([, address]) => address.length === 1 && address[0] === plan.target)?.[0] ?? target;
+    };
+    const blockDropResolver = (root: HTMLElement, source: HTMLElement, snapshot: NonNullable<ReturnType<typeof blockSnapshot>>) => {
+      const last = snapshot.sourcePath.length === 1 ? Array.from(snapshot.mapping).find(([, path]) => path.length === 1 && path[0] === snapshot.sourceEnd - 1)?.[0] : source;
+      const resolve = createBlockDropResolver(root, source, boundsFor, last ?? source);
+      return (target: HTMLElement, side: "before" | "after") => resolve(normalizedBlockTarget(snapshot, target, side), side);
+    };
+    const blockNeighbor = (source: HTMLElement, side: "before" | "after") => {
+      const nodes = headingFolds.isFolded(source) ? headingFolds.sectionNodes(source) : [source];
+      let target = side === "before" ? source.previousElementSibling : nodes.at(-1)!.nextElementSibling;
+      while (target?.classList.contains("noosphere-fold-hidden")) target = side === "before" ? target.previousElementSibling : target.nextElementSibling;
+      const root = host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
+      return root && isMovableArticleBlock(target, root) ? target : null;
+    };
+    const moveBlock = (source: HTMLElement, target: HTMLElement, side: "before" | "after", snapshot = blockSnapshot(source)) => {
+      const currentEditor = editorRef.current;
+      const root = host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
+      if (!snapshot || !currentEditor || !root || readOnlyRef.current
+        || stripEditorArtifacts(currentEditor.getValue()) !== snapshot.editorValue) return null;
+      target = normalizedBlockTarget(snapshot, target, side);
+      const sourcePath = snapshot.mapping.get(source), targetPath = snapshot.mapping.get(target);
+      const container = source.parentElement;
+      if (!sourcePath || !targetPath || !container || target.parentElement !== container) return null;
+      const nextMarkdown = moveMappedBlockMarkdown(snapshot.markdown, sourcePath, targetPath, side, snapshot.sourceEnd);
+      if (nextMarkdown === null) return null;
+      const from = sourcePath.at(-1)!, insertion = targetPath.at(-1)! + Number(side === "after");
+      const count = sourcePath.length === 1 ? snapshot.sourceEnd - from : 1;
+      const folded = sourcePath.length === 1 ? snapshot.folded.map(index => remapMovedRange(index, from, snapshot.sourceEnd, insertion)) : snapshot.folded;
+      rememberFolds(snapshot.editorValue, snapshot.folded);
+      rememberFolds(snapshot.markdown, snapshot.folded);
+      rememberFolds(nextMarkdown, folded);
+      rememberStructuralValue(snapshot.editorValue, snapshot.markdown);
+      rememberStructuralValue(nextMarkdown, nextMarkdown);
+      currentEditor.vditor.undo?.addToUndoStack(currentEditor.vditor);
+      valueRef.current = nextMarkdown;
+      applyingExternalValueRef.current = true;
+      currentEditor.setValue(nextMarkdown);
+      rememberStructuralValue(stripEditorArtifacts(currentEditor.getValue()), nextMarkdown);
+      rememberFolds(stripEditorArtifacts(currentEditor.getValue()), folded);
+      const surface = host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset")!;
+      const { mapping } = articleBlockMap(surface, nextMarkdown,
+        html => currentEditor.vditor.lute.VditorDOM2Md(html), text => currentEditor.vditor.lute.Md2VditorDOM(text));
+      headingFolds.restore(folded, mapping);
+      decorateImages();
+      const movedPath = [...sourcePath.slice(0, -1), remapMovedRange(from, from, from + count, insertion)];
+      const moved = Array.from(mapping).find(([, path]) => path.length === movedPath.length && path.every((index, depth) => index === movedPath[depth]))?.[0];
+      surface.focus({ preventScroll: true });
+      restoreBlockSelection(snapshot.selection, sourcePath, insertion, mapping, count);
+      if (!snapshot.selection && moved) {
+        const range = document.createRange();
+        range.selectNodeContents(moved);
+        range.collapse(true);
+        window.getSelection()?.removeAllRanges();
+        window.getSelection()?.addRange(range);
+      }
+      currentEditor.vditor.undo?.addToUndoStack(currentEditor.vditor);
+      onChangeRef.current(nextMarkdown);
+      queueMicrotask(() => { applyingExternalValueRef.current = false; scheduleDecoration(); });
+      return moved ?? null;
+    };
+    const beginBlockDrag = (source: HTMLElement, point: { x: number; y: number }) => {
+      const snapshot = blockSnapshot(source);
+      const root = source.parentElement;
+      if (!snapshot || !root) return false;
+      clearDrag();
+      let scrollHost: HTMLElement | null = host;
+      while (scrollHost && (scrollHost.scrollHeight <= scrollHost.clientHeight
+        || !["auto", "scroll"].includes(getComputedStyle(scrollHost).overflowY))) scrollHost = scrollHost.parentElement;
+      const scrollContainer = scrollHost ?? document.scrollingElement ?? document.documentElement;
+      dragging = {
+        kind: "block", index: Array.from(root.children).indexOf(source), value: valueRef.current, source, root, scrollContainer,
+        scrollBounds: scrollHost?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight }, blocks: new Map(),
+        resolve: blockDropResolver(root, source, snapshot), layoutDirty: false, block: snapshot,
+      };
+      source.classList.add("noosphere-block-dragging");
+      frameRef.current?.classList.add("markdown-editor-dragging");
+      dragPointer = { ...point, fallback: null };
+      return true;
+    };
+    const finishBlockDrag = (point: { x: number; y: number }) => {
+      if (dragging?.kind !== "block") return;
+      updateDropPosition(point.x, point.y);
+      const { source, block } = dragging, position = dropPosition;
+      clearDrag();
+      if (position) {
+        const moved = moveBlock(source, position.target, position.side, block);
+        if (moved) blockControls?.show(moved);
+      }
     };
     const handleImageKeyboard = (event: KeyboardEvent) => {
       if (readOnlyRef.current || !event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
@@ -335,6 +481,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     };
     const decorateImages = () => {
       if (dragging) return;
+      headingFolds.refresh();
       const frame = frameRef.current;
       const actionLayer = actionsRef.current;
       if (!frame || !actionLayer) return;
@@ -397,8 +544,10 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         action.remove();
         actions.delete(key);
       });
+      blockControls?.refresh();
     };
     const scheduleDecoration = () => {
+      if (dragging && readOnlyRef.current) clearDrag();
       if (dragging) {
         dragging.layoutDirty = true;
         scheduleDragFrame();
@@ -499,6 +648,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       requestAnimationFrame(() => {
         const range = annotationRanges.get(annotationId);
         const element = range?.startContainer.parentElement;
+        if (element) headingFolds.reveal(element);
+        scheduleDecoration();
         element?.scrollIntoView({ behavior: "smooth", block: "center" });
       });
     };
@@ -707,6 +858,39 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     host.addEventListener("dragend", clearDrag, true);
     host.addEventListener("keydown", handleImageKeyboard, true);
     window.addEventListener("scroll", handleDragScroll, true);
+    if (frameRef.current && actionsRef.current) blockControls = installBlockControls({
+      host, frame: frameRef.current, layer: actionsRef.current,
+      root: () => host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset"),
+      readOnly: () => readOnlyRef.current, isDragging: () => Boolean(dragging),
+      labels: { handle: t("article.moveBlock"), up: t("article.moveBlockUp"), down: t("article.moveBlockDown"),
+        wholeList: t("article.moveWholeList"), listItem: t("article.moveListItem"),
+        heading: t("article.moveHeading"), section: t("article.moveSection"), fold: t("article.foldHeading"), unfold: t("article.unfoldHeading") },
+      neighbor: blockNeighbor,
+      canFold: headingFolds.canFold, isFolded: headingFolds.isFolded,
+      toggleFold: source => {
+        const snapshot = blockSnapshot(source);
+        if (!snapshot || !headingFolds.toggle(source)) return;
+        const folded = headingFolds.capture(snapshot.mapping);
+        rememberFolds(snapshot.markdown, folded);
+        rememberFolds(snapshot.editorValue, folded);
+        scheduleDecoration();
+      },
+      begin: beginBlockDrag,
+      update: (point) => { dragPointer = { ...point, fallback: null }; scheduleDragFrame(); },
+      finish: finishBlockDrag, cancel: clearDrag,
+      move: (source, side) => {
+        const target = blockNeighbor(source, side);
+        if (!target) return null;
+        const moved = moveBlock(source, target, side);
+        moved?.scrollIntoView({ block: "nearest" });
+        return moved;
+      }
+    });
+
+    const revealBlock = (event: Event) => {
+      if (event.target instanceof Element) { headingFolds.reveal(event.target); scheduleDecoration(); }
+    };
+    host.addEventListener("noosphere-reveal-block", revealBlock);
 
     async function mountEditor() {
       if (i18n.resolvedLanguage === "zh") {
@@ -755,7 +939,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         input: (markdown) => {
           if (readOnlyRef.current || applyingExternalValueRef.current || restoringImageStructureRef.current) return;
           const cleaned = stripEditorArtifacts(markdown);
-          if (!hasSameImageStructure(cleaned, valueRef.current) && !imageMoveHistoryRef.current.has(cleaned.trim())) {
+          const candidate = structuralHistoryRef.current.get(markdownStateKey(cleaned)) ?? cleaned;
+          if (!hasSameImageStructure(candidate, valueRef.current) && !structuralHistoryRef.current.has(markdownStateKey(cleaned))) {
             restoringImageStructureRef.current = true;
             queueMicrotask(() => {
               editorRef.current?.setValue(valueRef.current);
@@ -764,7 +949,15 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
             });
             return;
           }
-          onChangeRef.current(cleaned);
+          valueRef.current = candidate;
+          const folded = foldHistory.get(markdownStateKey(cleaned)) ?? foldHistory.get(markdownStateKey(candidate));
+          const root = host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
+          if (folded && root && editorRef.current) {
+            const { mapping } = articleBlockMap(root, candidate,
+              html => editorRef.current!.vditor.lute.VditorDOM2Md(html), text => editorRef.current!.vditor.lute.Md2VditorDOM(text));
+            headingFolds.restore(folded, mapping);
+          } else headingFolds.refresh();
+          onChangeRef.current(candidate);
         },
         after: () => {
           if (cancelled) {
@@ -814,6 +1007,10 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       host.removeEventListener("dragend", clearDrag, true);
       host.removeEventListener("keydown", handleImageKeyboard, true);
       window.removeEventListener("scroll", handleDragScroll, true);
+      blockControls?.destroy();
+      blockControls = null;
+      headingFolds.destroy();
+      host.removeEventListener("noosphere-reveal-block", revealBlock);
       clearDrag();
       dropLine.remove();
       host.removeEventListener("load", scheduleDecoration, true);
@@ -875,7 +1072,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    if (stripEditorArtifacts(editor.getValue()) !== value) {
+    const current = stripEditorArtifacts(editor.getValue());
+    if (current !== value && structuralHistoryRef.current.get(markdownStateKey(current)) !== value) {
       applyingExternalValueRef.current = true;
       editor.setValue(value);
       queueMicrotask(() => {
