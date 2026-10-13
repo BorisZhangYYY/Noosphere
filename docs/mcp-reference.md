@@ -35,6 +35,8 @@ The first four tools are synchronous. The `start_*` tools create background jobs
 
 Content updates affect editable prose; Noosphere restores protected source metadata before storing or exporting `reviewed.md`. `get_article` returns current metadata provenance and enrichment history. `update_missing_article_metadata` accepts only Author and Published values that were absent from the captured source. During AI review, candidate values additionally require an exact captured-text excerpt and are recorded as accepted or reverted. Image state operations use the asset identity reported by `list_article_images`.
 
+AI review first completes the current text draft and internal summary, then independently describes images using the summary, and finally coordinates image placement/soft removal through the text model. The selected perspective and article template apply to the final arrangement. The text model need not support vision; uncertain images and failed final plans preserve the draft and images. Restore a soft-removed image with `set_article_image_state`.
+
 Reflections are independent `reflection.md` sidecars. `save_article_reflection` can update Markdown, the persistent upload preference, or both. `polish_article_reflection` returns a stateless preview and provider/model provenance; it writes only when `apply=true`. `start_polish` provides the same preview workflow as a background job. Clients should compare the returned job input digest with the current draft before offering Apply.
 
 Quote interpretations are independent `annotations.json` records. Create tools accept the exact quote, Markdown note, bounded prefix/suffix context, and zero-based occurrence. The service adds a stable ID, timestamps, and the current `reviewed.md` digest. Update changes only the note, while delete removes the record. Clients should use context for repeated passages and must not assume an anchor is still safe after the reviewed source changes.
@@ -68,7 +70,7 @@ When a user explicitly names a missing destination, an MCP client may instead pa
 - `save_review_perspective`
 - `delete_review_perspective`
 
-Built-in perspectives are read-only. Custom perspectives can define their own prompt and output-template content.
+Built-in perspectives are read-only. Custom perspectives define a review prompt and a natural-language Markdown article template. `save_review_perspective` requires no content-slot declarations; legacy `output_sections` and `body_section` arguments remain optional for compatibility. Fixed cleaning rules, metadata handling, and the JSON response protocol are system-managed.
 
 ### Runtime settings
 

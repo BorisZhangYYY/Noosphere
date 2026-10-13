@@ -71,6 +71,8 @@ Use stable Collection IDs in scripts. There is no depth limit. Automatic placeme
 
 ## Images
 
+AI review runs text review → independent image description → final image coordination. A text-only review model is supported with a separate vision provider. Describe desired image organization in the perspective/template; the final stage preserves prose by default and keeps failed or uncertain images. Soft-removed images remain recoverable.
+
 | Command | Purpose |
 |---|---|
 | `nsphr images list ARTICLE_ID --json` | Inspect active and removed article images. |
@@ -82,11 +84,20 @@ Use stable Collection IDs in scripts. There is no depth limit. Automatic placeme
 
 | Command | Purpose |
 |---|---|
-| `nsphr perspectives list --json` | List built-in and custom review contracts. |
-| `nsphr perspectives show ID --json` | Inspect one perspective and its output template. |
-| `nsphr perspectives save ...` | Create or update a custom perspective. |
+| `nsphr perspectives list --json` | List built-in and custom review perspectives. |
+| `nsphr perspectives show ID --json` | Inspect one perspective and its natural-language article template. |
+| `nsphr perspectives save ...` | Create or update a custom perspective using `--prompt-file` and `--template-file`. |
 | `nsphr perspectives delete ID` | Delete a custom perspective. |
 | `nsphr perspectives use ID` | Select the active perspective. |
+
+Save a natural-language article template without slot declarations:
+
+```bash
+nsphr perspectives save researcher --label Researcher \
+  --prompt-file perspective.md --template-file article-format.md --activate
+```
+
+Legacy `--sections` and `--body-section` are accepted for compatibility but are no longer required.
 
 Built-in perspectives are immutable. Custom prompts are stored as authored; Noosphere does not translate or rewrite them when the interface language changes.
 

@@ -2,11 +2,11 @@
 
 Noosphere is an article extraction, AI review, and note-import tool for long-form reading, content collection, knowledge organization, and sharing.
 
-It combines Crawl4AI and Firecrawl, downloads article assets, and asks a language model for typed content slots. Noosphere—not the model—renders trusted source metadata, headings, section order, and image references into the final Markdown. This keeps the output stable while still allowing different review perspectives, languages, and templates.
+It combines Crawl4AI and Firecrawl, downloads article assets, and asks a language model to review the complete article using a chosen perspective and a natural-language Markdown template. Noosphere assembles the title and trusted source metadata, while the template guides the article’s headings, section order, and writing requirements.
 
 Noosphere is an article-processing service and MCP capability, not a general-purpose personal note-taking application. Downstream knowledge systems remain independent and receive content only through explicitly configured, user-authorized adapters.
 
-The current release is v0.3.2.8.
+The current release is [v0.3.3.0](docs/releases/v0.3.3.0.md).
 
 In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into clean, structured, understandable, and portable knowledge.
 
@@ -14,9 +14,9 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 
 - Extract articles and local assets from supported platforms with configurable primary and fallback crawlers.
 - Review, translate, and restructure content through built-in or custom perspectives.
-- Keep source metadata and final Markdown structure deterministic instead of relying on the model to reproduce a fragile document skeleton.
+- Keep source metadata protected while describing the article format in natural language.
 - Organize articles in a user-owned Knowledge workspace of clickable index documents with arbitrary nesting; articles may also remain directly at the workspace level.
-- Review images independently, then remove or restore them without changing `raw.md`.
+- Review text, analyze images independently from the resulting summary, then coordinate image placement and recoverable removal without changing `raw.md`.
 - Keep a personal `reflection.md` beside each article, optionally polish it with the reviewing model, and decide per article whether it is appended to an upload copy.
 - In reading mode, quote exact passages, underline resolved anchors, and keep Markdown interpretations in an independent `annotations.json` sidecar with rail-based navigation and management.
 - Search article text, reflections and annotations with highlighted excerpts and source-context navigation.
@@ -109,9 +109,9 @@ The web API, MCP tools, and CLI call the same application service. Interface-spe
 
 Each article workspace keeps the original extraction in `raw.md` and the canonical export document in `reviewed.md`. Noosphere never rewrites `raw.md`. The editor receives prose without the source metadata block; on every save, Noosphere restores protected Source, Platform, Captured, and Type values and permits controlled entry only when Author or Published was genuinely absent.
 
-### Deterministic review assembly
+### Review perspectives and natural-language article templates
 
-AI fills typed content slots. Noosphere assembles the final metadata block, headings, sections, and retained image references. When Author or Published is absent, review may submit a candidate only with a short exact excerpt from the captured article; Noosphere verifies both evidence and value before accepting it and records accepted or reverted attempts with provider provenance. Validation can diagnose malformed content, but it is not an AI retry loop or a prerequisite for producing the document.
+Review Configuration exposes two prompt fields: the review perspective and the article template. Shared cleaning rules, source metadata and the JSON response protocol stay system-managed. Templates describe the desired Markdown with normal headings and writing instructions; they do not need variables or fixed sections. Built-in source-faithful and beginner-friendly defaults are read-only and can be copied into custom perspectives. AI returns a complete Markdown body and an internal summary, even when the template requests no visible summary. Noosphere assembles the title and trusted metadata and preserves retained local images. When Author or Published is absent, review may submit a candidate only with a short exact excerpt from the captured article; Noosphere verifies both evidence and value before accepting it and records accepted or reverted attempts with provider provenance. Response checks require valid JSON and nonempty fields, without enforcing article chapter names or order. Review checks model capacities and generation budgets before sending the draft; oversized requests go directly to bounded parts. The 18,000-character trigger remains a fallback for unknown context capacity. Full reviewed parts are assembled without being replaced by summaries. Legacy variable templates are interpreted as writing guidance when read and converted to natural instructions when saved. See [review configuration](docs/configuration.md#review-perspectives-and-article-templates) and [v0.3.3.0 notes](docs/releases/v0.3.3.0.md).
 
 ### Hierarchical Collections
 
@@ -122,6 +122,8 @@ Existing two-level taxonomy records are migrated once into equivalent Collection
 ### Independent image review
 
 The text-review provider and image-review provider are configured independently. If no vision-capable image provider is selected, Noosphere preserves images and records that image review was skipped.
+
+AI review completes the current text draft and an internal summary first. A separate vision context then describes each image's visible content and functional role and recommends retention or removal. Finally, the text model uses those descriptions and the selected perspective/template to keep, move or soft-remove images. It does not need vision support. Existing prose stays unchanged unless a specific image operation requires a local transition or reference adjustment. Failed final coordination keeps the completed draft and all images; removed images remain recoverable in the workbench. See [the three-stage review workflow](docs/configuration.md#image-and-text-coordination).
 
 ### Independent personal reflections
 
