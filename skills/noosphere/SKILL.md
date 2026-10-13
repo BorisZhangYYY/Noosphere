@@ -26,7 +26,7 @@ npx skills add https://github.com/BorisZhangYYY/Noosphere --skill noosphere-setu
 ## What This Skill Does
 
 1. Extracts one or more article URLs via `nsphr extract`.
-2. Runs the AI review workflow when requested; AI fills typed content slots and Noosphere assembles the final Markdown structure.
+2. Runs the AI review workflow when requested; AI writes the full Markdown body using the chosen perspective and natural-language article template; Noosphere assembles the title and trusted source metadata.
 3. Organizes articles with stable, user-owned Collection IDs at arbitrary depth.
 4. Uploads or archives the reviewed Markdown via the configured adapter.
 5. Saves personal reflections separately, previews optional AI polish, and includes them in uploads only when authorized.
@@ -149,19 +149,19 @@ Each article gets a workspace at `outputs/<article_id>/`:
 - `manifest.json` — source metadata, paths, crawl status, upload record.
 - `review.json` — AI review status and provider/model info.
 - `assets/` — downloaded images referenced by the article.
-- `removed/` — images classified as promotional by the image filter.
+- `removed/` — images soft-removed after image/text coordination or manual review; recoverable until explicitly deleted.
 
 ## Error Handling
 
 - **Config missing**: prompt the user to copy `config.json.example` to `config.json` and add credentials.
 - **Unsupported URL**: list supported platforms and their URL patterns (see `references/platforms_reference.md`).
 - **Crawl failed**: report which crawler was tried and the error; suggest switching `crawler.primary`.
-- **AI review failed**: report the provider or content-slot error. The final Markdown skeleton is assembled by Noosphere and does not depend on the model reproducing it.
+- **AI review failed**: report the provider or response-protocol error. Article chapter names and order follow the template’s natural-language instructions; Noosphere protects source metadata.
 - **Upload failed**: check the target config (SiYuan token / local archive path) and retry.
 
 ## Notes
 
-- The AI review workflow is **copy-editing**, not full rewriting. The LLM preserves the original article structure, section order, and image positions while removing platform noise and fixing formatting.
+- AI review follows the perspective and natural-language template while preserving source facts and reasoning. It reviews text and generates an internal summary, analyzes images independently, then lets the text model coordinate image retention, placement and soft removal. The last stage preserves prose by default and makes only necessary local image-related wording changes. A separate vision provider supports text-only review models; failed or uncertain image judgments preserve images.
 - The crawler stack is configurable. Set `crawler.primary` to `firecrawl` when you need better JavaScript-heavy page support (for example, WeChat GIF extraction).
 - `extract` and `upload` are deliberately manual endpoints. You can run `extract`, edit `reviewed.md` yourself, and upload it directly without `ai-review`.
 
@@ -170,5 +170,5 @@ Each article gets a workspace at `outputs/<article_id>/`:
 - `references/config_reference.md` — full `config.json` reference.
 - `references/platforms_reference.md` — supported platforms and URL patterns.
 - `references/workflow_reference.md` — detailed pipeline walkthrough.
-- `assets/article_template.md` — expected post-review Markdown structure.
+- `assets/article_template.md` — an example post-review Markdown structure; custom article formats may differ.
 - `scripts/validate_setup.sh` — local setup validation script.

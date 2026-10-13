@@ -19,11 +19,13 @@ from src.core.config.config import load_config
 from src.core.markdown.links import normalize_markdown_links
 from src.core.models.article import Article, UploadResult
 from src.core.review.ai_review_data import prepare_rewritten_markdown
+from src.core.review.budget import ReviewBudget, bounded_chunks
 from src.core.review.image_filter import (
     ImageFilterResult,
-    analyze_images_before_review,
+    analyze_images,
     remove_promotion_images_from_markdown,
 )
+from src.core.review.image_layout import ImageLayout, apply_image_layout, layout_context
 from src.core.review.prompt_metadata import parse_prompt
 from src.core.review.review_validation import ValidationResult, validate_reviewed_markdown
 from src.core.upload.factory import create_adapter
@@ -89,10 +91,11 @@ async def filter_images(
     if not provider.vision_capable:
         raise ValueError(f"Image-review provider '{provider_name}' is not marked as vision capable")
     client = AIClient(resolve_ai_settings(config, provider_name))
+    await client.prepare_limits()
     image_review_prompt = config.ai.resolve_prompt(
         "image_review_prompt", "image_review_prompt_path"
     )[0]
-    return await analyze_images_before_review(
+    return await analyze_images(
         markdown=raw_markdown,
         article_title=article_title,
         article_summary=article_summary,
@@ -115,8 +118,8 @@ async def edit_article(
     """Perform one AI rewrite attempt for the article.
 
     Returns a dict with the rewritten Markdown and the model/provider used.
-    The caller (the review sub-graph) is responsible for validation and retry
-    loop management.
+    Article formatting follows natural-language guidance; only the response
+    protocol and trusted metadata are system-owned.
     """
     config = load_config()
     settings = resolve_ai_settings(config)
@@ -124,7 +127,6 @@ async def edit_article(
 
     if perspective:
         rewrite_prompt, _ = config.pipeline.resolve_review_prompt(perspective, output_language)
-        profile, output_template = config.pipeline.resolve_review_contract(perspective, output_language)
     else:
         rewrite_prompt, _ = config.ai.resolve_prompt(
             "rewrite_prompt", "rewrite_prompt_path", platform=platform
@@ -142,54 +144,111 @@ async def edit_article(
         image_filter_result=image_filter_result,
     )
     metadata_candidates: dict[str, dict[str, str]] = {}
+    summary = ""
+    await client.prepare_limits()
+    budget = _review_budget(client)
+    from src.core.review.output_contract import review_payload_instruction
+    response_prompt = resolved_rewrite_prompt
+    if perspective:
+        response_prompt += "\n\n" + review_payload_instruction()
+    preflight_split = perspective and not budget.fits(response_prompt, user_prompt, _article_body(raw_markdown))
+    if preflight_split:
+        from src.core.telemetry import emit_event
+        await emit_event(
+            "ai_review", "pipeline.events.aiReviewPreflightSplit",
+            f"output budget: {budget.output_tokens} tokens; conservative body capacity: {budget.body_tokens} tokens",
+        )
 
-    if perspective and len(raw_markdown) > LONG_REVIEW_THRESHOLD:
+    unknown_capacity = client.model_limits.context_tokens is None
+    if perspective and (preflight_split or (unknown_capacity and len(raw_markdown) > LONG_REVIEW_THRESHOLD)):
         from src.core.review.output_contract import render_review_payload, serialize_metadata_candidates
 
         payload, response = await _review_long_article(
             client=client,
             system_prompt=resolved_rewrite_prompt,
             raw_markdown=raw_markdown,
-            sections=profile.output_sections,
-            body_section=profile.body_section,
             image_filter_result=image_filter_result,
         )
         response_markdown = render_review_payload(
             payload,
-            output_template,
-            profile.output_sections,
             raw_markdown,
         )
         metadata_candidates = serialize_metadata_candidates(payload.metadata_candidates)
     else:
-        if perspective:
-            from src.core.review.output_contract import review_payload_instruction
+        try:
+            response = await client.generate_text(response_prompt, user_prompt)
+        except AIOutputTruncatedError:
+            if not perspective:
+                raise
+            from src.core.telemetry import emit_event
 
-            resolved_rewrite_prompt += "\n\n" + review_payload_instruction(profile.output_sections)
-        response = await client.generate_text(resolved_rewrite_prompt, user_prompt)
+            await emit_event("ai_review", "pipeline.events.aiReviewTruncatedFallback")
+            payload, response = await _review_long_article(
+                client=client,
+                system_prompt=resolved_rewrite_prompt,
+                raw_markdown=raw_markdown,
+                image_filter_result=image_filter_result,
+            )
+        else:
+            if perspective:
+                from src.core.review.output_contract import parse_review_payload
+
+                payload = parse_review_payload(response.text)
         response_markdown = response.text
         if perspective:
             from src.core.review.output_contract import (
-                parse_review_payload,
                 render_review_payload,
                 serialize_metadata_candidates,
             )
 
-            payload = parse_review_payload(response.text, profile.output_sections)
             response_markdown = render_review_payload(
                 payload,
-                output_template,
-                profile.output_sections,
                 raw_markdown,
             )
             metadata_candidates = serialize_metadata_candidates(payload.metadata_candidates)
+    if perspective:
+        summary = payload.summary
     prepared_markdown = response_markdown if perspective else prepare_rewritten_markdown(response_markdown, content_type)
     return {
         "markdown": normalize_markdown_links(prepared_markdown),
         "model": response.model,
         "provider": response.provider,
         "metadata_candidates": metadata_candidates,
+        "summary": summary,
     }
+
+
+async def coordinate_article_images(
+    markdown: str, source_markdown: str, summary: str, assets_dir: Path,
+    analysis: ImageFilterResult | None, perspective: str, output_language: str,
+) -> ImageLayout:
+    from src.core.paths import resolve_project_path
+    from src.core.telemetry import reset_event_sink, suspend_event_sink
+
+    context, catalog, blocks = layout_context(markdown, source_markdown, assets_dir, analysis, summary)
+    if not catalog:
+        return ImageLayout(markdown, set(), [], [])
+    config = load_config()
+    settings = resolve_ai_settings(config)
+    prompt, _ = config.pipeline.resolve_review_prompt(perspective or None, output_language)
+    protocol = resolve_project_path("prompts/image_layout.md").read_text(encoding="utf-8")
+    client = AIClient(settings)
+    await client.prepare_limits()
+    token = suspend_event_sink()
+    try:
+        response = await client.generate_text(
+            prompt.replace("{model}", settings.model) + "\n\n" + protocol,
+            context,
+        )
+    finally:
+        reset_event_sink(token)
+    layout = apply_image_layout(markdown, response.text, catalog, blocks)
+    unknown = {entry.path for entry in catalog
+               if analysis is None or entry.path in analysis.failed_images or
+               entry.path not in analysis.relevant_images | analysis.promotion_images}
+    if layout.removed_paths & unknown:
+        raise ValueError("Images without a successful vision judgment must be preserved")
+    return layout
 
 
 @tool
@@ -313,17 +372,13 @@ async def _review_long_article(
     client: AIClient,
     system_prompt: str,
     raw_markdown: str,
-    sections: dict[str, str],
-    body_section: str,
     image_filter_result: ImageFilterResult | None,
 ):
-    """Review a long article in bounded semantic chunks and assemble one payload."""
+    """Keep bounded chunk review while assembling a freely requested article format."""
     from src.core.review.output_contract import (
         MetadataCandidate,
         ReviewPayload,
         parse_json_object,
-        parse_metadata_candidates,
-        sanitize_slot_markdown,
     )
     from src.core.telemetry import emit_event
 
@@ -334,23 +389,6 @@ async def _review_long_article(
             image_filter_result.get_promotion_paths(),
         )
     body = _article_body(source)
-    chunks = _split_review_chunks(body, REVIEW_CHUNK_SIZE)
-    cache_key = hashlib.sha256(
-        (
-            REVIEW_CHUNK_PROTOCOL_VERSION
-            + str(REVIEW_CHUNK_SIZE)
-            + client.settings.provider
-            + client.settings.model
-            + system_prompt
-            + source
-        ).encode("utf-8")
-    ).hexdigest()
-    from src.core.paths import runtime_home
-
-    chunk_cache_dir = runtime_home() / "review_chunks" / cache_key
-    chunk_cache_dir.mkdir(parents=True, exist_ok=True)
-    last_response = None
-
     chunk_protocol = (
         "\n\n# Long article chunk protocol\n\n"
         "Review only the supplied part. Use the following delimiter protocol exactly:\n"
@@ -364,10 +402,21 @@ async def _review_long_article(
         '{"author": null, "published_at": null}\n'
         "</metadata_candidates>\n"
         "Do not JSON-escape the Markdown and do not add text outside these tags. "
-        "Keep every local image Markdown reference exactly. Do not add H1 or H2 headings; use H3 or deeper. "
+        "Keep every local image Markdown reference exactly and preserve source subheadings. "
+        "Review this part only; do not repeat article-level title, overview, prerequisites or conclusion sections. "
         "Metadata candidates are optional. Only replace a null with an object containing `value` and an exact "
         "`evidence` excerpt when that captured field is missing and this part explicitly states it; never infer."
     )
+    budget = _review_budget(client)
+    part_limit = budget.part_limit(system_prompt + chunk_protocol, "Article part 999 of 999:\n\n")
+    chunks = bounded_chunks(body, REVIEW_CHUNK_SIZE, part_limit, _split_review_chunks)
+    cache_key = hashlib.sha256(
+        (REVIEW_CHUNK_PROTOCOL_VERSION + str(REVIEW_CHUNK_SIZE) + str(part_limit)
+         + client.settings.provider + client.settings.model + system_prompt + source).encode("utf-8")
+    ).hexdigest()
+    from src.core.paths import runtime_home
+    chunk_cache_dir = runtime_home() / "review_chunks" / cache_key
+    chunk_cache_dir.mkdir(parents=True, exist_ok=True)
     semaphore = asyncio.Semaphore(2)
 
     async def generate_chunk(part_label: str, chunk: str, depth: int = 0):
@@ -390,13 +439,9 @@ async def _review_long_article(
             return content, summary, candidates, response
         except Exception as exc:
             if depth >= 2 or len(chunk) < 2200:
-                # A provider can occasionally return an empty body for one
-                # otherwise valid part.  Losing that source text (or aborting
-                # the whole article after the other parts succeeded) is worse
-                # than retaining the original prose for this bounded chunk.
-                # Noosphere still owns the final document structure, so this
-                # pass-through remains deterministic and structurally safe.
-                fallback = sanitize_slot_markdown(chunk)
+                # Retain source prose when a bounded part cannot be reviewed,
+                # rather than losing it while other parts succeed.
+                fallback = chunk.strip()
                 if not fallback:
                     raise
                 await emit_event(
@@ -408,7 +453,7 @@ async def _review_long_article(
             sub_limit = max(1800, len(chunk) // 2)
             sub_chunks = _split_review_chunks(chunk, sub_limit)
             if len(sub_chunks) < 2:
-                fallback = sanitize_slot_markdown(chunk)
+                fallback = chunk.strip()
                 if not fallback:
                     raise
                 await emit_event(
@@ -453,67 +498,82 @@ async def _review_long_article(
         for item in results
         for key, candidate in item[2].items()
     }
-    last_response = next((item[3] for item in reversed(results) if item[3] is not None), None)
 
-    non_body_sections = {name: heading for name, heading in sections.items() if name != body_section}
-    slots: dict[str, str] = {body_section: "\n\n".join(reviewed_chunks)}
     original_title = _source_title(raw_markdown)
-    if non_body_sections:
-        fields = ", ".join(f'"{name}"' for name in non_body_sections)
-        synthesis_protocol = (
-            "\n\n# Article-level synthesis protocol\n\n"
-            "Based only on the part summaries, return exactly one JSON object with `title` and `slots`. "
-            f"The `slots` object must contain these string fields: {fields}. Do not add JSON fences or prose outside JSON."
+    synthesis_protocol = (
+        "\n\n# Article-level synthesis protocol\n\n"
+        "Arrange the reviewed parts according to the article-format instructions. "
+        "The complete reviewed prose is stored separately: refer to each part by its 1-based index "
+        "instead of reproducing it or replacing it with a summary. Include each part exactly once. "
+        "Preserve source order unless the requested format explicitly requires another organization. "
+        "A layout entry may contain `markdown` (headings, overview, prerequisites or closing text) "
+        "and/or `chunks` (an array of part indexes to insert immediately after that markdown). "
+        "Use Markdown headings and separators as requested; do not include source metadata or an H1 title. "
+        "The internal summary is required even when no summary is displayed in the article. "
+        "Return exactly one JSON object with nonempty `title`, `summary`, and a `layout` array. "
+        'Example: {"title":"Article title","summary":"Internal factual summary",'
+        '"layout":[{"markdown":"## Article"},{"chunks":[1,2]},{"markdown":"## Conclusion\\nClosing text"}]}. '
+        "Do not add fences or text outside JSON."
+    )
+    synthesis_input = (
+        "Original title:\n" + original_title
+        + "\n\nPart summaries:\n"
+        + "\n".join(f"{index}. {summary}" for index, summary in enumerate(chunk_summaries, start=1))
+    )
+    for attempt in range(2):
+        retry_instruction = (
+            "\n\nThe previous response was invalid or incomplete. Return the complete JSON object, "
+            "including every part index exactly once." if attempt else ""
         )
-        synthesis_input = (
-            "Original title:\n"
-            + original_title
-            + "\n\nPart summaries:\n"
-            + "\n".join(f"{index}. {summary}" for index, summary in enumerate(chunk_summaries, start=1))
-        )
-        synthesis_error: Exception | None = None
-        for attempt in range(2):
-            retry_instruction = (
-                "\n\nThe previous response was invalid or incomplete. Return one complete JSON object only."
-                if attempt
-                else ""
-            )
-            try:
-                response = await client.generate_text(
-                    system_prompt + synthesis_protocol + retry_instruction,
-                    synthesis_input,
-                )
-                last_response = response
-                data = parse_json_object(response.text)
-                candidate_title = str(data.get("title") or original_title).strip()
-                raw_slots = data.get("slots")
-                if not isinstance(raw_slots, dict):
-                    raise ValueError("AI long-article synthesis is missing the `slots` object")
-                candidate_slots: dict[str, str] = {}
-                for name in non_body_sections:
-                    value = sanitize_slot_markdown(str(raw_slots.get(name) or ""))
-                    if not value:
-                        raise ValueError(f"AI long-article synthesis has an empty slot: {name}")
-                    candidate_slots[name] = value
-                title = candidate_title
-                slots.update(candidate_slots)
-                synthesis_error = None
-                break
-            except (ValueError, AIOutputTruncatedError) as exc:
-                synthesis_error = exc
-                await emit_event(
-                    "ai_review",
-                    "pipeline.events.aiReviewSynthesisRetry",
-                    f"attempt {attempt + 1} · {exc}",
-                )
-        if synthesis_error is not None:
-            raise synthesis_error
-    else:
-        title = original_title
+        try:
+            response = await client.generate_text(system_prompt + synthesis_protocol + retry_instruction, synthesis_input)
+            payload = _assemble_long_review(parse_json_object(response.text), reviewed_chunks)
+            return ReviewPayload(
+                title=payload.title,
+                markdown=payload.markdown,
+                summary=payload.summary,
+                metadata_candidates=metadata_candidates,
+            ), response
+        except (ValueError, AIOutputTruncatedError) as exc:
+            await emit_event("ai_review", "pipeline.events.aiReviewSynthesisRetry", f"attempt {attempt + 1} · {exc}")
+            if attempt:
+                raise
 
-    if last_response is None:
-        raise ValueError("Long article contains no reviewable content")
-    return ReviewPayload(title=title, slots=slots, metadata_candidates=metadata_candidates), last_response
+
+def _assemble_long_review(data: dict, reviewed_chunks: list[str]):
+    """Insert every complete part once, keeping synthesis below provider output limits."""
+    from src.core.review.output_contract import ReviewPayload, clean_review_markdown
+
+    for field in ("title", "summary"):
+        if not isinstance(data.get(field), str) or not data[field].strip():
+            raise ValueError(f"AI long-article synthesis requires a nonempty `{field}` string")
+    layout = data.get("layout")
+    if not isinstance(layout, list) or not layout:
+        raise ValueError("AI long-article synthesis requires a layout array")
+    used: list[int] = []
+    blocks: list[str] = []
+    for entry in layout:
+        if not isinstance(entry, dict) or not ({"markdown", "chunks"} & entry.keys()):
+            raise ValueError("AI long-article layout has an invalid entry")
+        if "markdown" in entry:
+            if not isinstance(entry["markdown"], str):
+                raise ValueError("AI long-article layout Markdown must be a string")
+            blocks.append(entry["markdown"].strip())
+        indexes = entry.get("chunks", [])
+        if not isinstance(indexes, list):
+            raise ValueError("AI long-article layout chunks must be an array")
+        for index in indexes:
+            if type(index) is not int or not 1 <= index <= len(reviewed_chunks) or index in used:
+                raise ValueError("AI long-article layout has an invalid or duplicate part index")
+            used.append(index)
+            blocks.append(reviewed_chunks[index - 1])
+    if sorted(used) != list(range(1, len(reviewed_chunks) + 1)):
+        raise ValueError("AI long-article layout must include every reviewed part exactly once")
+    return ReviewPayload(
+        title=" ".join(data["title"].split()),
+        markdown=clean_review_markdown("\n\n".join(block for block in blocks if block)),
+        summary=data["summary"].strip(),
+    )
 
 
 def _parse_long_review_chunk_response(response_text: str):
@@ -521,7 +581,7 @@ def _parse_long_review_chunk_response(response_text: str):
     from src.core.review.output_contract import (
         parse_json_object,
         parse_metadata_candidates,
-        sanitize_slot_markdown,
+        clean_review_markdown,
     )
 
     content_match = re.search(
@@ -530,7 +590,7 @@ def _parse_long_review_chunk_response(response_text: str):
         re.DOTALL | re.IGNORECASE,
     )
     if content_match:
-        content = sanitize_slot_markdown(content_match.group(1))
+        content = clean_review_markdown(content_match.group(1))
         summary_match = re.search(
             r"<summary>\s*(.*?)\s*</summary>",
             response_text,
@@ -559,7 +619,7 @@ def _parse_long_review_chunk_response(response_text: str):
     data = parse_json_object(response_text)
     raw_slots = data.get("slots")
     slot_content = next(iter(raw_slots.values()), "") if isinstance(raw_slots, dict) else ""
-    content = sanitize_slot_markdown(str(
+    content = clean_review_markdown(str(
         data.get("content") or data.get("body") or data.get("reviewed_content") or slot_content or ""
     ))
     summary = str(data.get("summary") or "").strip() or _fallback_chunk_summary(content)
@@ -572,6 +632,13 @@ def _article_body(markdown: str) -> str:
         if index > 0 and re.fullmatch(r"\s*(?:---|\*\*\*|___)\s*", line):
             return "\n".join(lines[index + 1 :]).strip()
     return markdown.strip()
+
+
+def _review_budget(client) -> ReviewBudget:
+    return ReviewBudget(
+        output_tokens=getattr(client, "output_token_budget", getattr(client.settings, "max_output_tokens", 12000)),
+        input_tokens=getattr(client, "input_token_budget", None),
+    )
 
 
 def _source_title(markdown: str) -> str:

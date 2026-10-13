@@ -2,6 +2,20 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
+## v0.3.3.0 — Review templates and image/text coordination
+
+Completed natural-language templates and three-stage review are recorded under `[0.3.3.0]` in `CHANGELOG.md` and `docs/releases/v0.3.3.0.md`. Release operations are authorized; publication and merge outcomes are recorded by the v0.3.3.0 GitHub release and release pull request.
+
+### Release gates
+
+- [x] Complete Dockerfile build and isolated PostgreSQL-backed runtime, authentication, frontend, image move/remove/restore, revision guards and non-root Chromium checks pass. The built image also passes 292 backend tests; 124 business-source, prompt and package hashes match the release workspace (2026-10-13).
+
+- [x] Three-stage order, image placement/removal and recovery, preflight capacity checks, fallback behavior, protected metadata, unchanged-prose and concurrent-save regressions pass. Backend: 292 passed, 7 opt-in browser tests skipped; frontend: 25 passed; production build, source compilation, configuration JSON and diff checks pass (2026-10-12).
+- [x] Drag performance acceptance: pointer and scrolling work share one frame update; thumbnail feedback and cached block lookup avoid repeated full-page hit testing. Browser regressions preserve equivalent gaps, original-position drops, final release coordinates, edge scrolling, list placement, image counts and prose. A 30-update synthetic desktop sample reduced median update time from 77.6 ms to 2.3 ms; manual interaction remains the final feel check.
+- [x] Review settings and image workflow documentation describe the implemented behavior. Live acceptance completed with DataGrand text review, KimiCode vision, 3 image moves, 5 recoverable removals and 1 local text adjustment. Capacity metadata, a 131,072-token text request and previously truncated image with a 32,768-token budget also passed live smoke checks. Manual drag into a list point, save and reload preserved image counts, prose and removal state. Browser checks confirm one marker for equivalent boundaries, hidden original-position hints, and current release coordinates overriding an earlier hover target.
+
+Capture, search, Collections and delivery business rules remain outside this iteration. The plugin repository is being developed in another chat and is not edited here.
+
 ## v0.3.2.8
 
 The release is prepared in `CHANGELOG.md` and `docs/releases/v0.3.2.8.md`.
@@ -36,6 +50,10 @@ On 2026-09-21 the user explicitly requested one release containing all completed
 The combined release operations are authorized. Publication and merge outcomes are tracked by the v0.3.2.7 GitHub release, tag-triggered image workflow and release pull request.
 
 ## Later product iterations
+
+- [ ] SiYuan-like article block interactions: drag paragraphs, lists, quotations, tables and code as intact blocks; fold heading content through the next heading of equal/higher level, and move a heading with its section. Preserve Markdown and export content when folded; assess editor support before choosing an implementation.
+
+- [ ] Improve article-level organization after bounded review: the live custom-perspective recovery retained duplicate template headings across parts. Preserve complete source content while consolidating the requested article structure; wider long-article adaptation remains deferred.
 
 - [ ] Background search indexing. Large-library benchmarks are excluded at the user's request; use small functional regressions.
 - [ ] Batch configuration snapshots, provider/site throttling and backoff, explicit recapture/re-review modes, idempotent external delivery, usage/cost reporting and bulk movement of existing articles.

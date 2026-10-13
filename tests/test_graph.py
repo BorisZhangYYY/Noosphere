@@ -45,6 +45,9 @@ def test_default_initial_state_has_required_keys(initial_state):
         "assets",
         "download_failed",
         "reviewed_markdown",
+        "review_summary",
+        "review_revision",
+        "image_layout_result",
         "image_filter_result",
         "validation_result",
         "feedback",
@@ -223,14 +226,14 @@ async def test_ai_review_graph_matches_legacy_pipeline(monkeypatch, tmp_path):
     )
 
     async def mock_generate_text(self, system_prompt: str, user_prompt: str) -> AITextResponse:
+        if "# Final image coordination protocol" in system_prompt:
+            return AITextResponse(text=json.dumps({"images": [{"id": "image_001", "action": "keep"}], "text_edits": []}), model="mock", provider="mock")
         if "# Response protocol" in system_prompt:
             return AITextResponse(
                 text=json.dumps({
                     "title": "Parity Test Article",
-                    "slots": {
-                        "summary": "A brief summary.",
-                        "main_article": "This is the article body.\n\n![diagram](assets/image_01.png)",
-                    },
+                    "summary": "A brief summary.",
+                    "markdown": "## AI Summary\n\nA brief summary.\n\n---\n\n## Main Article\n\nThis is the article body.\n\n![diagram](assets/image_01.png)",
                     "metadata_candidates": {"author": None, "published_at": None},
                 }),
                 model="mock",
@@ -239,7 +242,7 @@ async def test_ai_review_graph_matches_legacy_pipeline(monkeypatch, tmp_path):
         return AITextResponse(text=reviewed_markdown, model="mock", provider="mock")
 
     async def mock_generate_vision(self, system_prompt: str, content: list[dict]) -> AITextResponse:
-        return AITextResponse(text="RELEVANT", model="mock", provider="mock")
+        return AITextResponse(text=json.dumps({"classification": "RELEVANT", "description": "A diagram", "function": "Illustrates the explanation"}), model="mock", provider="mock")
 
     monkeypatch.setattr(AIClient, "generate_text", mock_generate_text)
     monkeypatch.setattr(AIClient, "generate_vision", mock_generate_vision)
@@ -331,3 +334,42 @@ Written by Ada Lovelace.
     assert "> Author: Ada Lovelace" in reviewed
     manifest = json.loads((article_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["metadata_enrichment"]["fields"]["author"]["evidence"] == "Written by Ada Lovelace"
+
+
+@pytest.mark.asyncio
+async def test_review_uses_natural_custom_format_without_a_visible_summary(monkeypatch, tmp_path) -> None:
+    from src.core.config.schema import Config, PipelineConfig, ReviewPerspectiveConfig
+    from src.graph.tools import edit_article
+    from src.integrations.ai_client import AIClient, AITextResponse
+
+    format_file = tmp_path / "format.md"
+    format_file.write_text("## Evidence\n\n(Keep the complete article. Do not display a summary.)", encoding="utf-8")
+    config = Config.model_validate({
+        "ai": {"provider": "test"},
+        "ai_providers": {"test": {
+            "model": "test-model", "api_base": "https://api.example.test/v1", "api_key": "test",
+        }},
+        "pipeline": PipelineConfig(perspectives={"research": ReviewPerspectiveConfig(
+            label="Research", prompt_path="prompts/perspectives/original.en.md", template_path=str(format_file),
+        )}, active_perspective="research"),
+    })
+    monkeypatch.setattr("src.graph.tools.load_config", lambda: config)
+
+    async def generate_text(self, system_prompt: str, user_prompt: str):
+        assert "Do not display a summary" in system_prompt
+        assert "# Article format" in system_prompt
+        assert "# Response protocol" in system_prompt
+        assert '"slots"' not in system_prompt
+        return AITextResponse(text=json.dumps({
+            "title": "Reviewed", "markdown": "## Evidence\n\nAll original details.", "summary": "Internal context",
+        }), model="test-model", provider="test")
+
+    monkeypatch.setattr(AIClient, "generate_text", generate_text)
+    result = await edit_article.ainvoke({
+        "raw_markdown": "# Source\n\n> Source: [https://example.com](https://example.com)\n> Author: Ada\n\n---\n\nAll original details.",
+        "feedback": "", "platform": "web", "content_type": "article", "perspective": "research",
+    })
+    assert "## Evidence\n\nAll original details." in result["markdown"]
+    assert "> Author: Ada" in result["markdown"]
+    assert "Internal context" not in result["markdown"]
+    assert "AI Summary" not in result["markdown"]

@@ -70,6 +70,7 @@
       "api_base": "https://api.openai.com/v1",
       "api_key": "your-openai-api-key-here",
       "max_output_tokens": 12000,
+      "context_window_tokens": null,
       "temperature": 0.2,
       "vision_capable": false
     },
@@ -80,6 +81,7 @@
       "api_base": "https://api.anthropic.com",
       "api_key": "your-anthropic-api-key-here",
       "max_output_tokens": 12000,
+      "context_window_tokens": null,
       "temperature": 0.2,
       "timeout_seconds": 300,
       "vision_capable": false

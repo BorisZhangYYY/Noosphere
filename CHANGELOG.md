@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.3.0] - 2026-10-13
+
+### Changed
+
+- Review Configuration now exposes only the perspective and natural-language article template; shared cleaning rules, metadata protection, and response protocols stay system-managed. Built-in source-faithful and beginner-friendly templates use Markdown headings and writing guidance, matching the SiYuan plugin’s configuration model.
+- AI review returns complete Markdown rather than fixed content slots. Custom templates can choose chapter names, order, and whether to display a summary; an internal summary remains required. Long articles use the same format guidance while preserving full reviewed parts and the existing chunking, retry, and fallback policy.
+- Existing variable templates are read as natural writing instructions and converted when saved. Web, MCP, and CLI share the new configuration, with legacy slot arguments accepted for compatibility.
+- Review now runs in three stages: review the current draft and generate an internal summary, analyze each image in an independent vision context, then let the text model coordinate image retention, recoverable removal and placement according to the perspective and article template. Image analysis returns visible content and functional roles in one call per image. The text model can work without vision support.
+- Final image coordination preserves reviewed prose by default and applies only explicit image operations plus justified nearby wording adjustments. Image IDs remain tied to source order. Vision failures preserve uncertain images; invalid or failed coordination preserves the completed text draft and all images. Revision checks prevent concurrent user edits from being overwritten. Existing image judgments are reused only when image bytes, summary, prompt and model context agree.
+- Active article images can be dragged to paragraphs, headings or list points using an insertion line and edge scrolling. The former up/down buttons are removed; explicit deletion/restoration, keyboard placement and revision-aware saves remain. Drag serialization preserves image references and counts, and rejects incomplete transactions.
+- Removed the repeated yellow missing-author and missing-publication-date hints from the read-only source panel. Verified missing values can still be entered in Edit mode.
+
+### Fixed
+
+- Articles below the long-review threshold now recover from provider-reported output truncation through the existing bounded review path instead of failing without a draft. Manual review shows elapsed time, an explicit waiting message before visible output, and separate text, image-analysis and image-placement stages.
+- Review now checks optional provider-advertised model capacities and configured generation budgets before sending the full article. Oversized drafts go directly to bounded parts, parts shrink to their effective budget, and impossible instruction budgets are rejected before generation. Known capacities replace the fixed character trigger; unsupported model metadata retains a conservative fallback. Provider settings expose output and optional context budgets.
+- Image analysis now honors the configured output budget instead of silently clamping all protocols to 1,024 tokens.
+- Manual image dragging now uses one marker for equivalent block boundaries, hides drop targets that leave the image in its original position, and recomputes the target during scrolling and on release so the displayed gap agrees with placement.
+- Image dragging coalesces pointer and scrolling work into one frame update, caches article structure, and avoids repeated full-page hit testing. A bounded thumbnail replaces the large native preview; edge scrolling ramps smoothly and keeps its speed consistent across refresh rates.
+
 ## [0.3.2.8] - 2026-09-30
 
 ### Fixed

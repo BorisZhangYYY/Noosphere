@@ -535,6 +535,10 @@ export function SettingsPage() {
                 </div>
 
                 <label><span>{t("settings.model")}</span><input value={selectedProvider.model} onChange={(event) => updateProvider("model", event.target.value)} placeholder={t("settings.modelPlaceholder")} /><small>{t("settings.modelHelp")}</small></label>
+                <div className="field-grid">
+                  <label><span>{t("settings.outputBudget")}</span><input type="number" min="1" step="1" value={selectedProvider.maxOutputTokens ?? 12000} onChange={(event) => updateProvider("maxOutputTokens", Number(event.target.value))} /><small>{t("settings.outputBudgetHelp")}</small></label>
+                  <label><span>{t("settings.contextWindow")}</span><input type="number" min="1" step="1" value={selectedProvider.contextWindowTokens ?? ""} placeholder={t("settings.contextWindowAuto")} onChange={(event) => updateProvider("contextWindowTokens", event.target.value ? Number(event.target.value) : null)} /><small>{t("settings.contextWindowHelp")}</small></label>
+                </div>
                 <label>
                   <span>{t("settings.apiEndpoint")}</span>
                   <input type="url" value={selectedProvider.apiBase} onChange={(event) => { updateProvider("apiBase", event.target.value); setEndpointMessage(""); }} placeholder="https://api.example.com/v1" />

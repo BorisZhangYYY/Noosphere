@@ -48,6 +48,9 @@ class ArticleState(TypedDict):
 
     # AI review outputs
     reviewed_markdown: str
+    review_summary: str
+    review_revision: str
+    image_layout_result: dict
     image_filter_result: ImageFilterResult | None
     validation_result: ValidationResult | None
     feedback: str
@@ -82,6 +85,7 @@ class ArticleState(TypedDict):
         "assets_downloaded",
         "image_filtered",
         "reviewing",
+        "text_reviewed",
         "reviewed",
         "reflected",
         "classified",

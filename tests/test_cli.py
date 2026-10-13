@@ -176,3 +176,12 @@ def test_config_reveal_requires_explicit_acknowledgement() -> None:
     args = parse_args(["config", "reveal", "ai"])
 
     assert args.yes is False
+
+
+def test_perspective_save_accepts_natural_format_without_slots() -> None:
+    args = parse_args([
+        "perspectives", "save", "reader", "--label", "Reader",
+        "--prompt-file", "perspective.md", "--template-file", "format.md",
+    ])
+    assert args.sections == "{}"
+    assert args.body_section == ""

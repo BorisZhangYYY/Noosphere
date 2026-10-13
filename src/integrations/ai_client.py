@@ -10,6 +10,7 @@ import aiohttp
 from src.core.config.config import load_config
 from src.core.config.schema import Config
 from src.core.telemetry import emit_event, has_event_sink
+from src.integrations.model_limits import ModelLimits, models_endpoint, parse_model_limits
 
 
 class AIProviderError(RuntimeError):
@@ -84,6 +85,7 @@ class AISettings:
     temperature: float | None = None
     anthropic_version: str = "2023-06-01"
     timeout_seconds: int = 600
+    context_window_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -107,14 +109,70 @@ def resolve_ai_settings(config: Config | None = None, provider_name: str | None 
         temperature=settings["temperature"],
         anthropic_version=settings["anthropic_version"],
         timeout_seconds=settings["timeout_seconds"],
+        context_window_tokens=settings["context_window_tokens"],
     )
 
 
 class AIClient:
     def __init__(self, settings: AISettings | None = None):
         self.settings = settings or resolve_ai_settings()
+        self.model_limits = ModelLimits(context_tokens=getattr(self.settings, "context_window_tokens", None))
+        self._limits_prepared = False
+
+    @property
+    def output_token_budget(self) -> int:
+        limits = [self.settings.max_output_tokens]
+        if self.model_limits.output_tokens:
+            limits.append(self.model_limits.output_tokens)
+        elif self.model_limits.context_tokens:
+            limits.append(max(1, self.model_limits.context_tokens // 2))
+        return min(limits)
+
+    @property
+    def input_token_budget(self) -> int | None:
+        limits = []
+        if self.model_limits.input_tokens:
+            limits.append(self.model_limits.input_tokens)
+        if self.model_limits.context_tokens:
+            limits.append(self.model_limits.context_tokens - self.output_token_budget)
+        return min(limits) if limits else None
+
+    async def prepare_limits(self) -> ModelLimits:
+        if self._limits_prepared:
+            return self.model_limits
+        self._limits_prepared = True
+        advertised = await self._fetch_model_limits()
+        contexts = [value for value in (advertised.context_tokens, self.settings.context_window_tokens) if value]
+        self.model_limits = ModelLimits(
+            context_tokens=min(contexts) if contexts else None,
+            input_tokens=advertised.input_tokens,
+            output_tokens=advertised.output_tokens,
+        )
+        return self.model_limits
+
+    async def _fetch_model_limits(self) -> ModelLimits:
+        resolver = {"anthropic": anthropic_messages_endpoint, "openai_chat": openai_chat_endpoint,
+                    "openai_responses": openai_responses_endpoint}[self._api_format()]
+        endpoint = resolver(self.settings.api_base)
+        headers = ({"x-api-key": self._api_key(), "anthropic-version": self.settings.anthropic_version,
+                    "Authorization": f"Bearer {self._api_key()}"}
+                   if self._api_format() == "anthropic"
+                   else {"Authorization": f"Bearer {self._api_key()}"})
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(models_endpoint(endpoint), headers=headers,
+                                       timeout=aiohttp.ClientTimeout(total=3), allow_redirects=False) as response:
+                    if response.status != 200:
+                        return ModelLimits()
+                    return parse_model_limits(await response.json(), self.settings.model)
+        except (aiohttp.ClientError, TimeoutError, ValueError):
+            return ModelLimits()
 
     async def generate_text(self, system_prompt: str, user_prompt: str) -> AITextResponse:
+        from src.core.review.budget import estimate_tokens
+        if (self.input_token_budget is not None
+                and estimate_tokens(system_prompt + user_prompt) + 512 > self.input_token_budget):
+            raise AIProviderError("Input exceeds the model's available context budget; no generation request was sent")
         api_format = self._api_format()
         if has_event_sink() and api_format == "openai_responses":
             text = await self._openai_response_stream(system_prompt, user_prompt)
@@ -137,7 +195,7 @@ class AIClient:
             "model": self.settings.model,
             "instructions": system_prompt,
             "input": user_prompt,
-            "max_output_tokens": self.settings.max_output_tokens,
+            "max_output_tokens": self.output_token_budget,
             "stream": True,
         }
         if self.settings.temperature is not None:
@@ -163,7 +221,7 @@ class AIClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": self.settings.max_output_tokens,
+            "max_tokens": self.output_token_budget,
             "stream": True,
         }
         if self.settings.temperature is not None:
@@ -187,7 +245,7 @@ class AIClient:
     async def _anthropic_message_stream(self, system_prompt: str, user_prompt: str) -> str:
         payload: dict[str, Any] = {
             "model": self.settings.model,
-            "max_tokens": self.settings.max_output_tokens,
+            "max_tokens": self.output_token_budget,
             "system": system_prompt,
             "messages": [{"role": "user", "content": [{"type": "text", "text": user_prompt}]}],
             "stream": True,
@@ -306,7 +364,7 @@ class AIClient:
             "model": self.settings.model,
             "instructions": system_prompt,
             "input": user_prompt,
-            "max_output_tokens": self.settings.max_output_tokens,
+            "max_output_tokens": self.output_token_budget,
         }
         if self.settings.temperature is not None:
             payload["temperature"] = self.settings.temperature
@@ -328,7 +386,7 @@ class AIClient:
         endpoint = anthropic_messages_endpoint(self.settings.api_base)
         payload: dict[str, Any] = {
             "model": self.settings.model,
-            "max_tokens": self.settings.max_output_tokens,
+            "max_tokens": self.output_token_budget,
             "system": system_prompt,
             "messages": [{"role": "user", "content": [{"type": "text", "text": user_prompt}]}],
         }
@@ -354,7 +412,7 @@ class AIClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": self.settings.max_output_tokens,
+            "max_tokens": self.output_token_budget,
         }
         if self.settings.temperature is not None:
             payload["temperature"] = self.settings.temperature
@@ -372,7 +430,7 @@ class AIClient:
         endpoint = anthropic_messages_endpoint(self.settings.api_base)
         payload: dict[str, Any] = {
             "model": self.settings.model,
-            "max_tokens": min(self.settings.max_output_tokens, 1024),
+            "max_tokens": self.output_token_budget,
             "system": system_prompt,
             "messages": [{"role": "user", "content": content}],
         }
@@ -410,7 +468,7 @@ class AIClient:
             "model": self.settings.model,
             "instructions": system_prompt,
             "input": openai_input,
-            "max_output_tokens": min(self.settings.max_output_tokens, 1024),
+            "max_output_tokens": self.output_token_budget,
         }
         if self.settings.temperature is not None:
             payload["temperature"] = self.settings.temperature
@@ -449,7 +507,7 @@ class AIClient:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": chat_content},
                 ],
-                "max_tokens": min(self.settings.max_output_tokens, 1024),
+                "max_tokens": self.output_token_budget,
             },
             {
                 "Authorization": f"Bearer {self._api_key()}",

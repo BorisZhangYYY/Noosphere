@@ -15,7 +15,7 @@ import { MarkdownEditor } from "../components/MarkdownEditor";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { localizedPlatformLabel } from "../localization";
-import type { ArticleAnnotation, ArticleWorkspaceDetail, CollectionNode, OutputLanguage, QuoteAnchorDraft } from "../types";
+import type { ArticleAnnotation, ArticleWorkspaceDetail, CollectionNode, OutputLanguage, QuoteAnchorDraft, ReviewJob } from "../types";
 
 function collectionOptions(nodes: CollectionNode[], path: string[] = []): Array<{ value: string; label: string; description?: string }> {
   return nodes.flatMap((node) => {
@@ -35,6 +35,34 @@ async function digestText(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function ReviewProgress({ job }: { job: ReviewJob | null | undefined }) {
+  const { t } = useTranslation();
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (job?.status !== "running") return;
+    setNow(Date.now());
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [job?.id, job?.status]);
+  const started = Date.parse(job?.startedAt || job?.createdAt || "");
+  const ended = job?.finishedAt ? Date.parse(job.finishedAt) : now;
+  const seconds = Number.isFinite(started) ? Math.max(0, Math.floor((ended - started) / 1000)) : 0;
+  const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const waiting = job?.status === "running" && job.stage === "ai_review" && !job.reviewPreview;
+  const chunking = job?.status === "running" && job.stage === "ai_review"
+    && job.events.some((event) => event.message === "pipeline.events.aiReviewTruncatedFallback");
+  const plannedChunking = job?.status === "running" && job.stage === "ai_review"
+    && job.events.some((event) => event.message === "pipeline.events.aiReviewPreflightSplit");
+  return <div className="upload-progress">
+    <div><span>{t(`article.reviewStages.${job?.stage ?? "queued"}`)}</span><strong>{job?.progress ?? 0}%</strong></div>
+    <progress max="100" value={job?.progress ?? 0} />
+    <p className="rail-note">{t("article.reviewElapsed", { time: elapsed })}</p>
+    {waiting && <p className="rail-note">{t("article.reviewWaitingForModel")}</p>}
+    {chunking && <p className="rail-note" role="status">{t("article.reviewChunkingAfterTruncation")}</p>}
+    {plannedChunking && !chunking && <p className="rail-note" role="status">{t("article.reviewChunkingPlanned")}</p>}
+  </div>;
 }
 
 export function ArticlePage() {
@@ -555,13 +583,11 @@ export function ArticlePage() {
                     {!readOnly && article.metadata.author.editable
                       ? <input className="metadata-field-input" value={metadataAuthor} onChange={(event) => setMetadataAuthor(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
                       : article.metadata.author.value}
-                    {readOnly && article.metadata.author.editable && <span className="metadata-missing-tip">{t("article.missingMetadataTip")}</span>}
                   </dd></div>
                   <div><dt>{t("article.published")}</dt><dd>
                     {!readOnly && article.metadata.publishedAt.editable
                       ? <input className="metadata-field-input" value={metadataPublishedAt} onChange={(event) => setMetadataPublishedAt(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
                       : article.metadata.publishedAt.value}
-                    {readOnly && article.metadata.publishedAt.editable && <span className="metadata-missing-tip">{t("article.missingMetadataTip")}</span>}
                   </dd></div>
                   <div><dt>{t("article.captured")}</dt><dd>{article.metadata.capturedAt.value}</dd></div>
                   <div><dt>{t("article.type")}</dt><dd>{t(`article.types.${article.contentType}`, { defaultValue: article.contentType })}</dd></div>
@@ -607,7 +633,7 @@ export function ArticlePage() {
               {pipelineSettingsQuery.data && <InlineSelect value={reviewPerspective || pipelineSettingsQuery.data.activePerspective} ariaLabel={t("pipeline.perspective")} onChange={setReviewPerspective} disabled={readOnly || reviewing} options={pipelineSettingsQuery.data.perspectives.map((item) => ({ value: item.id, label: item.label, description: item.description }))} />}
               <InlineSelect<OutputLanguage> value={reviewLanguage} ariaLabel={t("pipeline.outputLanguage")} onChange={setReviewLanguage} disabled={readOnly || reviewing} options={(["follow_ui", "source", "zh-CN", "en-US"] as const).map((value) => ({ value, label: t(`pipeline.languages.${value}`), description: t(`pipeline.languagesHelp.${value}`) }))} />
               <p className="operation-counts">{t("article.reviewCount", { count: article.operationSummary.reviewCount })} · {t("article.rereviewCount", { count: article.operationSummary.rereviewCount })}</p>
-              {(reviewing || reviewJob?.status === "succeeded") && <div className="upload-progress" aria-live="polite"><div><span>{t(`article.reviewStages.${reviewJob?.stage ?? "queued"}`)}</span><strong>{reviewJob?.progress ?? 0}%</strong></div><progress max="100" value={reviewJob?.progress ?? 0} /></div>}
+              {(reviewing || reviewJob?.status === "succeeded") && <ReviewProgress job={reviewJob} />}
               {(reviewMutation.isError || reviewJob?.status === "failed") && <p className="article-action-error" role="alert">{(reviewMutation.error as Error)?.message || reviewJob?.error}</p>}
               <button className="button-primary" type="button" onClick={() => reviewMutation.mutate()} disabled={readOnly || !reviewPerspective || reviewing}><MagicWand size={17} />{reviewing ? t("article.aiReviewing") : t("article.startAiSecondReview")}</button>
             </div>

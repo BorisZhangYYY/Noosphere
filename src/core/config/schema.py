@@ -15,7 +15,8 @@ class AIProviderConfig(BaseModel):
     model: str
     api_base: str
     api_key: str
-    max_output_tokens: int = 12000
+    max_output_tokens: int = Field(default=12000, ge=1)
+    context_window_tokens: int | None = Field(default=None, ge=1)
     temperature: float | None = Field(default=0.2, ge=0.0, le=2.0)
     timeout_seconds: int = 300
     anthropic_version: str = "2023-06-01"
@@ -70,27 +71,19 @@ class ReviewPerspectiveLocaleConfig(BaseModel):
     description: str = ""
     prompt_path: str
     template_path: str
-    output_sections: dict[str, str]
-    body_section: str
+    output_sections: dict[str, str] = Field(default_factory=dict, exclude=True)
+    body_section: str = Field(default="", exclude=True)
 
     def prompt_metadata(self) -> PromptMetadata:
         from src.core.review.prompt_metadata import PromptMetadata, RequiredHeading, ValidationRule
 
-        headings = [RequiredHeading(level=1, text=None)]
-        headings.extend(RequiredHeading(level=2, text=heading) for heading in self.output_sections.values())
-        first_heading = next(iter(self.output_sections.values()))
         return PromptMetadata(
-            required_headings=headings,
+            required_headings=[RequiredHeading(level=1, text=None)],
             validation_rules=[
-                ValidationRule("no_content_before_heading", {"heading": first_heading}),
                 ValidationRule("all_images_local", {"required": True}),
                 ValidationRule("source_metadata_required_fields", {
                     "fields": ["Source", "Platform", "Author", "Published", "Captured", "Type"],
                     "source_must_be_link": True,
-                }),
-                ValidationRule("main_article_subheadings_min_level", {
-                    "heading": self.output_sections[self.body_section],
-                    "min_level": 3,
                 }),
             ],
         )
@@ -110,14 +103,6 @@ class ReviewPerspectiveConfig(ReviewPerspectiveLocaleConfig):
         if template_path == "prompts/edit_article.md":
             template_path = "prompts/templates/original_article.md"
             upgraded["template_path"] = template_path
-        novice = "novice" in template_path.casefold()
-        if "output_sections" not in upgraded:
-            upgraded["output_sections"] = (
-                {"summary": "快速理解", "prerequisites": "阅读前准备", "main_article": "正文与讲解"}
-                if novice
-                else {"summary": "AI Summary", "main_article": "Main Article"}
-            )
-        upgraded.setdefault("body_section", "main_article")
         return upgraded
 
     def localized(self, language: str) -> ReviewPerspectiveLocaleConfig:
@@ -144,16 +129,12 @@ def _builtin_perspective_localizations(key: str) -> dict[str, ReviewPerspectiveL
                 description="补充必要背景与术语解释，降低首次阅读门槛。",
                 prompt_path="prompts/perspectives/novice.md",
                 template_path="prompts/templates/novice_article.md",
-                output_sections={"summary": "快速理解", "prerequisites": "阅读前准备", "main_article": "正文与讲解"},
-                body_section="main_article",
             ),
             "en-US": ReviewPerspectiveLocaleConfig(
                 label="Beginner-friendly",
                 description="Add essential context and terminology for a first-time reader.",
                 prompt_path="prompts/perspectives/novice.en.md",
                 template_path="prompts/templates/novice_article.en.md",
-                output_sections={"summary": "Quick Understanding", "prerequisites": "Before You Read", "main_article": "Article with Explanations"},
-                body_section="main_article",
             ),
         }
     return {
@@ -162,16 +143,12 @@ def _builtin_perspective_localizations(key: str) -> dict[str, ReviewPerspectiveL
             description="保留作者的论证结构，只清理噪音并优化表达。",
             prompt_path="prompts/perspectives/original.md",
             template_path="prompts/templates/original_article.zh.md",
-            output_sections={"summary": "AI 摘要", "main_article": "正文"},
-            body_section="main_article",
         ),
         "en-US": ReviewPerspectiveLocaleConfig(
             label="Source-faithful",
             description="Preserve the author's argument while removing noise and improving clarity.",
             prompt_path="prompts/perspectives/original.en.md",
             template_path="prompts/templates/original_article.md",
-            output_sections={"summary": "AI Summary", "main_article": "Main Article"},
-            body_section="main_article",
         ),
     }
 
@@ -194,8 +171,6 @@ class PipelineConfig(BaseModel):
                 description="保留作者的论证结构，只清理噪音并优化表达。",
                 prompt_path="prompts/perspectives/original.md",
                 template_path="prompts/templates/original_article.zh.md",
-                output_sections={"summary": "AI 摘要", "main_article": "正文"},
-                body_section="main_article",
                 builtin=True,
                 localizations=_builtin_perspective_localizations("original"),
             ),
@@ -204,12 +179,6 @@ class PipelineConfig(BaseModel):
                 description="补充必要背景与术语解释，降低首次阅读门槛。",
                 prompt_path="prompts/perspectives/novice.md",
                 template_path="prompts/templates/novice_article.md",
-                output_sections={
-                    "summary": "快速理解",
-                    "prerequisites": "阅读前准备",
-                    "main_article": "正文与讲解",
-                },
-                body_section="main_article",
                 builtin=True,
                 localizations=_builtin_perspective_localizations("novice"),
             ),
@@ -236,7 +205,7 @@ class PipelineConfig(BaseModel):
         return self
 
     def resolve_review_prompt(self, perspective: str | None = None, language: str = "en-US") -> tuple[str, PromptMetadata]:
-        """Compose content guidance; document structure is rendered by Noosphere."""
+        """Compose hidden system rules, the perspective and natural-language format."""
         from src.core.review.prompt_metadata import parse_prompt_file
 
         key = perspective or self.active_perspective
@@ -251,28 +220,28 @@ class PipelineConfig(BaseModel):
         common = parse_prompt_file(resolve_project_path(common_path))
         viewpoint = parse_prompt_file(resolve_project_path(localized.prompt_path))
         titles = (
-            ("Common constraints", "Review perspective")
+            ("Common constraints", "Review perspective", "Article format")
             if locale == "en-US"
-            else ("通用约束", "审阅视角")
+            else ("通用约束", "审阅视角", "文章模板")
         )
+        _, template = self.resolve_review_contract(key, locale)
         prompt = "\n\n".join((
             f"# {titles[0]}\n\n" + common.body.strip(),
             f"# {titles[1]}\n\n" + viewpoint.body.strip(),
+            f"# {titles[2]}\n\n" + template,
         ))
         return prompt, localized.prompt_metadata()
 
     def resolve_review_contract(self, perspective: str | None = None, language: str = "en-US") -> tuple[ReviewPerspectiveLocaleConfig, str]:
-        from src.core.review.output_contract import validate_output_template
-        from src.core.review.prompt_metadata import parse_prompt_file
+        from src.core.review.output_contract import article_format_instruction
 
         key = perspective or self.active_perspective
         profile = self.perspectives.get(key)
         if profile is None:
             raise ValueError(f"Unknown review perspective: {key}")
         localized = profile.localized(language)
-        template = parse_prompt_file(resolve_project_path(localized.template_path)).body
-        validate_output_template(template, localized.output_sections)
-        return localized, template
+        template = resolve_project_path(localized.template_path).read_text(encoding="utf-8")
+        return localized, article_format_instruction(template, localized.output_sections)
 
 
 class CheckpointConfig(BaseModel):
@@ -411,6 +380,7 @@ class Config(BaseModel):
             "api_key": provider.api_key,
             "api_base": provider.api_base,
             "max_output_tokens": provider.max_output_tokens,
+            "context_window_tokens": provider.context_window_tokens,
             "temperature": provider.temperature,
             "anthropic_version": provider.anthropic_version,
             "timeout_seconds": provider.timeout_seconds,

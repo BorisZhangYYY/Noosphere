@@ -865,7 +865,7 @@ def save_pipeline_settings(payload: dict[str, Any], *, locale: str = "en-US") ->
     if len(json.dumps(perspectives, ensure_ascii=False).encode("utf-8")) > 4 * 1024 * 1024:
         raise ValueError("The custom perspective payload exceeds the 4 MB limit")
     from src.core.paths import resolve_project_path, runtime_home
-    from src.core.review.output_contract import validate_output_template
+    from src.core.review.output_contract import article_format_instruction
 
     data = config.model_dump(mode="json")
     data.setdefault("pipeline", {})["review_mode"] = review_mode
@@ -891,25 +891,13 @@ def save_pipeline_settings(payload: dict[str, Any], *, locale: str = "en-US") ->
         prompt = item.get("prompt")
         template = item.get("template")
         output_sections = item.get("outputSections")
-        body_section = str(item.get("bodySection") or "").strip()
         if not label or len(label) > 80:
             raise ValueError(f"Perspective {key} needs a label of at most 80 characters")
         if len(description) > 400:
             raise ValueError(f"Perspective {key} description is too long")
         if not isinstance(prompt, str) or not prompt.strip() or not isinstance(template, str):
             raise ValueError(f"Perspective {key} is missing prompt or template content")
-        if not isinstance(output_sections, dict) or not output_sections:
-            raise ValueError(f"Perspective {key} is missing output sections")
-        normalized_sections: dict[str, str] = {}
-        for slot, heading in output_sections.items():
-            slot_name = str(slot).strip()
-            heading_name = str(heading).strip()
-            if not re.fullmatch(r"[a-z][a-z0-9_]{0,47}", slot_name) or not heading_name:
-                raise ValueError(f"Perspective {key} has an invalid output section")
-            normalized_sections[slot_name] = heading_name
-        if body_section not in normalized_sections:
-            raise ValueError(f"Perspective {key} body section is invalid")
-        validate_output_template(template, normalized_sections)
+        template = article_format_instruction(template, output_sections if isinstance(output_sections, dict) else None)
         existing = config.pipeline.perspectives.get(key)
         custom_root = runtime_home() / "prompts" / "review"
         prompt_path = resolve_project_path(existing.prompt_path) if existing and not existing.builtin else custom_root / f"{key}.prompt.md"
@@ -919,8 +907,6 @@ def save_pipeline_settings(payload: dict[str, Any], *, locale: str = "en-US") ->
             "description": description,
             "prompt_path": str(prompt_path),
             "template_path": str(template_path),
-            "output_sections": normalized_sections,
-            "body_section": body_section,
             "builtin": False,
             "localizations": {},
         }
@@ -945,8 +931,8 @@ def upsert_review_perspective(
     description: str,
     prompt: str,
     template: str,
-    output_sections: dict[str, str],
-    body_section: str,
+    output_sections: dict[str, str] | None = None,
+    body_section: str = "",
     locale: str = "en-US",
     activate: bool = False,
 ) -> dict[str, Any]:

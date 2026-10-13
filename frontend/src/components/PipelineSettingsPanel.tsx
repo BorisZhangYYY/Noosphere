@@ -46,8 +46,7 @@ export function PipelineSettingsPanel() {
       prompt: active.prompt,
       template: active.template,
       builtin: false,
-      editable: true,
-      outputSections: { ...active.outputSections }
+      editable: true
     };
     setDraft((current) => current ? { ...current, activePerspective: id, perspectives: [...current.perspectives, perspective] } : current);
     setPromptTab("perspective");
@@ -68,8 +67,6 @@ export function PipelineSettingsPanel() {
     setPendingDelete(null);
   }
 
-  const templateFields = ["title", "source_metadata", ...Object.keys(active?.outputSections ?? {})];
-
   return <section className="settings-group pipeline-control-panel" id="settings-review">
     <div className="group-heading group-heading-action">
       <div><h2>{t("pipeline.controlTitle")}</h2><p>{t("pipeline.controlDescription")}</p></div>
@@ -83,19 +80,9 @@ export function PipelineSettingsPanel() {
       <label className="settings-field"><span>{t("pipeline.outputLanguage")}</span><InlineSelect<OutputLanguage> value={draft.outputLanguage} onChange={(outputLanguage) => setDraft({ ...draft, outputLanguage })} ariaLabel={t("pipeline.outputLanguage")} options={(['follow_ui', 'source', 'zh-CN', 'en-US'] as const).map((value) => ({ value, label: t(`pipeline.languages.${value}`), description: t(`pipeline.languagesHelp.${value}`) }))} /></label>
     </div>
 
-    <div className="prompt-formula" aria-label={t("pipeline.promptFormulaLabel")}><span>{t("pipeline.promptTabs.common")}</span><i>+</i><span>{t("pipeline.promptTabs.perspective")}</span><i>+</i><span>{t("pipeline.promptTabs.template")}</span><b>→</b><strong>{t("pipeline.promptContract")}</strong></div>
-
-    <section className="prompt-layer common-prompt-layer">
-      <div className="prompt-layer-heading">
-        <div><span className="prompt-layer-index">1</span><div><h3>{t("pipeline.commonLayerTitle")}</h3><p>{t("pipeline.promptHelp.common")}</p></div></div>
-        <span className="readonly-badge">{t("pipeline.readonly")}</span>
-      </div>
-      <textarea className="prompt-editor common-prompt-editor" value={draft.commonPrompt} readOnly aria-label={t("pipeline.promptTabs.common")} spellCheck={false} />
-    </section>
-
     <section className="prompt-layer perspective-prompt-layer">
       <div className="prompt-layer-heading perspective-layer-heading">
-        <div><span className="prompt-layer-index">2</span><div><h3>{t("pipeline.perspectiveLayerTitle")}</h3><p>{t("pipeline.perspectiveLayerDescription")}</p></div></div>
+        <div><div><h3>{t("pipeline.perspectiveLayerTitle")}</h3><p>{t("pipeline.perspectiveLayerDescription")}</p></div></div>
         <div className="perspective-actions">
           <button className="button-secondary compact-button" type="button" onClick={createPerspective}><Plus size={16} />{t("pipeline.addPerspective")}</button>
           {active?.editable && <button className={pendingDelete === active.id ? "button-danger compact-button" : "button-secondary compact-button"} type="button" onClick={deletePerspective}><Trash size={16} />{pendingDelete === active.id ? t("common.confirm") : t("pipeline.deletePerspective")}</button>}
@@ -115,18 +102,8 @@ export function PipelineSettingsPanel() {
       </div>
       <p className="prompt-help">{t(`pipeline.promptHelp.${promptTab}`)} {!promptEditable && t("pipeline.builtinReadonly")}</p>
 
-      <div className={`perspective-editor-layout${promptTab === "template" ? " template-editor-layout" : ""}`}>
-        <textarea className="prompt-editor" value={editorValue} onChange={(event) => updateActive(promptTab === "perspective" ? { prompt: event.target.value } : { template: event.target.value })} spellCheck={false} disabled={!promptEditable} />
-        {promptTab === "template" && <aside className="template-guide" aria-label={t("pipeline.templateGuideTitle")}>
-          <h4>{t("pipeline.templateGuideTitle")}</h4>
-          <p>{t("pipeline.templateGuideDescription")}</p>
-          <div className="template-field-list">{templateFields.map((field) => <code key={field}>{`{{${field}}}`}</code>)}</div>
-          <ol>
-            <li>{t("pipeline.templateGuideExact")}</li>
-            <li>{t("pipeline.templateGuideHeadings")}</li>
-            <li>{t("pipeline.templateGuideMetadata")}</li>
-          </ol>
-        </aside>}
+      <div className="perspective-editor-layout">
+        <textarea className="prompt-editor" value={editorValue} onChange={(event) => updateActive(promptTab === "perspective" ? { prompt: event.target.value } : { template: event.target.value })} spellCheck={false} readOnly={!promptEditable} aria-label={t(`pipeline.promptTabs.${promptTab}`)} />
       </div>
     </section>
 

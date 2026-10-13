@@ -5,6 +5,7 @@ import "vditor/dist/index.css";
 import "./MarkdownEditor.css";
 import { useTheme } from "../theme";
 import type { ArticleAnnotation, QuoteAnchorDraft } from "../types";
+import { createImageDropResolver, dragScrollDistance, dragScrollVelocity, imageDropMarkdown, nearestDragBlock } from "../imageDrag";
 
 interface MarkdownEditorProps {
   articleId: string;
@@ -42,37 +43,6 @@ function hasSameImageStructure(candidate: string, reference: string) {
     && candidateImages.every((image, index) => image === referenceImages[index]);
 }
 
-function imageTargetName(source: string) {
-  const cleanSource = source.split(/[?#]/, 1)[0];
-  try {
-    return decodeURIComponent(cleanSource.split("/").pop() ?? "");
-  } catch {
-    return cleanSource.split("/").pop() ?? "";
-  }
-}
-
-function moveImageBlockInMarkdown(markdown: string, assetName: string, imageIndex: number, direction: "up" | "down") {
-  const segments = markdown.split(/(\n[ \t]*\n(?:[ \t]*\n)*)/);
-  let currentImageIndex = 0;
-  let targetSegmentIndex = -1;
-  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 2) {
-    const segment = segments[segmentIndex];
-    for (const match of stripEditorArtifacts(segment).matchAll(MARKDOWN_IMAGE_TARGET_RE)) {
-      const source = match[1] || match[2] || match[3] || "";
-      if (currentImageIndex === imageIndex && imageTargetName(source) === assetName && match[0].trim() === segment.trim()) {
-        targetSegmentIndex = segmentIndex;
-        break;
-      }
-      currentImageIndex += 1;
-    }
-    if (targetSegmentIndex >= 0) break;
-  }
-  const siblingSegmentIndex = targetSegmentIndex + (direction === "up" ? -2 : 2);
-  if (targetSegmentIndex < 0 || siblingSegmentIndex < 0 || siblingSegmentIndex >= segments.length) return null;
-  [segments[targetSegmentIndex], segments[siblingSegmentIndex]] = [segments[siblingSegmentIndex], segments[targetSegmentIndex]];
-  return segments.join("");
-}
-
 export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAssetNames = [], showRemovedImages = true, onDeleteImage, onRestoreImage, annotations = [], annotationSourceDigest = "", onSelectQuote, onOpenAnnotation, onResolvedAnnotationIds, focusAnnotationRequest }: MarkdownEditorProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -89,6 +59,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
   const annotationPropsRef = useRef({ annotations, annotationSourceDigest, onSelectQuote, onOpenAnnotation, onResolvedAnnotationIds });
   const restoringImageStructureRef = useRef(false);
   const applyingExternalValueRef = useRef(false);
+  const imageMoveHistoryRef = useRef(new Set<string>());
   const { i18n, t } = useTranslation();
   const { resolvedTheme } = useTheme();
   const resolvedThemeRef = useRef(resolvedTheme);
@@ -139,11 +110,47 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         return "";
       }
     };
-    const editableImageBlock = (shell: HTMLElement) => shell.closest<HTMLElement>("[data-block='0']") ?? shell;
-    const moveImageBlock = (name: string, index: number, direction: "up" | "down") => {
+    let dragging: {
+      index: number; value: string; image: HTMLImageElement; root: HTMLElement;
+      scrollContainer: Element; scrollBounds: { top: number; bottom: number };
+      blocks: Map<HTMLElement, Array<{ element: HTMLElement; top: number; bottom: number }>>;
+      resolve: ReturnType<typeof createImageDropResolver>;
+      layoutDirty: boolean;
+    } | null = null;
+    let dropPosition: { target: HTMLElement; side: "before" | "after" } | null = null;
+    let dragPointer: { x: number; y: number; fallback: Element | null } | null = null;
+    let dragFrame = 0;
+    let lastDragFrameTime = 0;
+    let dragPreview: HTMLCanvasElement | null = null;
+    const frameBounds = new Map<Node, DOMRect>();
+    const boundsFor = (node: Node) => {
+      let bounds = frameBounds.get(node);
+      if (!bounds) {
+        if (node instanceof Element) bounds = node.getBoundingClientRect();
+        else {
+          const range = document.createRange();
+          range.selectNode(node);
+          bounds = range.getBoundingClientRect();
+        }
+        frameBounds.set(node, bounds);
+      }
+      return bounds;
+    };
+    const dropLine = document.createElement("div");
+    dropLine.className = "noosphere-image-drop-line";
+    dropLine.hidden = true;
+    dropLine.setAttribute("aria-hidden", "true");
+    actionsRef.current?.append(dropLine);
+    const moveImage = (index: number, target: HTMLElement, side: "before" | "after") => {
       if (readOnlyRef.current) return;
-      const nextMarkdown = moveImageBlockInMarkdown(valueRef.current, name, index, direction);
-      if (!nextMarkdown) return;
+      const root = host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset");
+      const currentEditor = editorRef.current;
+      if (!root || !currentEditor) return;
+      const nextMarkdown = imageDropMarkdown(root, index, target, side,
+        html => currentEditor.vditor.lute.VditorDOM2Md(html), valueRef.current);
+      if (!nextMarkdown || nextMarkdown === valueRef.current) return;
+      imageMoveHistoryRef.current.add(stripEditorArtifacts(currentEditor.getValue()).trim());
+      imageMoveHistoryRef.current.add(nextMarkdown.trim());
       valueRef.current = nextMarkdown;
       applyingExternalValueRef.current = true;
       editorRef.current?.setValue(nextMarkdown);
@@ -153,20 +160,201 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         scheduleDecoration();
       });
     };
+    const clearDrag = () => {
+      dragging?.image.classList.remove("noosphere-image-dragging");
+      dragging = null;
+      dropPosition = null;
+      dragPointer = null;
+      cancelAnimationFrame(dragFrame);
+      dragFrame = 0;
+      lastDragFrameTime = 0;
+      frameBounds.clear();
+      dropLine.hidden = true;
+      dragPreview?.remove();
+      dragPreview = null;
+      frameRef.current?.classList.remove("markdown-editor-dragging");
+      if (!cancelled) scheduleDecoration();
+    };
+    const handleDragStart = (event: DragEvent) => {
+      const image = event.target instanceof Element ? event.target.closest<HTMLImageElement>("img[data-asset-name]") : null;
+      if (!image) return;
+      event.stopImmediatePropagation();
+      if (readOnlyRef.current || removedNamesRef.current.has(image.dataset.assetName!)) { event.preventDefault(); return; }
+      clearDrag();
+      const root = image.closest<HTMLElement>(".vditor-wysiwyg .vditor-reset");
+      if (!root) { event.preventDefault(); return; }
+      const images = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+      let scrollHost: HTMLElement | null = host;
+      while (scrollHost && (scrollHost.scrollHeight <= scrollHost.clientHeight
+        || !["auto", "scroll"].includes(getComputedStyle(scrollHost).overflowY))) scrollHost = scrollHost.parentElement;
+      const scrollContainer = scrollHost ?? document.scrollingElement ?? document.documentElement;
+      dragging = {
+        index: images.indexOf(image), value: valueRef.current, image, root, scrollContainer,
+        scrollBounds: scrollHost?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight },
+        blocks: new Map(), resolve: createImageDropResolver(root, images.indexOf(image), boundsFor), layoutDirty: false,
+      };
+      image.classList.add("noosphere-image-dragging");
+      frameRef.current?.classList.add("markdown-editor-dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.clearData();
+        event.dataTransfer.setData("application/x-noosphere-image", `${articleId}:${dragging.index}`);
+        if (image.complete && image.naturalWidth && image.naturalHeight) {
+          const preview = document.createElement("canvas");
+          preview.width = 160;
+          preview.height = 100;
+          const context = preview.getContext("2d");
+          if (context) {
+            const scale = Math.min(preview.width / image.naturalWidth, preview.height / image.naturalHeight);
+            const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+            context.drawImage(image, (preview.width - width) / 2, (preview.height - height) / 2, width, height);
+            preview.className = "noosphere-image-drag-preview";
+            preview.setAttribute("aria-hidden", "true");
+            document.body.append(preview);
+            dragPreview = preview;
+            event.dataTransfer.setDragImage(preview, 80, 50);
+          }
+        }
+      }
+    };
+    const updateDropPosition = (x: number, y: number, fallback?: Element | null) => {
+      if (!dragging || readOnlyRef.current) { dropPosition = null; dropLine.hidden = true; return; }
+      const { root } = dragging;
+      frameBounds.clear();
+      if (dragging.layoutDirty) {
+        dragging.scrollBounds = dragging.scrollContainer === document.scrollingElement
+          ? { top: 0, bottom: window.innerHeight } : boundsFor(dragging.scrollContainer);
+        dragging.blocks.clear();
+        dragging.resolve = createImageDropResolver(root, dragging.index, boundsFor);
+        dragging.layoutDirty = false;
+      }
+      const rootBounds = boundsFor(root);
+      if (x < rootBounds.left || x > rootBounds.right || y < rootBounds.top || y > rootBounds.bottom) {
+        dropPosition = null; dropLine.hidden = true; return;
+      }
+      let target = fallback && root.contains(fallback)
+        ? fallback.closest<HTMLElement>(".vditor-wysiwyg__block")
+          ?? fallback.closest<HTMLElement>("p, li, blockquote, table, hr, h1, h2, h3, h4, h5, h6") : null;
+      const targetBounds = target ? boundsFor(target) : null;
+      if (!targetBounds || y < targetBounds.top || y > targetBounds.bottom) {
+        const nearestChild = (parent: HTMLElement): HTMLElement | null => {
+          let blocks = dragging!.blocks.get(parent);
+          if (!blocks) {
+            const scrollTop = dragging!.scrollContainer.scrollTop;
+            blocks = Array.from(parent.children).flatMap(child => {
+              if (!(child instanceof HTMLElement)) return [];
+              const bounds = boundsFor(child);
+              return bounds.width || bounds.height ? [{ element: child, top: bounds.top + scrollTop, bottom: bounds.bottom + scrollTop }] : [];
+            }).sort((a, b) => a.top - b.top);
+            dragging!.blocks.set(parent, blocks);
+          }
+          return blocks[nearestDragBlock(blocks, y + dragging!.scrollContainer.scrollTop)]?.element ?? null;
+        };
+        target = nearestChild(root);
+        while (target && ["UL", "OL"].includes(target.tagName)) target = nearestChild(target);
+      }
+      if (!root || !target || !root.contains(target)) { dropPosition = null; dropLine.hidden = true; return; }
+      const bounds = boundsFor(target);
+      const side = target.tagName === "H1" || y >= bounds.top + bounds.height / 2 ? "after" : "before";
+      const position = dragging.resolve(target, side);
+      if (!position) { dropPosition = null; dropLine.hidden = true; return; }
+      dropPosition = position;
+      const frame = boundsFor(frameRef.current!);
+      const transform = `translate3d(${position.marker.left - frame.left}px, ${position.marker.top - frame.top - 1.5}px, 0)`;
+      if (dropLine.style.transform !== transform) dropLine.style.transform = transform;
+      const width = `${position.marker.width}px`;
+      if (dropLine.style.width !== width) dropLine.style.width = width;
+      dropLine.hidden = false;
+    };
+    const runDragFrame = (timestamp: number) => {
+      dragFrame = 0;
+      if (!dragging || !dragPointer || readOnlyRef.current) return;
+      updateDropPosition(dragPointer.x, dragPointer.y, dragPointer.fallback);
+      const { scrollContainer, scrollBounds } = dragging;
+      const velocity = dragScrollVelocity(dragPointer.y, scrollBounds.top, scrollBounds.bottom);
+      const elapsed = lastDragFrameTime ? timestamp - lastDragFrameTime : 1000 / 60;
+      lastDragFrameTime = timestamp;
+      if (velocity) {
+        const before = scrollContainer.scrollTop;
+        scrollContainer.scrollTop += dragScrollDistance(velocity, elapsed);
+        if (scrollContainer.scrollTop !== before) dragFrame = requestAnimationFrame(runDragFrame);
+      }
+      if (!dragFrame) lastDragFrameTime = 0;
+    };
+    const scheduleDragFrame = () => {
+      if (dragging && dragPointer && !dragFrame) dragFrame = requestAnimationFrame(runDragFrame);
+    };
+    const handleDragScroll = (event: Event) => {
+      if (dragging && event.target !== dragging.scrollContainer) dragging.layoutDirty = true;
+      scheduleDragFrame();
+    };
+    const handleDragOver = (event: DragEvent) => {
+      if (!dragging || readOnlyRef.current) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      dragPointer = { x: event.clientX, y: event.clientY, fallback: event.target instanceof Element ? event.target : null };
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      scheduleDragFrame();
+    };
+    const handleDragLeave = (event: DragEvent) => {
+      if (!dragging || (event.relatedTarget instanceof Node && host.contains(event.relatedTarget))) return;
+      const bounds = host.getBoundingClientRect();
+      const viewport = dragging.scrollBounds;
+      if (event.clientX >= bounds.left && event.clientX <= bounds.right
+        && event.clientY >= Math.max(bounds.top, viewport.top) && event.clientY <= Math.min(bounds.bottom, viewport.bottom)) return;
+      dropPosition = null;
+      dragPointer = null;
+      dropLine.hidden = true;
+      cancelAnimationFrame(dragFrame);
+      dragFrame = 0;
+      lastDragFrameTime = 0;
+    };
+    const handleDrop = (event: DragEvent) => {
+      if (!dragging) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      cancelAnimationFrame(dragFrame);
+      dragFrame = 0;
+      updateDropPosition(event.clientX, event.clientY, event.target instanceof Element ? event.target : null);
+      if (dropPosition && dragging.value === valueRef.current) moveImage(dragging.index, dropPosition.target, dropPosition.side);
+      clearDrag();
+    };
+    const handleImageKeyboard = (event: KeyboardEvent) => {
+      if (readOnlyRef.current || !event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+      const image = event.target instanceof Element ? event.target.closest<HTMLImageElement>("img[data-asset-name]") : null;
+      if (!image || removedNamesRef.current.has(image.dataset.assetName!)) return;
+      const source = image.closest("p") ?? image;
+      const direction = event.key === "ArrowUp" ? "before" : "after";
+      const target = direction === "before" ? source.previousElementSibling : source.nextElementSibling;
+      if (!(target instanceof HTMLElement) || (target.tagName === "H1" && direction === "before")) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const index = Array.from(host.querySelectorAll(".vditor-wysiwyg img")).indexOf(image);
+      moveImage(index, target, direction);
+      requestAnimationFrame(() => host.querySelectorAll<HTMLImageElement>(".vditor-wysiwyg img")[direction === "before" ? Math.max(0, index - Number(target.querySelector("img") !== null)) : index + Number(target.querySelector("img") !== null)]?.focus());
+    };
     const decorateImages = () => {
+      if (dragging) return;
       const frame = frameRef.current;
       const actionLayer = actionsRef.current;
       if (!frame || !actionLayer) return;
       const frameBounds = frame.getBoundingClientRect();
       const visibleActions = new Set<string>();
       host.querySelectorAll<HTMLImageElement>(".vditor-wysiwyg img").forEach((img, index) => {
+        const path = new URL(img.currentSrc || img.src, window.location.origin).pathname;
+        if (!path.startsWith(`/api/v1/articles/${encodeURIComponent(articleId)}/assets/`)
+            && !path.startsWith(`/api/v1/articles/${encodeURIComponent(articleId)}/removed/`)) return;
         const name = imageName(img.currentSrc || img.src);
         if (!name) return;
         const removed = removedNamesRef.current.has(name);
         img.classList.toggle("noosphere-image-removed", removed);
         img.dataset.assetName = name;
-        img.draggable = false;
-        const shell = (img.closest<HTMLElement>("[data-type='img']") ?? img.parentElement);
+        img.draggable = !readOnlyRef.current && !removed;
+        img.tabIndex = readOnlyRef.current || removed ? -1 : 0;
+        img.setAttribute("aria-description", t("article.dragImage"));
+        const paragraph = img.closest("p");
+        const shell = img.closest<HTMLElement>("[data-type='img']")
+          ?? (paragraph && !paragraph.textContent?.trim() && paragraph.querySelectorAll("img").length === 1 ? paragraph : img);
         if (!shell) return;
         shell.classList.add("noosphere-image-shell");
         shell.dataset.imageState = removed ? "removed" : "active";
@@ -181,7 +369,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
           actionGroup = document.createElement("div");
           actionGroup.className = "noosphere-image-actions";
           actionGroup.onclick = handleImageAction;
-          for (const actionName of ["move-up", "move-down", removed ? "restore" : "delete"] as const) {
+          for (const actionName of [removed ? "restore" : "delete"] as const) {
             const action = document.createElement("button");
             action.type = "button";
             action.className = "noosphere-image-action";
@@ -195,22 +383,11 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         actionGroup.dataset.assetName = name;
         actionGroup.dataset.imageIndex = String(index);
         actionGroup.dataset.imageState = removed ? "removed" : "active";
-        const moveUp = actionGroup.querySelector<HTMLButtonElement>("[data-action='move-up']")!;
-        const moveDown = actionGroup.querySelector<HTMLButtonElement>("[data-action='move-down']")!;
         const stateAction = actionGroup.querySelector<HTMLButtonElement>("[data-action='delete'], [data-action='restore']")!;
         stateAction.dataset.action = removed ? "restore" : "delete";
-        moveUp.textContent = "↑";
-        moveDown.textContent = "↓";
-        moveUp.setAttribute("aria-label", t("article.moveImageUpNamed", { name }));
-        moveDown.setAttribute("aria-label", t("article.moveImageDownNamed", { name }));
-        moveUp.title = t("article.moveImageUp");
-        moveDown.title = t("article.moveImageDown");
         stateAction.textContent = label;
         stateAction.setAttribute("aria-label", removed ? t("article.restoreImageNamed", { name }) : t("article.deleteImageNamed", { name }));
         stateAction.title = label;
-        const block = editableImageBlock(shell);
-        moveUp.disabled = removed || !block.previousElementSibling;
-        moveDown.disabled = removed || !block.nextElementSibling;
         const shellBounds = shell.getBoundingClientRect();
         actionGroup.style.top = `${Math.max(0, shellBounds.top - frameBounds.top + 12)}px`;
         actionGroup.style.right = `${Math.max(12, frameBounds.right - shellBounds.right + 12)}px`;
@@ -222,6 +399,11 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       });
     };
     const scheduleDecoration = () => {
+      if (dragging) {
+        dragging.layoutDirty = true;
+        scheduleDragFrame();
+        return;
+      }
       cancelAnimationFrame(decorationFrame);
       decorationFrame = requestAnimationFrame(decorateImages);
     };
@@ -412,11 +594,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         event.stopPropagation();
         const actionGroup = imageAction.closest<HTMLElement>(".noosphere-image-actions");
         const name = actionGroup?.dataset.assetName;
-        const index = Number(actionGroup?.dataset.imageIndex ?? -1);
         if (!name) return;
-        if (imageAction.dataset.action === "move-up" && index >= 0) moveImageBlock(name, index, "up");
-        else if (imageAction.dataset.action === "move-down" && index >= 0) moveImageBlock(name, index, "down");
-        else if (imageAction.dataset.action === "restore") imageActionsRef.current.onRestoreImage?.(name);
+        if (imageAction.dataset.action === "restore") imageActionsRef.current.onRestoreImage?.(name);
         else if (imageAction.dataset.action === "delete") imageActionsRef.current.onDeleteImage?.(name);
       }
     };
@@ -521,6 +700,13 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     host.addEventListener("keydown", preventAtomicImageDeletion, true);
     host.addEventListener("beforeinput", preventAtomicImageBeforeInput, true);
     host.addEventListener("cut", preventAtomicImageCut, true);
+    host.addEventListener("dragstart", handleDragStart, true);
+    host.addEventListener("dragover", handleDragOver, true);
+    host.addEventListener("dragleave", handleDragLeave, true);
+    host.addEventListener("drop", handleDrop, true);
+    host.addEventListener("dragend", clearDrag, true);
+    host.addEventListener("keydown", handleImageKeyboard, true);
+    window.addEventListener("scroll", handleDragScroll, true);
 
     async function mountEditor() {
       if (i18n.resolvedLanguage === "zh") {
@@ -569,7 +755,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         input: (markdown) => {
           if (readOnlyRef.current || applyingExternalValueRef.current || restoringImageStructureRef.current) return;
           const cleaned = stripEditorArtifacts(markdown);
-          if (!hasSameImageStructure(cleaned, valueRef.current)) {
+          if (!hasSameImageStructure(cleaned, valueRef.current) && !imageMoveHistoryRef.current.has(cleaned.trim())) {
             restoringImageStructureRef.current = true;
             queueMicrotask(() => {
               editorRef.current?.setValue(valueRef.current);
@@ -621,6 +807,15 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       host.removeEventListener("keydown", preventAtomicImageDeletion, true);
       host.removeEventListener("beforeinput", preventAtomicImageBeforeInput, true);
       host.removeEventListener("cut", preventAtomicImageCut, true);
+      host.removeEventListener("dragstart", handleDragStart, true);
+      host.removeEventListener("dragover", handleDragOver, true);
+      host.removeEventListener("dragleave", handleDragLeave, true);
+      host.removeEventListener("drop", handleDrop, true);
+      host.removeEventListener("dragend", clearDrag, true);
+      host.removeEventListener("keydown", handleImageKeyboard, true);
+      window.removeEventListener("scroll", handleDragScroll, true);
+      clearDrag();
+      dropLine.remove();
       host.removeEventListener("load", scheduleDecoration, true);
       window.removeEventListener("resize", scheduleDecoration);
       cancelAnimationFrame(decorationFrame);

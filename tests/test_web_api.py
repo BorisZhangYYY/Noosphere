@@ -667,7 +667,12 @@ def test_pipeline_defaults_are_localized_and_read_only(web_client) -> None:
     assert english["perspectives"][0]["label"] == "Source-faithful"
     assert chinese["perspectives"][0]["label"] == "基于原文"
     assert english["perspectives"][0]["editable"] is False
-    assert english["commonEditable"] is False
+    assert "commonEditable" not in english
+    assert "commonPrompt" not in english
+    assert all("outputSections" not in item and "bodySection" not in item for item in english["perspectives"])
+    novice = next(item for item in chinese["perspectives"] if item["id"] == "novice")
+    assert "## 阅读前准备" in novice["template"]
+    assert "{{" not in novice["template"]
 
 
 def test_pipeline_can_create_update_and_remove_custom_perspective(web_client) -> None:
@@ -679,6 +684,7 @@ def test_pipeline_can_create_update_and_remove_custom_perspective(web_client) ->
         "label": "研究视角",
         "description": "突出证据与限制条件。",
         "prompt": "请从研究者角度分析证据、方法和限制。",
+        "template": "---\n\n## 证据\n\n（完整保留正文；不生成可见摘要。）\n\n---\n\n## 限制",
         "builtin": False,
         "editable": True,
     })
@@ -694,7 +700,10 @@ def test_pipeline_can_create_update_and_remove_custom_perspective(web_client) ->
     persisted = json.loads(config_path.read_text(encoding="utf-8"))
     profile = persisted["pipeline"]["perspectives"]["custom_reader"]
     assert Path(profile["prompt_path"]).read_text(encoding="utf-8") == custom["prompt"]
-    assert Path(profile["template_path"]).is_file()
+    assert Path(profile["template_path"]).read_text(encoding="utf-8") == custom["template"]
+    assert created_item["template"] == custom["template"]
+    assert "output_sections" not in profile
+    assert "body_section" not in profile
 
     remove_payload = created.json()
     remove_payload["activePerspective"] = "original"
@@ -745,6 +754,23 @@ def test_settings_api_masks_and_preserves_secrets(web_client) -> None:
     reloaded = client.get("/api/v1/settings").json()
     assert reloaded["aiProviders"][0]["model"] == "updated-model"
     assert "existing-secret" not in json.dumps(reloaded)
+
+
+def test_settings_round_trip_review_capacity_and_reject_invalid_budget(web_client):
+    client, config_path, _ = web_client
+    settings = client.get("/api/v1/settings").json()
+    settings['aiProviders'][0].update(maxOutputTokens=131072, contextWindowTokens=1048576)
+    response = client.patch('/api/v1/settings', json=settings)
+    assert response.status_code == 200
+    profile = response.json()['aiProviders'][0]
+    assert profile['maxOutputTokens'] == 131072
+    assert profile['contextWindowTokens'] == 1048576
+    persisted = json.loads(config_path.read_text())['ai_providers']['openai']
+    assert persisted['max_output_tokens'] == 131072
+    assert persisted['context_window_tokens'] == 1048576
+    settings['aiProviders'][0]['maxOutputTokens'] = 0
+    assert client.patch('/api/v1/settings', json=settings).status_code == 400
+    assert client.get('/api/v1/settings').json()['aiProviders'][0]['maxOutputTokens'] == 131072
 
 
 def test_settings_save_succeeds_when_chmod_is_not_permitted(web_client, monkeypatch) -> None:
@@ -1409,3 +1435,60 @@ def test_cookie_login_flow_replaces_browser_basic_auth(web_client, monkeypatch) 
 
     client.post("/api/v1/auth/logout")
     assert client.get("/api/v1/auth/status").json()["authenticated"] is False
+
+
+def test_pipeline_accepts_legacy_templates_without_enforcing_slot_declarations(web_client) -> None:
+    client, config_path, _ = web_client
+    payload = client.get("/api/v1/pipeline/settings?locale=zh-CN").json()
+    custom = dict(payload["perspectives"][0])
+    custom.update({
+        "id": "legacy", "label": "Legacy", "builtin": False,
+        "template": "# {{title}}\n\n{{source_metadata}}\n\n## Details\n\n{{main_article}}\n\n## Notes\n\n{{notes}}",
+        "outputSections": {"main_article": "Details", "notes": "Notes"}, "bodySection": "main_article",
+    })
+    payload["perspectives"].append(custom)
+    saved = client.patch("/api/v1/pipeline/settings?locale=zh-CN", json=payload)
+    assert saved.status_code == 200, saved.text
+    template = next(item["template"] for item in saved.json()["perspectives"] if item["id"] == "legacy")
+    assert "{{" not in template
+    assert "## Details" in template and "## Notes" in template
+    assert "complete article" in template
+    reread = client.get("/api/v1/pipeline/settings?locale=zh-CN").json()
+    assert next(item["template"] for item in reread["perspectives"] if item["id"] == "legacy") == template
+    profile = json.loads(config_path.read_text())["pipeline"]["perspectives"]["legacy"]
+    assert Path(profile["template_path"]).read_text(encoding="utf-8") == template
+    assert "output_sections" not in profile
+
+
+@pytest.mark.asyncio
+async def test_review_job_resets_truncated_preview_and_reports_image_stages(web_client, monkeypatch):
+    from src.api.web import _run_article_review_job
+    from src.core.telemetry import emit_event
+    from src.core.review.review_validation import ValidationResult
+
+    _, _, article_id = web_client
+    job_id = 'progress-recovery'
+    _review_jobs[job_id] = {'id': job_id, 'articleId': article_id, 'events': [], 'reviewPreview': '', 'progress': 0}
+    snapshots = []
+
+    async def review(path, **kwargs):
+        await emit_event('ai_output_delta', '', 'Incomplete discarded response')
+        await emit_event('ai_review', 'pipeline.events.aiReviewTruncatedFallback')
+        snapshots.append(dict(_review_jobs[job_id]))
+        await emit_event('image_review', 'pipeline.events.imageReviewStarted')
+        snapshots.append(dict(_review_jobs[job_id]))
+        await emit_event('image_layout', 'pipeline.events.imageLayoutStarted')
+        snapshots.append(dict(_review_jobs[job_id]))
+        return ValidationResult(path, [])
+
+    async def place(*args, **kwargs):
+        return {'collection_id': None, 'reason': 'No matching index'}
+
+    monkeypatch.setattr('src.graph.graph.run_ai_review_graph', review)
+    monkeypatch.setattr('src.core.collections.place_reviewed_article', place)
+    await _run_article_review_job(job_id, article_id, 'original', 'zh-CN')
+    assert snapshots[0]['reviewPreview'] == ''
+    assert snapshots[0]['progress'] == 20
+    assert snapshots[1]['stage'] == 'image_review' and snapshots[1]['progress'] == 80
+    assert snapshots[2]['stage'] == 'image_layout' and snapshots[2]['progress'] == 88
+    assert _review_jobs[job_id]['status'] == 'succeeded'

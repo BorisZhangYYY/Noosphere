@@ -579,7 +579,7 @@ async def place_article(
 
 @mcp.tool()
 async def list_review_perspectives(locale: str = "en-US") -> dict[str, Any]:
-    """List built-in and custom review perspectives and their template contracts."""
+    """List built-in and custom review perspectives and natural-language article templates."""
     from src.application.service import get_pipeline_settings
 
     settings = await _to_thread(get_pipeline_settings, locale=locale)
@@ -599,12 +599,12 @@ async def save_review_perspective(
     description: str,
     prompt: str,
     template: str,
-    output_sections: dict[str, str],
-    body_section: str,
+    output_sections: dict[str, str] | None = None,
+    body_section: str = "",
     locale: str = "en-US",
     activate: bool = False,
 ) -> dict[str, Any]:
-    """Create or update a custom perspective after validating its template fields."""
+    """Create or update a custom perspective and natural-language article format."""
     from src.application.service import upsert_review_perspective
 
     settings = await _to_thread(
