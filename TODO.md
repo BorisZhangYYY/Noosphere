@@ -6,7 +6,7 @@ This file contains only unresolved, deliberately deferred, or release-blocking w
 
 Goal: provide lightweight block presentation, movement and heading folding in the existing Vditor WYSIWYG editor, while retaining complete Markdown, protected assets and revision-aware saves.
 
-Prepared on 2026-10-13 from merged `main` at `c23561b`. The user clarified the scope as paragraph dragging and block-level presentation, with a simple UI rather than a SiYuan interface replica. Preview feedback expanded structural movement using SiYuan's list/list-item distinction and corrected list control layout. The eight scoped product issues, including paired list grips, heading folding, conditional chapter movement and continuous gutter controls, are implemented locally and recorded under `[Unreleased]` in `CHANGELOG.md`. Implementation notes and verification results are in [.project/editor-operations-plan.md](.project/editor-operations-plan.md). Release preparation remains below.
+Prepared on 2026-10-13 from merged `main` at `c23561b`. The user clarified the scope as paragraph dragging and block-level presentation, with a simple UI rather than a SiYuan interface replica. Preview feedback expanded structural movement using SiYuan's list/list-item distinction and corrected list control layout. The eight scoped product issues, including paired list grips, heading folding, conditional chapter movement and continuous gutter controls, are implemented locally and recorded under `[0.3.3.1]` in `CHANGELOG.md`. Implementation notes and verification results are in [.project/editor-operations-plan.md](.project/editor-operations-plan.md). Release preparation remains below.
 
 ### Scope decisions and deferred extensions
 
@@ -25,7 +25,8 @@ Prepared on 2026-10-13 from merged `main` at `c23561b`. The user clarified the s
 - [x] Frontend: 49 tests and production build/type-check pass. Backend: 292 tests pass. Browser: 21 cases pass; source compilation, configuration JSON, production dependency audit and diff checks pass (2026-10-13).
 - [x] Folding remains display state, keeps the draft clean, preserves complete Markdown/images and reveals hidden outline destinations. Reading mode shows all content; folded sections and nested state survive movement and history.
 - [x] Article editor user guide, README and changelog describe the implemented behavior.
-- [ ] Prepare release version metadata and release notes; build the production Docker image and complete its isolated runtime smoke checks before release operations.
+- [x] Prepare `0.3.3.1` package metadata and [version notes](docs/releases/v0.3.3.1.md).
+- [ ] Build the production Docker image and complete its isolated runtime smoke checks before tagging or publishing the release.
 
 ## v0.3.3.0 — Review templates and image/text coordination
 

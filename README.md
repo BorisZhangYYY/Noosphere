@@ -6,7 +6,7 @@ It combines Crawl4AI and Firecrawl, downloads article assets, and asks a languag
 
 Noosphere is an article-processing service and MCP capability, not a general-purpose personal note-taking application. Downstream knowledge systems remain independent and receive content only through explicitly configured, user-authorized adapters.
 
-The current release is [v0.3.3.0](docs/releases/v0.3.3.0.md).
+The current release is [v0.3.3.0](docs/releases/v0.3.3.0.md). The next version, [v0.3.3.1](docs/releases/v0.3.3.1.md), is prepared on the version branch with article block operations and heading folding.
 
 In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into clean, structured, understandable, and portable knowledge.
 

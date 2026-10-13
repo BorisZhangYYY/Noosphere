@@ -15,5 +15,6 @@ This directory contains user-facing installation, deployment, operation, and int
 
 - [Main README](../README.md)
 - [Changelog](../CHANGELOG.md)
+- [v0.3.3.1 preparation](releases/v0.3.3.1.md): article block operations, heading folding, validation and remaining publication checks.
 - [Planned work](../TODO.md)
 - [License](../LICENSE)
