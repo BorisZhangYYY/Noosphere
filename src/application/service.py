@@ -58,6 +58,13 @@ def list_articles(
             }
         ]
     articles.sort(key=lambda item: str(item.get("capturedAt") or ""), reverse=True)
+    from src.core.collections import CollectionStore
+
+    positions = CollectionStore().workspace_positions("article")
+    for article in articles:
+        saved = positions.get(article["id"])
+        scope = (article.get("collection") or {}).get("collection_id") or ""
+        article["workspaceOrder"] = saved["position"] if saved and saved["scope_id"] == scope else None
     return articles
 
 
@@ -665,6 +672,29 @@ def list_collections(
         include_retired=include_deleted,
         locale=locale,
     )
+
+
+def reorder_workspace(
+    kind: str, source_id: str, target_id: str, side: str,
+    scope_id: str | None = None, *, locale: str = "en-US",
+) -> dict[str, Any]:
+    """Persist sibling display order while retaining classification and hierarchy."""
+    from src.core.collections import CollectionStore
+
+    if kind == "article":
+        peers = [article["id"] for article in list_articles(locale=locale)
+                 if ((article.get("collection") or {}).get("collection_id") or None) == scope_id]
+    elif kind == "collection":
+        def siblings(nodes):
+            for node in nodes:
+                if node["parent_id"] == scope_id:
+                    yield node["id"]
+                yield from siblings(node["children"])
+        peers = list(siblings(list_collections(locale=locale)))
+    else:
+        raise ValueError("kind must be article or collection")
+    ordered = CollectionStore().reorder_workspace(kind, source_id, target_id, side, scope_id, peers)
+    return {"ok": True, "kind": kind, "scopeId": scope_id, "orderedIds": ordered}
 
 
 def create_collection(

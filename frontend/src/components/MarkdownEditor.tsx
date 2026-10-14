@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Vditor from "vditor";
 import "vditor/dist/index.css";
@@ -9,6 +9,7 @@ import { createImageDropResolver, dragScrollDistance, dragScrollVelocity, imageD
 import { captureBlockSelection, createBlockDropResolver, isMovableArticleBlock, isMovableMarkdownBlock, moveMappedBlockMarkdown, articleBlockMap, restoreBlockSelection, remapMovedRange, reconcileBlockEdits, markdownStateKey, markdownBlocks, headingSectionEnd, articleBlockMovePlan } from "../blockDrag";
 import { installBlockControls } from "./blockControls";
 import { createHeadingFolds } from "./headingFolds";
+import { QuoteAnnotationPreview, type AnnotationPreviewAnchor } from "./QuoteAnnotationPreview";
 
 interface MarkdownEditorProps {
   articleId: string;
@@ -58,6 +59,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
   const decorateImagesRef = useRef<() => void>(() => undefined);
   const decorateAnnotationsRef = useRef<() => void>(() => undefined);
   const focusAnnotationRef = useRef<(annotationId: string) => void>(() => undefined);
+  const [annotationPreview, setAnnotationPreview] = useState<AnnotationPreviewAnchor | null>(null);
+  const closeAnnotationPreview = () => setAnnotationPreview(null);
   const imageActionsRef = useRef({ onDeleteImage, onRestoreImage });
   const annotationPropsRef = useRef({ annotations, annotationSourceDigest, onSelectQuote, onOpenAnnotation, onResolvedAnnotationIds });
   const restoringImageStructureRef = useRef(false);
@@ -619,6 +622,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       annotationRanges.clear();
       clearHighlight();
       if (!readOnlyRef.current) {
+        setAnnotationPreview(null);
         annotationPropsRef.current.onResolvedAnnotationIds?.([]);
         return;
       }
@@ -673,6 +677,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         return;
       }
       if (!model.root.contains(selection.anchorNode) || !model.root.contains(selection.focusNode)) return;
+      closeAnnotationPreview();
       const range = selection.getRangeAt(0);
       const quote = selection.toString().trim();
       if (!quote) return;
@@ -698,17 +703,30 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         position: { left: bounds.left + bounds.width / 2, top: bounds.bottom + 10 }
       });
     };
+    const annotationAtPoint = (x: number, y: number) => {
+      for (const [id, range] of annotationRanges) {
+        const line = Array.from(range.getClientRects()).findIndex(rect => rect.width > 0 && x >= rect.left - 2 && x <= rect.right + 2 && y >= rect.top - 2 && y <= rect.bottom + 2);
+        if (line >= 0) return { id, range, line };
+      }
+      return null;
+    };
+    const handleAnnotationKey = (event: KeyboardEvent) => {
+      if (!readOnlyRef.current || (event.key !== "Enter" && event.key !== " ")) return;
+      const selection = window.getSelection();
+      if (!selection?.isCollapsed || !selection.anchorNode) return;
+      for (const [id, range] of annotationRanges) {
+        if (!range.isPointInRange(selection.anchorNode, selection.anchorOffset)) continue;
+        event.preventDefault();
+        setAnnotationPreview({ id, range, line: 0 });
+        return;
+      }
+    };
     const handleAnnotationClick = (event: MouseEvent) => {
       if (!readOnlyRef.current || window.getSelection()?.toString()) return;
-      const documentWithCaret = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null };
-      const point = documentWithCaret.caretRangeFromPoint?.(event.clientX, event.clientY);
-      if (!point) return;
-      for (const [annotationId, range] of annotationRanges) {
-        if (!range.isPointInRange(point.startContainer, point.startOffset)) continue;
-        event.preventDefault();
-        annotationPropsRef.current.onOpenAnnotation?.(annotationId);
-        break;
-      }
+      const anchor = annotationAtPoint(event.clientX, event.clientY);
+      if (!anchor) return;
+      event.preventDefault();
+      setAnnotationPreview(current => current?.id === anchor.id ? null : anchor);
     };
     const keepRenderedBlocksVisible = (event: MouseEvent) => {
       const target = event.target;
@@ -846,6 +864,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     };
     host.addEventListener("click", keepRenderedBlocksVisible, true);
     host.addEventListener("click", handleAnnotationClick);
+    host.addEventListener("keyup", handleAnnotationKey);
     host.addEventListener("mouseup", handleQuoteSelection);
     host.addEventListener("keyup", handleQuoteSelection);
     host.addEventListener("keydown", preventAtomicImageDeletion, true);
@@ -995,6 +1014,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       cancelled = true;
       host.removeEventListener("click", keepRenderedBlocksVisible, true);
       host.removeEventListener("click", handleAnnotationClick);
+      host.removeEventListener("keyup", handleAnnotationKey);
+      closeAnnotationPreview();
       host.removeEventListener("mouseup", handleQuoteSelection);
       host.removeEventListener("keyup", handleQuoteSelection);
       host.removeEventListener("keydown", preventAtomicImageDeletion, true);
@@ -1087,6 +1108,10 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     <div className={`markdown-editor-frame${readOnly ? " markdown-editor-readonly" : ""}${showRemovedImages ? "" : " markdown-editor-hide-removed"}`} ref={frameRef}>
       <div className="markdown-editor" ref={hostRef} aria-label={t("article.editorLabel")} />
       <div className="noosphere-image-actions-layer" ref={actionsRef} aria-hidden={readOnly} />
+      {readOnly && annotationPreview && annotations.find(annotation => annotation.id === annotationPreview.id) && <QuoteAnnotationPreview
+        annotation={annotations.find(annotation => annotation.id === annotationPreview.id)!} anchor={annotationPreview}
+        onClose={closeAnnotationPreview}
+        onEdit={() => { closeAnnotationPreview(); onOpenAnnotation?.(annotationPreview.id); }} />}
     </div>
   );
 }

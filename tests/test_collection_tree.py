@@ -39,6 +39,75 @@ def test_new_workspace_starts_at_collection_root(collection_store) -> None:
     assert root["collection_path"] == []
 
 
+def test_collection_order_persists_through_localization_rename_and_restore(collection_store):
+    a = collection_store.create_collection(name="Alpha")
+    b = collection_store.create_collection(name="Beta")
+    c = collection_store.create_collection(name="Gamma")
+    ids = [a["id"], b["id"], c["id"]]
+    assert collection_store.reorder_workspace("collection", c["id"], a["id"], "before", None, ids) == [c["id"], a["id"], b["id"]]
+    collection_store.update_collection(c["id"], name="Zulu", locale="zh-CN")
+    from src.core.collections import CollectionStore
+    fresh = CollectionStore()
+    assert [node["id"] for node in fresh.list_tree(locale="zh-CN")] == [c["id"], a["id"], b["id"]]
+    fresh.update_collection(c["id"], retired=True)
+    assert [node["id"] for node in fresh.list_tree()] == [a["id"], b["id"]]
+    fresh.update_collection(c["id"], retired=False)
+    assert [node["id"] for node in fresh.list_tree()] == [c["id"], a["id"], b["id"]]
+
+
+def test_nested_collection_order_cannot_change_parent(collection_store):
+    parent = collection_store.create_collection(name="Parent")
+    other = collection_store.create_collection(name="Other")
+    a = collection_store.create_collection(name="A", parent_id=parent["id"])
+    b = collection_store.create_collection(name="B", parent_id=parent["id"])
+    collection_store.reorder_workspace("collection", b["id"], a["id"], "before", parent["id"], [a["id"], b["id"]])
+    tree = next(node for node in collection_store.list_tree() if node["id"] == parent["id"])
+    assert [node["id"] for node in tree["children"]] == [b["id"], a["id"]]
+    with pytest.raises(ValueError, match="existing scope"):
+        collection_store.reorder_workspace("collection", b["id"], other["id"], "before", None, [b["id"], other["id"]])
+    assert collection_store.get_collection(b["id"])["parent_id"] == parent["id"]
+
+
+def test_article_order_preserves_ai_placement_and_rejects_foreign_scope(collection_store):
+    a = collection_store.create_collection(name="A")
+    b = collection_store.create_collection(name="B")
+    for article in ["first", "second"]:
+        collection_store.assign_article(article, collection_id=a["id"], source="ai", confidence=.83, reason="Matches topic")
+    collection_store.assign_article("foreign", collection_id=b["id"], source="ai")
+    before = {article: collection_store.get_assignment(article) for article in ["first", "second", "foreign"]}
+    assert collection_store.reorder_workspace("article", "second", "first", "before", a["id"], ["first", "second"]) == ["second", "first"]
+    saved = collection_store.workspace_positions("article")
+    with pytest.raises(ValueError, match="existing scope"):
+        collection_store.reorder_workspace("article", "second", "foreign", "after", a["id"], ["first", "second", "foreign"])
+    assert collection_store.workspace_positions("article") == saved
+    assert before == {article: collection_store.get_assignment(article) for article in before}
+
+
+def test_stale_drag_cannot_override_ai_reclassification(collection_store):
+    a = collection_store.create_collection(name="A")
+    b = collection_store.create_collection(name="B")
+    collection_store.assign_article("first", collection_id=a["id"], source="ai")
+    collection_store.assign_article("second", collection_id=a["id"], source="ai")
+    collection_store.assign_article("first", collection_id=b["id"], source="ai", reason="New review", confidence=.95)
+    before = collection_store.get_assignment("first")
+    with pytest.raises(ValueError, match="existing scope"):
+        collection_store.reorder_workspace("article", "first", "second", "before", a["id"], ["first", "second"])
+    assert collection_store.get_assignment("first") == before
+    assert collection_store.workspace_positions("article") == {}
+
+
+def test_root_order_noops_and_classification_changes(collection_store):
+    assert collection_store.reorder_workspace("article", "second", "first", "before", None, ["first", "second"]) == ["second", "first"]
+    saved = collection_store.workspace_positions("article")
+    collection_store.reorder_workspace("article", "second", "first", "before", None, ["first", "second"])
+    assert collection_store.workspace_positions("article") == saved
+    category = collection_store.create_collection(name="Category")
+    collection_store.assign_article("second", collection_id=category["id"], source="ai")
+    assert "second" not in collection_store.workspace_positions("article")
+    collection_store.delete_assignment("first")
+    assert collection_store.workspace_positions("article") == {}
+
+
 def test_collections_support_arbitrary_depth_and_article_counts(collection_store) -> None:
     ai = collection_store.create_collection(name="AI")
     interviews = collection_store.create_collection(name="AI Interviews", parent_id=ai["id"])

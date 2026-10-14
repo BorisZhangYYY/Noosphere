@@ -35,6 +35,7 @@ export interface CaptureJob {
 }
 
 export interface ArticleSummary {
+  workspaceOrder?: number | null;
   id: string;
   title: string;
   url: string;

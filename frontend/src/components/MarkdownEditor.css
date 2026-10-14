@@ -52,6 +52,15 @@
   line-height: 1.85;
 }
 
+.markdown-editor-frame:not(.markdown-editor-readonly) .vditor-wysiwyg pre.vditor-reset {
+  padding-left: 52px !important;
+}
+
+/* Wide outside markers need clearance from the fixed two-grip gutter. */
+.markdown-editor-frame:not(.markdown-editor-readonly) .vditor-reset > ol {
+  margin-inline-start: 20px;
+}
+
 .markdown-editor .vditor-reset :where(h1, h2, h3, h4, h5, h6, p, li, dt, dd, th, td, strong, em) {
   color: inherit !important;
 }
@@ -171,7 +180,9 @@
 
 .noosphere-block-controls {
   position: absolute;
-  width: 22px;
+  display: grid;
+  grid-template-columns: repeat(2, 22px);
+  width: 44px;
   pointer-events: auto;
 }
 
@@ -202,9 +213,17 @@
 .noosphere-block-handle,
 .noosphere-container-handle {
   cursor: grab;
-  font-size: 22px;
   touch-action: none;
+  grid-row: 1;
 }
+
+.noosphere-container-handle {
+  grid-column: 1;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent-strong);
+}
+.noosphere-block-handle svg,
+.noosphere-container-handle svg { pointer-events: none; }
 
 .noosphere-container-handle:hover,
 .noosphere-container-handle:focus-visible,
@@ -215,6 +234,11 @@
 .noosphere-block-directions button:hover {
   background: var(--surface-muted);
   color: var(--accent-strong);
+}
+
+.noosphere-container-handle:hover,
+.noosphere-container-handle:focus-visible {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-muted));
 }
 
 .noosphere-block-directions {
@@ -230,15 +254,7 @@
 }
 
 .noosphere-block-directions button { cursor: pointer; }
-.noosphere-container-handle {
-  position: absolute;
-  width: 18px;
-  height: 28px;
-  color: var(--text-muted);
-}
-.noosphere-container-handle svg { pointer-events: none; }
-
-.noosphere-heading-toggle { position: absolute; left: 23px; top: 0; width: 18px; cursor: pointer; font-size: 14px; }
+.noosphere-heading-toggle { grid-column: 2; grid-row: 1; cursor: pointer; font-size: 14px; }
 .noosphere-fold-hidden { display: none !important; }
 .noosphere-block-directions button:disabled { opacity: .35; cursor: default; }
 .noosphere-block-dragging { opacity: .4; }
@@ -353,11 +369,4 @@
 
 .markdown-editor .vditor-copy span:hover {
   color: var(--accent-strong);
-}
-
-@media (max-width: 600px) {
-  /* Reserve both grips beside wide ordered markers on narrow screens. */
-  .markdown-editor-frame:not(.markdown-editor-readonly) .vditor-reset > ol {
-    margin-inline-start: 20px;
-  }
 }

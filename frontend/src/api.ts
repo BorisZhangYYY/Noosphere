@@ -118,6 +118,8 @@ export const api = {
     body: JSON.stringify(settings)
   }),
   getCollections: () => request<{ collections: CollectionNode[] }>(localized("/api/v1/collections")),
+  reorderWorkspace: (payload: { kind: "article" | "collection"; sourceId: string; targetId: string; side: "before" | "after"; scopeId: string | null }) =>
+    request<{ orderedIds: string[] }>(localized("/api/v1/workspace/order"), { method: "POST", body: JSON.stringify(payload) }),
   getManagedCollections: () => request<{ collections: CollectionNode[] }>(localized("/api/v1/collections?includeDeleted=true")),
   createCollection: (payload: { name: string; description?: string; parentId?: string }) =>
     request<{ collection: CollectionNode }>(localized("/api/v1/collections"), {

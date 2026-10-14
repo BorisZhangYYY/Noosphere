@@ -1,5 +1,7 @@
 """Search relevance, isolation and file reconciliation regressions."""
 import json
+import sqlite3
+import pytest
 from test_web_api import web_client
 from src.core.search import search_articles, synchronize, passage, excerpt
 from src.application import service
@@ -65,16 +67,55 @@ def test_chinese_two_character_and_mixed_phrase(web_client):
     assert search_articles('nonexistent')['total'] == 0
 
 
-def test_separate_scopes_and_raw_is_opt_in(web_client):
+def test_search_only_indexes_reviewed_text_and_preserves_sidecars(web_client):
     _, config, article_id = web_client
     directory = config.parent / 'articles' / article_id
     (directory / 'reflection.md').write_text('Private reflectionneedle')
     (directory / 'annotations.json').write_text(json.dumps({'annotations': [{'note': 'annotationneedle', 'quote': 'A quote'}]}))
-    assert search_articles('reflectionneedle', scope='reflection')['total'] == 1
+    snapshots = {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()}
+    assert search_articles('reflectionneedle')['total'] == 0
     assert search_articles('reflectionneedle', scope='reviewed')['total'] == 0
-    assert search_articles('annotationneedle')['total'] == 1
+    assert search_articles('annotationneedle')['total'] == 0
+    assert search_articles('A quote')['total'] == 0
     assert search_articles('Raw')['total'] == 0
-    assert search_articles('Raw', scope='raw')['total'] == 1
+    assert search_articles('Lin')['total'] == 0
+    assert search_articles('Example')['total'] == 0
+    for scope in ['title', 'author', 'reflection', 'annotations', 'raw']:
+        with pytest.raises(ValueError, match='only supports reviewed'):
+            search_articles('Context', scope=scope)
+    assert search_articles('Reviewed', scope='reviewed')['total'] == 1
+    assert {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()} == snapshots
+    (directory / 'reflection.md').write_text('Another personal note')
+    assert synchronize()['updated'] == 0
+
+
+def test_legacy_index_fields_are_removed_without_manual_rebuild(web_client):
+    from src.core.paths import runtime_home
+    from src.core.search import encoded
+    _, _, article_id = web_client
+    search_articles('Context')
+    with sqlite3.connect(runtime_home() / 'search.sqlite3') as db:
+        for field in ['annotations', 'reflection', 'raw', 'title', 'author']:
+            db.execute('INSERT INTO search_passages VALUES (?, ?, ?, ?, ?)', (article_id, field, 'legacyneedle', 'legacy-digest', encoded('legacyneedle')))
+        db.execute('UPDATE search_files SET stamp = ?', ('old-file-signature',))
+    assert search_articles('legacyneedle')['total'] == 0
+    result = search_articles('Context')['results'][0]
+    assert [match['field'] for match in result['matches']] == ['reviewed']
+    with sqlite3.connect(runtime_home() / 'search.sqlite3') as db:
+        assert db.execute('SELECT DISTINCT field FROM search_passages').fetchall() == [('reviewed',)]
+    with pytest.raises(ValueError, match='Invalid passage'):
+        passage(article_id, 'annotations', 'legacy-digest')
+
+
+def test_body_index_excludes_protected_source_metadata(web_client):
+    _, _, article_id = web_client
+    service.save_reviewed_markdown(article_id, '# Headingneedle\n\nBodyneedle')
+    assert search_articles('Headingneedle')['total'] == 1
+    assert search_articles('Bodyneedle')['total'] == 1
+    assert search_articles('Lin')['total'] == 0
+    assert search_articles('mp.weixin.qq.com')['total'] == 0
+    match = search_articles('Bodyneedle')['results'][0]['matches'][0]
+    assert '> Source:' not in match['text']
 
 
 def test_external_edits_rebuild_and_stale_passage(web_client):
@@ -105,7 +146,7 @@ def test_trash_and_restore_search_visibility(web_client):
 def test_http_search_validation_and_literal_query(web_client):
     client, _, _ = web_client
     assert client.get('/api/v1/search?q=Context').json()['total'] == 1
-    for params in ['q=test&scope=unknown', 'q=test&offset=-1', 'q=test&limit=0', 'q=test&limit=no']:
+    for params in ['q=test&scope=unknown', 'q=test&scope=annotations', 'q=test&scope=reflection', 'q=test&scope=raw', 'q=test&offset=-1', 'q=test&limit=0', 'q=test&limit=no']:
         assert client.get('/api/v1/search?' + params).status_code == 400
     assert client.get('/api/v1/search', params={'q': '" OR * <script>'}).status_code == 200
     assert client.post('/api/v1/search/rebuild').status_code == 200

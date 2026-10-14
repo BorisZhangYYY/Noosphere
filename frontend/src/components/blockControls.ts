@@ -3,6 +3,8 @@ import { articleNodeAtPath, articleNodePath, isMovableArticleBlock, outerArticle
 
 interface Point { x: number; y: number }
 interface HoverRow { node: HTMLElement; top: number; bottom: number; left: number }
+const GRIP_SVG = '<svg viewBox="0 0 12 18" width="12" height="18" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="3" cy="15" r="1.5"/><circle cx="9" cy="15" r="1.5"/></svg>';
+const GROUP_GRIP_SVG = '<svg viewBox="0 0 18 18" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M4 1.5H1.5v15H4M14 1.5h2.5v15H14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="4" r="1.25"/><circle cx="12" cy="4" r="1.25"/><circle cx="6" cy="9" r="1.25"/><circle cx="12" cy="9" r="1.25"/><circle cx="6" cy="14" r="1.25"/><circle cx="12" cy="14" r="1.25"/></svg>';
 interface BlockControlsOptions {
   host: HTMLElement;
   frame: HTMLElement;
@@ -32,7 +34,7 @@ export function installBlockControls(options: BlockControlsOptions) {
   const handle = document.createElement("button");
   handle.type = "button";
   handle.className = "noosphere-block-handle";
-  handle.textContent = "⠿";
+  handle.innerHTML = GRIP_SVG;
   handle.setAttribute("aria-label", options.labels.handle);
   handle.title = options.labels.handle;
   handle.setAttribute("aria-expanded", "false");
@@ -54,7 +56,7 @@ export function installBlockControls(options: BlockControlsOptions) {
   containerHandle.setAttribute("aria-label", options.labels.wholeList);
   containerHandle.title = options.labels.wholeList;
   containerHandle.hidden = true;
-  containerHandle.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M4 2H2v12h2M7 4h7M7 8h7M7 12h7"/></svg>';
+  containerHandle.innerHTML = GROUP_GRIP_SVG;
   const fold = document.createElement("button");
   fold.type = "button";
   fold.className = "noosphere-heading-toggle";
@@ -74,12 +76,11 @@ export function installBlockControls(options: BlockControlsOptions) {
   let wholeList = false;
   const activeHandle = () => wholeList ? containerHandle : handle;
   const activeBlock = () => wholeList && block ? outerArticleList(block, options.root()!) : block;
-  let gutter: { left: number; right: number; top: number; bottom: number } | null = null;
   let pointer: { id: number; start: Point; started: boolean; owner: HTMLButtonElement; source: HTMLElement } | null = null;
   let suppressClick = false;
   let leaveTimer = 0;
   let hoverRows: HoverRow[] | null = null;
-  let marginLeft = 0;
+  let marginBounds: DOMRect | null = null;
   let mousePoint: Point | null = null;
   const invalidateLayout = () => { hoverRows = null; };
   const clearLeave = () => { window.clearTimeout(leaveTimer); leaveTimer = 0; };
@@ -92,7 +93,6 @@ export function installBlockControls(options: BlockControlsOptions) {
   const refresh = () => {
     const root = options.root();
     if (options.readOnly() || !root) {
-      gutter = null;
       if (pointer) cancel();
       controls.hidden = true;
       boundary.hidden = true;
@@ -103,7 +103,6 @@ export function installBlockControls(options: BlockControlsOptions) {
     // Vditor may replace the same content after a touch caret update.
     if (block && !root.contains(block) && blockPath) block = articleNodeAtPath(root, blockPath);
     if (!isMovableArticleBlock(block, root) || options.isDragging()) {
-      gutter = null;
       controls.hidden = true;
       boundary.hidden = true;
       return;
@@ -131,16 +130,14 @@ export function installBlockControls(options: BlockControlsOptions) {
     }
     const list = block.tagName === "LI" ? outerArticleList(block, root) : null;
     const heading = /^H[1-6]$/.test(block.tagName);
-    const controlLeft = Math.max(4, left - (heading ? 45 : 25));
-    const containerLeft = list ? Math.max(4, Math.min(list.getBoundingClientRect().left - 45, controlLeft - 20)) : controlLeft;
+    const rootBounds = root.getBoundingClientRect();
+    const controlLeft = Math.max(reader.getBoundingClientRect().left + 4,
+      rootBounds.left + parseFloat(getComputedStyle(root).paddingLeft) - 48);
     controls.hidden = !bounds.height;
     controls.style.left = `${controlLeft - frameBounds.left}px`;
     controls.style.top = `${bounds.top - frameBounds.top}px`;
     containerHandle.hidden = !list;
-    if (list) {
-      containerHandle.style.left = `${containerLeft - controlLeft}px`;
-      containerHandle.style.top = "0px";
-    }
+    handle.style.gridColumn = list ? "2" : "1";
     fold.hidden = !heading || !options.canFold(block);
     const folded = options.isFolded(block);
     fold.textContent = folded ? "▸" : "▾";
@@ -157,8 +154,7 @@ export function installBlockControls(options: BlockControlsOptions) {
     boundary.style.top = `${selectedBounds.top - frameBounds.top}px`;
     boundary.style.width = `${selectedBounds.right - boundaryLeft + 6}px`;
     boundary.style.height = `${selectedBounds.height}px`;
-    gutter = { left: Math.min(containerLeft, controlLeft), right: bounds.left, top: bounds.top, bottom: bounds.top + 28 };
-    directions.style.left = `${wholeList ? containerLeft - controlLeft : 0}px`;
+    directions.style.left = `${list && !wholeList ? 22 : 0}px`;
     up.disabled = !options.neighbor(source, "before");
     down.disabled = !options.neighbor(source, "after");
     expand(!directions.hidden);
@@ -185,12 +181,10 @@ export function installBlockControls(options: BlockControlsOptions) {
     if (!root) return undefined;
     if (!hoverRows) {
       const rows: HoverRow[] = [];
-      let left = Infinity;
       for (const node of Array.from(root.children)) {
         if (!(node instanceof HTMLElement)) continue;
         const bounds = node.getBoundingClientRect();
         if (!bounds.height || !bounds.width) continue;
-        left = Math.min(left, bounds.left);
         if (!["UL", "OL"].includes(node.tagName)) {
           rows.push({ node, top: bounds.top, bottom: bounds.bottom, left: bounds.left });
           continue;
@@ -211,10 +205,11 @@ export function installBlockControls(options: BlockControlsOptions) {
         }
       }
       hoverRows = rows.sort((a, b) => a.top - b.top);
-      marginLeft = Math.max(4, left - 76);
+      marginBounds = reader.getBoundingClientRect();
     }
     const rows = hoverRows;
-    if (!rows.length || point.x < marginLeft || point.y < rows[0].top - 8 || point.y > rows.at(-1)!.bottom + 8) return undefined;
+    if (!rows.length || !marginBounds || point.x < marginBounds.left || point.x > marginBounds.right
+      || point.y < rows[0].top - 8 || point.y > rows.at(-1)!.bottom + 8) return undefined;
     const row = rows[nearestDragBlock(rows, point.y)];
     if (point.x > row.left) return undefined;
     return isMovableArticleBlock(row.node, root) ? row.node : null;
@@ -223,8 +218,6 @@ export function installBlockControls(options: BlockControlsOptions) {
     if (pointer || options.readOnly() || event.pointerType === "touch") return;
     mousePoint = { x: event.clientX, y: event.clientY };
     if (controls.contains(event.target as Node)) { clearLeave(); return; }
-    if (gutter && event.clientX >= gutter.left && event.clientX <= gutter.right
-      && event.clientY >= gutter.top && event.clientY <= gutter.bottom) { clearLeave(); return; }
     const margin = marginTarget(mousePoint);
     const node = margin === undefined ? selectFrom(event.target as Node) : margin;
     if (node) { clearLeave(); show(node); }

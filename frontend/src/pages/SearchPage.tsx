@@ -77,19 +77,17 @@ export function SearchPage() {
   const [draft, setDraft] = useState(params.get("q") ?? "");
   useEffect(() => setDraft(params.get("q") ?? ""), [params]);
   const collections = useQuery({ queryKey: ["collections", i18n.resolvedLanguage], queryFn: api.getCollections });
-  const query = useQuery({ queryKey: ["full-search", params.toString(), zh], queryFn: () => api.search(params.toString()), enabled: Boolean(params.get("q")) });
+  const query = useQuery({ queryKey: ["full-search", params.toString(), zh], queryFn: () => { const bodyParams = new URLSearchParams(params); bodyParams.delete("scope"); return api.search(bodyParams.toString()); }, enabled: Boolean(params.get("q")) });
   const rebuild = useMutation({ mutationFn: api.rebuildSearch, onSuccess: () => query.refetch() });
-  const scopes: Record<string, string> = zh ? { all: "全部内容", title: "标题", author: "作者", reviewed: "正文", reflection: "感想", annotations: "批注", raw: "原文" } : { all: "All content", title: "Title", author: "Author", reviewed: "Article", reflection: "Reflections", annotations: "Annotations", raw: "Original" };
-  function update(name: string, value: string) { const next = new URLSearchParams(params); next.set(name, value); next.delete("offset"); setParams(next); }
+  function update(name: string, value: string) { const next = new URLSearchParams(params); next.set(name, value); next.delete("offset"); next.delete("scope"); setParams(next); }
   return <main className="page discovery-page">
-    <header className="discovery-header"><p className="context-label">{zh ? "知识检索" : "Knowledge retrieval"}</p><h1>{zh ? "全文搜索" : "Full-text search"}</h1><p>{zh ? "找回正文、感想和批注中的片段。用双引号搜索完整短语。" : "Find passages in articles, reflections and annotations. Use quotes for phrases."}</p></header>
+    <header className="discovery-header"><p className="context-label">{zh ? "知识检索" : "Knowledge retrieval"}</p><h1>{zh ? "全文搜索" : "Full-text search"}</h1><p>{zh ? "搜索文章正文（含标题），不包含批注和感悟。用双引号搜索完整短语。" : "Search article text, including headings. Annotations and reflections are excluded. Use quotes for phrases."}</p></header>
     <form className="search-controls" onSubmit={e => { e.preventDefault(); update("q", draft); }}>
       <div className="search-query-row">
         <input aria-label={zh ? "搜索内容" : "Search text"} type="search" value={draft} onChange={e => setDraft(e.target.value)} placeholder={zh ? "关键词或短语…" : "Words or phrases…"} />
         <button className="button-primary" type="submit">{zh ? "搜索" : "Search"}</button>
       </div>
       <div className="search-filter-grid">
-        <div className="discovery-select-field"><span>{zh ? "搜索范围" : "Search scope"}</span><InlineSelect ariaLabel={zh ? "搜索范围" : "Search scope"} value={params.get("scope") ?? "all"} onChange={value => update("scope", value)} options={Object.entries(scopes).map(([value, label]) => ({ value, label }))} /></div>
         <div className="discovery-select-field"><span>{zh ? "分类及子分类" : "Collection"}</span><InlineSelect ariaLabel={zh ? "分类及子分类" : "Collection"} value={params.get("collection") ?? ""} onChange={value => update("collection", value)} options={[{ value: "", label: zh ? "所有分类" : "All collections" }, ...collectionOptions(collections.data?.collections ?? []).map(c => ({ value: c.id, label: c.label }))]} /></div>
         <div className="discovery-select-field"><span>{zh ? "来源平台" : "Source platform"}</span><InlineSelect ariaLabel={zh ? "来源平台" : "Source platform"} value={params.get("platform") ?? ""} onChange={value => update("platform", value)} options={[{ value: "", label: zh ? "所有来源" : "All sources" }, { value: "wechat_mp", label: zh ? "微信公众号" : "WeChat" }, { value: "zhihu_zhuanlan", label: zh ? "知乎" : "Zhihu" }, { value: "xiaoheihe", label: zh ? "小黑盒" : "Xiaoheihe" }, { value: "x", label: "X" }]} /></div>
         <label><span>{zh ? "开始日期" : "From"}</span><input type="date" value={params.get("after") ?? ""} onChange={e => update("after", e.target.value)} /></label>
@@ -99,7 +97,7 @@ export function SearchPage() {
     <div className="search-toolbar"><span aria-live="polite">{query.data ? `${query.data.total} ${zh ? "篇文章" : "articles"}` : (zh ? "输入关键词开始搜索" : "Enter a query to search")}</span><button className="button-secondary" type="button" disabled={rebuild.isPending} onClick={() => rebuild.mutate()}>{rebuild.isPending ? (zh ? "正在重建…" : "Rebuilding…") : (zh ? "重建搜索索引" : "Rebuild index")}</button></div>
     {query.isFetching && <LoadingPanel />}
     {(query.error || rebuild.error) && <ErrorPanel message={String(query.error || rebuild.error)} />}
-    {query.data?.total === 0 && <div className="discovery-empty"><h2>{zh ? "没有找到匹配内容" : "No matches found"}</h2><p>{zh ? "试试更短的关键词、完整短语或其他搜索范围。" : "Try fewer words, an exact phrase or another search scope."}</p></div>}
+    {query.data?.total === 0 && <div className="discovery-empty"><h2>{zh ? "没有找到匹配内容" : "No matches found"}</h2><p>{zh ? "试试更短的关键词、完整短语或调整筛选条件。" : "Try fewer words, an exact phrase or different filters."}</p></div>}
     <div className="search-results">{query.data?.results.map(result => <article key={result.article.id} className="search-result">
       <h2><Link to={`/articles/${encodeURIComponent(result.article.id)}`}>{result.article.title}</Link></h2>
       <p className="search-result-meta">{result.article.author} · {result.article.platformLabel}</p>
@@ -111,8 +109,7 @@ export function SearchPage() {
         const destination = `/articles/${encodeURIComponent(result.article.id)}?${location}`;
         return <div key={match.field} className="search-passage" role="link" tabIndex={0} onClick={event => {
           if (!(event.target instanceof Element) || !event.target.closest("a, button")) navigate(destination);
-        }} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); navigate(destination); } }} aria-label={`${scopes[match.field]}：${cleanPassage(match.text, [], "").text.slice(0, 90)}`}>
-          <span>{scopes[match.field]}</span>
+        }} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); navigate(destination); } }} aria-label={`${zh ? "正文" : "Article text"}：${cleanPassage(match.text, [], "").text.slice(0, 90)}`}>
           <div className="search-snippet">
             <SearchMarkdown text={match.text} highlights={displayHighlights} articleId={result.article.id} fallback={zh ? "文章图片无法显示" : "Article image unavailable"} />
           </div>
