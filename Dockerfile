@@ -12,7 +12,11 @@ FROM python:3.11-slim AS builder
 WORKDIR /app
 
 # Install build dependencies for packages that need compilation.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG APT_MIRROR
+RUN if [ -n "$APT_MIRROR" ]; then \
+        sed -i "s#http://deb.debian.org#https://$APT_MIRROR#g" /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    apt-get -o Acquire::Retries=5 update && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
     build-essential \
     git \
     && rm -rf /var/lib/apt/lists/*
@@ -45,7 +49,7 @@ RUN useradd -m -u 1000 noosphere && \
 # Playwright installs OS packages via apt.
 ARG APT_MIRROR
 RUN if [ -n "$APT_MIRROR" ]; then \
-        sed -i "s#deb.debian.org#$APT_MIRROR#g" /etc/apt/sources.list.d/debian.sources; \
+        sed -i "s#http://deb.debian.org#https://$APT_MIRROR#g" /etc/apt/sources.list.d/debian.sources; \
     fi
 
 # Playwright installs OS packages through apt, which requires root. Retry each

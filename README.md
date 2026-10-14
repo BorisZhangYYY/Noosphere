@@ -6,7 +6,7 @@ It combines Crawl4AI and Firecrawl, downloads article assets, and asks a languag
 
 Noosphere is an article-processing service and MCP capability, not a general-purpose personal note-taking application. Downstream knowledge systems remain independent and receive content only through explicitly configured, user-authorized adapters.
 
-The current release is [v0.3.3.0](docs/releases/v0.3.3.0.md).
+The current release is [v0.3.3.1](docs/releases/v0.3.3.1.md), with article block operations and heading folding.
 
 In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into clean, structured, understandable, and portable knowledge.
 
@@ -108,6 +108,8 @@ The web API, MCP tools, and CLI call the same application service. Interface-spe
 ### Raw and reviewed boundaries
 
 Each article workspace keeps the original extraction in `raw.md` and the canonical export document in `reviewed.md`. Noosphere never rewrites `raw.md`. The editor receives prose without the source metadata block; on every save, Noosphere restores protected Source, Platform, Captured, and Type values and permits controlled entry only when Author or Published was genuinely absent.
+
+In Edit mode, a contextual block handle lets users move paragraphs, quotations, tables, code and complete lists, with keyboard and touch controls. Lists show paired grips for moving one item with its nested contents or the complete list. Body headings can fold: expanded headings move alone, while folded headings move their complete section. Reading keeps its existing continuous layout. See [the article editor guide](docs/article-editor.md) for movement, undo/redo and saving.
 
 ### Review perspectives and natural-language article templates
 

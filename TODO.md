@@ -51,7 +51,7 @@ The combined release operations are authorized. Publication and merge outcomes a
 
 ## Later product iterations
 
-- [ ] SiYuan-like article block interactions: drag paragraphs, lists, quotations, tables and code as intact blocks; fold heading content through the next heading of equal/higher level, and move a heading with its section. Preserve Markdown and export content when folded; assess editor support before choosing an implementation.
+- [ ] Heading-section folding and heading-with-section movement. Fold through the next heading of equal/higher level, retain all Markdown/export content, and move a heading with its complete section. Deliberately deferred from v0.3.3.1 after the user's 2026-10-13 clarification.
 
 - [ ] Improve article-level organization after bounded review: the live custom-perspective recovery retained duplicate template headings across parts. Preserve complete source content while consolidating the requested article structure; wider long-article adaptation remains deferred.
 

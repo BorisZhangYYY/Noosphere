@@ -162,6 +162,90 @@
 .noosphere-image-drag-preview { position: fixed; left: -10000px; top: 0; width: 160px; height: 100px; pointer-events: none; }
 .markdown-editor-dragging .noosphere-image-actions { visibility: hidden; }
 
+.noosphere-block-boundary {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line));
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.noosphere-block-controls {
+  position: absolute;
+  width: 22px;
+  pointer-events: auto;
+}
+
+.noosphere-block-controls[hidden],
+.noosphere-block-boundary[hidden],
+.noosphere-block-directions[hidden],
+.noosphere-container-handle[hidden],
+.noosphere-heading-toggle[hidden] { display: none; }
+
+.noosphere-block-handle,
+.noosphere-container-handle,
+.noosphere-heading-toggle,
+.noosphere-block-directions button {
+  display: grid;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  line-height: 1;
+  user-select: none;
+}
+
+.noosphere-block-handle,
+.noosphere-container-handle {
+  cursor: grab;
+  font-size: 22px;
+  touch-action: none;
+}
+
+.noosphere-container-handle:hover,
+.noosphere-container-handle:focus-visible,
+.noosphere-heading-toggle:hover,
+.noosphere-heading-toggle:focus-visible,
+.noosphere-block-handle:hover,
+.noosphere-block-handle:focus-visible,
+.noosphere-block-directions button:hover {
+  background: var(--surface-muted);
+  color: var(--accent-strong);
+}
+
+.noosphere-block-directions {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 28px;
+  left: 0;
+  width: max-content;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-solid);
+}
+
+.noosphere-block-directions button { cursor: pointer; }
+.noosphere-container-handle {
+  position: absolute;
+  width: 18px;
+  height: 28px;
+  color: var(--text-muted);
+}
+.noosphere-container-handle svg { pointer-events: none; }
+
+.noosphere-heading-toggle { position: absolute; left: 23px; top: 0; width: 18px; cursor: pointer; font-size: 14px; }
+.noosphere-fold-hidden { display: none !important; }
+.noosphere-block-directions button:disabled { opacity: .35; cursor: default; }
+.noosphere-block-dragging { opacity: .4; }
+.markdown-editor-dragging .vditor-reset { user-select: none; }
+.markdown-editor-dragging .noosphere-block-handle,
+.markdown-editor-dragging .noosphere-container-handle { cursor: grabbing; }
+
 .markdown-editor .noosphere-image-shell[data-image-state="removed"] {
   max-height: clamp(180px, 24vw, 260px);
   overflow: hidden;
@@ -269,4 +353,11 @@
 
 .markdown-editor .vditor-copy span:hover {
   color: var(--accent-strong);
+}
+
+@media (max-width: 600px) {
+  /* Reserve both grips beside wide ordered markers on narrow screens. */
+  .markdown-editor-frame:not(.markdown-editor-readonly) .vditor-reset > ol {
+    margin-inline-start: 20px;
+  }
 }

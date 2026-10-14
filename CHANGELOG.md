@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.3.1] - 2026-10-14
+
+### Added
+
+- Added lightweight block handles and contextual boundaries in article Edit mode, while retaining the continuous reading layout. Movement buttons appear on demand, with keyboard and touch access (2026-10-13).
+- Article paragraphs can be dragged between complete content blocks with an insertion marker, smooth edge scrolling and Escape cancellation. Movement retains formatting, links and images, supports undo/redo and revision-aware saves, and preserves surrounding Markdown structure (2026-10-13).
+- Extended movement to complete quotations, tables, code, dividers and lists, including single-line content. List items reorder with their nested contents, with paired inner-item and outer-list grips to move either scope directly; ordered numbering, task states, text selection, undo/redo and saved source content are retained. Touch controls stay available when the editor rebuilds its content nodes (2026-10-13).
+- Body headings support folding through the next same- or higher-level heading, preserving nested fold state. Folding does not edit Markdown, and outline, search and quote navigation reveal hidden destinations (2026-10-13).
+- Expanded body headings move alone; folded headings move their complete section with nested headings, text, structural blocks and images. Section movement preserves source formatting, selection, fold state, undo/redo and saving, while keeping the article title anchored (2026-10-13).
+
+### Fixed
+
+- Apply the configured APT mirror to the Docker builder as well as runtime dependency installation, use HTTPS for mirror requests, and retry transient build-dependency downloads (2026-10-14).
+- Separate list movement handles from bullets, ordered numbers and task checkboxes, and include the full marker gutter in list-item outlines. Nested and long-numbered lists retain their markers, and moving the pointer toward a handle keeps the selected item's scope stable. Narrow ordered lists reserve space for both grips even beside long numbers (2026-10-13).
+- Left-margin block controls now select rows directly and remain available across paragraph and list gaps. The full-height list bar becomes a compact group icon beside the item grip; hovering either entrance identifies its movement scope while dragging, keyboard and touch access remain available (2026-10-13).
+
 ## [0.3.3.0] - 2026-10-13
 
 ### Changed

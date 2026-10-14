@@ -9,10 +9,12 @@ This directory contains user-facing installation, deployment, operation, and int
 - [CLI reference](cli-reference.md): pipeline and workspace-management commands.
 - [MCP reference](mcp-reference.md): tool groups, background jobs, and Collection-placement patterns.
 - [Configuration and portable data](configuration.md): provider, crawler, archive, checkpoint, and data-directory settings.
+- [Article editor](article-editor.md): contextual block handles, tables and quotations, paired list/item grips, heading folding and section movement, keyboard/touch controls, undo/redo, and saving.
 
 ## Project Information
 
 - [Main README](../README.md)
 - [Changelog](../CHANGELOG.md)
+- [v0.3.3.1 preparation](releases/v0.3.3.1.md): article block operations, heading folding, validation and remaining publication checks.
 - [Planned work](../TODO.md)
 - [License](../LICENSE)
