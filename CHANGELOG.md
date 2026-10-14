@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- v0.3.3.2: Open anchored Markdown interpretations in a compact speech bubble above the quote's right end by clicking or tapping. The bubble stays open while the pointer moves, keeps Edit reachable, and closes through an outside click, repeated quote click, Escape or its close action; long notes scroll independently. Touch tapping, repeated-quote anchor safety, independent storage and rail-based management are preserved (2026-10-14).
+- v0.3.3.2: Persist drag ordering of sibling categories and articles inside their existing category, in both the workspace sidebar and category index pages. Allowed boundaries, insertion lines and forbidden feedback prevent cross-category article drops and drops into the editor. Keyboard ordering, MCP and CLI use the same scope-preserving operation; sorting retains AI classification provenance and article files (2026-10-14).
+
+### Changed
+
+- v0.3.3.2: Restrict full-text search to reviewed article text and headings. Automatically remove legacy annotation, reflection, raw-source and metadata fields from existing indexes; Web, CLI and MCP share the same scope, and results show one body excerpt per article (2026-10-14).
+- v0.3.3.2: Align block and whole-list movement handles in a fixed leftmost gutter column, with the active list-item handle immediately to the right. Both scopes retain two-column six-dot grips, including nested lists; the whole-list grip adds grouping brackets and a subtle accent background to distinguish it from the individual item (2026-10-13).
+
+### Fixed
+
+- v0.3.3.2: Align category and article navigation arrows on the same right edge of index-document rows. Missing article counts and narrow layouts no longer shift the article arrows inward; hover states retain alignment (2026-10-14).
+- v0.3.3.2: Highlight every search term occurrence in the opened article instead of marking only the first match. Native text highlights keep light backgrounds and red underlines aligned during rapid scrolling, resizing and image layout, stay clipped inside the reader instead of covering the toolbar, and clear on editing or navigation without entering saved Markdown (2026-10-14).
+- v0.3.3.2: Keep block controls reachable across the full visible left margin, list indentation, multiline content and inter-block gaps. Moving between the item and whole-list grips retains the active row and scope; wide ordered markers remain clear of the handles at desktop, tablet and mobile widths (2026-10-13).
+
 ## [0.3.3.1] - 2026-10-14
 
 ### Added

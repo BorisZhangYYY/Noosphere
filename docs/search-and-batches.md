@@ -6,21 +6,21 @@ These first-version features are included in v0.3.2.7.
 
 Choose **Full-text search** beneath **Workspace** in the main navigation, or enter a query in the Knowledge sidebar and press Enter. The existing sidebar list still filters article metadata while typing.
 
-Search covers titles, authors, reviewed articles, reflections and annotations. Choose **Original** explicitly to search raw source text. Multiple terms must occur in the same content field; quoted terms match a sequence of normalized tokens. Chinese characters are indexed individually, so two-character Chinese queries work alongside English names and version numbers. This is lexical search, not semantic question answering.
+Search covers the reviewed article text shown in the editor, including its title and headings. Reflections, quote annotations, raw source text and protected source metadata are excluded. The sidebar's live metadata filter remains separate. Multiple terms must occur in the article text; quoted terms match a sequence of normalized tokens. Chinese characters are indexed individually, so two-character Chinese queries work alongside English names and version numbers. This is lexical search, not semantic question answering.
 
-Results group matching fields under each article and highlight matching excerpts. Local article images in excerpts display as thumbnails. Filter by collection (including descendants), platform and capture date. Click an excerpt to open the article at the matching text with a theme-aware highlight. Matches in reflections and original text open their respective article sections; annotation matches open the existing annotation viewer. If the source changed after the search, the workspace asks you to search again instead of highlighting a stale location.
+Each article has one body excerpt with highlighted matches. Local article images in excerpts display as thumbnails. Filter by collection (including descendants), platform and capture date. Click an excerpt to open its matching passage; every occurrence of the search terms in the article receives a light background and red underline. These marks remain while viewing the search destination, move together with the text during rapid scrolling and resizing, stay inside the reader's visible boundary, and clear in Edit mode or when leaving the search destination. Quote annotation underlines remain independent. If the source changed after the search, the workspace asks you to search again instead of highlighting a stale location.
 
-The local `search.sqlite3` index is derived data. Each search reconciles file signatures, including external file edits and removals; unchanged content is reused. **Rebuild index** recreates the index, including after index corruption. Raw Markdown, personal notes and annotations are not modified by indexing. Deleted article markers exclude leftover files. The first search over a large library can take longer. A background indexing queue remains future work. Large-library benchmarking is not part of the current verification scope.
+The local `search.sqlite3` index is derived data. Each search reconciles reviewed-file signatures, including external file edits and removals; unchanged content is reused. Existing indexes automatically remove legacy annotation, reflection, source, title and author fields on the next search, without a manual rebuild. **Rebuild index** recreates the index, including after index corruption. Raw Markdown, personal notes and annotations are not modified by indexing. Deleted article markers exclude leftover files. The first search over a large library can take longer. A background indexing queue remains future work. Large-library benchmarking is not part of the current verification scope.
 
 CLI:
 
 ```bash
 nsphr search '知识管理' --json
 nsphr search '"Agent v0.3.2.6"' --scope reviewed --limit 30 --offset 0 --json
-nsphr search 'reading notes' --scope reflection --collection-id COLLECTION_ID --json
+nsphr search 'reading notes' --scope reviewed --collection-id COLLECTION_ID --json
 ```
 
-MCP: `search_library(query, scope, collection_id, limit, offset)`.
+MCP: `search_library(query, scope, collection_id, limit, offset)`. Scope accepts `reviewed`; the legacy default `all` is an alias for the same body-only search. Other scopes are rejected consistently by HTTP, CLI and MCP.
 
 HTTP: `GET /api/v1/search?q=...&scope=...&collection=...&platform=...&after=YYYY-MM-DD&before=YYYY-MM-DD&limit=30&offset=0`; rebuild with `POST /api/v1/search/rebuild`. Existing authentication applies to all search endpoints.
 
