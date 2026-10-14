@@ -25,3 +25,7 @@ The editor reserves a 52px left content inset for both handle slots and their cl
 - Screenshots at desktop and mobile widths confirm separate grips, intact list markers and no horizontal overflow. Python source compilation, example configuration validation and diff checks pass.
 
 No commit, release or deployment is implied by these local development checks.
+
+## Release handoff — 2026-10-14
+
+Release operations are authorized. v0.3.3.1 publication and PR #45 merge-back are complete, and v0.3.3.2 is prepared from merged main at `cc42f85`. Final production verification is recorded in [release-v0.3.3.2-verification.md](release-v0.3.3.2-verification.md). Earlier development-base and no-publication statements above describe the implementation phase.

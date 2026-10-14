@@ -2,31 +2,6 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
-## v0.3.3.2 — Editor controls, workspace ordering and reading navigation
-
-Goal: improve editor controls, preserve classification during workspace ordering, and make quote and body-search navigation dependable.
-
-Scope frozen on 2026-10-13 with two product issues. Both handle placement and left-margin hover continuity are implemented locally and recorded under `[Unreleased]` in `CHANGELOG.md`. Verification and development-base details are in [.project/editor-handles-plan.md](.project/editor-handles-plan.md).
-
-The two additional workspace-ordering outcomes added on 2026-10-13 are implemented locally and recorded in `CHANGELOG.md` and [.project/workspace-ordering-plan.md](.project/workspace-ordering-plan.md).
-
-The three additional quote-preview, complete search-highlighting and body-only index outcomes requested on 2026-10-14 are implemented locally and recorded in `CHANGELOG.md` and [.project/annotation-search-plan.md](.project/annotation-search-plan.md).
-
-The index-arrow alignment correction added on 2026-10-14 is completed and recorded in `CHANGELOG.md`. The version contains eight product issues.
-
-
-### Release gates
-
-- [x] Category/article index arrows share a 10px right inset across 1440px, 1024px and 390px in light/dark themes and every row's hover state; production build/type-check pass (2026-10-14).
-- [x] Native search highlights pass rapid inner/page scroll, real-wheel and toolbar pixel-isolation checks; affected search/annotation browser cases and production build/type-check pass (2026-10-14).
-- [x] All 32 browser cases pass: editor and workspace regressions, persistent quote bubbles/editing/touch interactions, complete search highlighting, responsive geometry and body-only search results (2026-10-14).
-- [x] Frontend tests (51), backend tests (302), type-check, production build, Python source/configuration validation and diff checks pass.
-- [x] Record the completed behavior in the changelog, editor and search guides; retain all 20 existing preview article files during the service update.
-- [x] Create v0.3.3.2 from merged main at `cc42f85` after v0.3.3.1 publication and PR #45 merge-back.
-- [ ] Complete the versioned production Docker and publication gates.
-
-The prepared implementation is applied on `codex/v0.3.3.2`, created from the exact merged main commit `cc42f85`. Release publication is authorized by the user on 2026-10-14.
-
 ## v0.3.3.0 — Review templates and image/text coordination
 
 Completed natural-language templates and three-stage review are recorded under `[0.3.3.0]` in `CHANGELOG.md` and `docs/releases/v0.3.3.0.md`. Release operations are authorized; publication and merge outcomes are recorded by the v0.3.3.0 GitHub release and release pull request.

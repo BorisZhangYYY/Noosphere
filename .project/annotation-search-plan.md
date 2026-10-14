@@ -17,3 +17,7 @@ Later quote-preview feedback replaced hover timing with a click-open speech bubb
 Preview feedback exposed a detached-layer clipping bug and rapid-scroll lag in the initial implementation. Acceptance was reopened under the existing complete-highlighting outcome, and the native-paint correction is checked with rapid alternating inner/page scroll positions, real wheel input and a pixel comparison proving that offscreen highlighted text cannot paint into the desktop toolbar. A fresh isolated browser also checks the existing local preview: all three native search ranges remain present, no detached highlight layers exist, and no page errors occur.
 
 The existing editor worktree remains the development base. This task does not tag, publish or create a new release branch; the v0.3.3.1 merge-back gate remains in TODO.
+
+## Release handoff — 2026-10-14
+
+Release operations are authorized. v0.3.3.1 publication and PR #45 merge-back are complete, and v0.3.3.2 is prepared from merged main at `cc42f85`. Final production verification is recorded in [release-v0.3.3.2-verification.md](release-v0.3.3.2-verification.md). Earlier development-base and no-publication statements above describe the implementation phase.

@@ -29,3 +29,7 @@ The local example preview uses an isolated temporary database and six sample art
 ## Index arrow alignment follow-up
 
 The separate eighth v0.3.3.2 outcome explicitly places each index row's navigation arrow in its final grid column. Categories have an optional count cell while articles do not, so automatic placement previously left article arrows one column inward. Both desktop and narrow grids now use the final column, retaining the same 10px right inset. Browser geometry checks on the existing preview pass for all five rows at 1440px, 1024px and 390px, in both themes and each row's hover state. Production build/type-check and diff checks pass. No ordering or article data is changed by this display correction.
+
+## Release handoff — 2026-10-14
+
+Release operations are authorized. v0.3.3.1 publication and PR #45 merge-back are complete, and v0.3.3.2 is prepared from merged main at `cc42f85`. Final production verification is recorded in [release-v0.3.3.2-verification.md](release-v0.3.3.2-verification.md). Earlier development-base and no-publication statements above describe the implementation phase.

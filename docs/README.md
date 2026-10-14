@@ -18,3 +18,5 @@ This directory contains user-facing installation, deployment, operation, and int
 - [v0.3.3.1 preparation](releases/v0.3.3.1.md): article block operations, heading folding, validation and remaining publication checks.
 - [Planned work](../TODO.md)
 - [License](../LICENSE)
+
+- [v0.3.3.2 — 编辑器、工作区排序与引用气泡](releases/v0.3.3.2.md)
