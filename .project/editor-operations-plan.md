@@ -112,3 +112,7 @@ No Docker release check or publication is implied by these implementation result
 List-item rectangles exclude native outside markers. Their outlines start at the parent list gutter and extend further for wide ordered markers measured with the marker's actual font variants. The presentation layer keeps a stable pointer corridor between content and handle. Cached vertical ranges cover the left reading margin and fill inter-block gaps, including nested list rows. Both grips remain compact beside the active row; the outer list icon identifies the group scope without a full-height bar. Scroll, layout and font changes invalidate the range cache, and reader listeners and timers are removed on teardown.
 
 Keep tests and changelog entries with each implemented outcome. Version metadata and release documentation change only when the scope is implemented and verified. Commits, pushes, pull requests and release operations remain subject to the repository's existing user-authorization rules.
+
+## Release verification — 2026-10-14
+
+The production Dockerfile builds a Linux arm64 verification image (`13f492f7a5ed`) with matching business source and version metadata. The image passes 292 backend tests, isolated PostgreSQL/authentication/revision/restart/source-preservation checks and non-root Chromium rendering. Host verification passes 292 backend, 49 frontend and 21 browser cases. The release is prepared for the tag-triggered amd64 registry build; published artifacts and merge-back are recorded by the GitHub Release and release PR.

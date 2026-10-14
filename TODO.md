@@ -2,32 +2,6 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
-## v0.3.3.1 — Article block operations
-
-Goal: provide lightweight block presentation, movement and heading folding in the existing Vditor WYSIWYG editor, while retaining complete Markdown, protected assets and revision-aware saves.
-
-Prepared on 2026-10-13 from merged `main` at `c23561b`. The user clarified the scope as paragraph dragging and block-level presentation, with a simple UI rather than a SiYuan interface replica. Preview feedback expanded structural movement using SiYuan's list/list-item distinction and corrected list control layout. The eight scoped product issues, including paired list grips, heading folding, conditional chapter movement and continuous gutter controls, are implemented locally and recorded under `[0.3.3.1]` in `CHANGELOG.md`. Implementation notes and verification results are in [.project/editor-operations-plan.md](.project/editor-operations-plan.md). Release preparation remains below.
-
-### Scope decisions and deferred extensions
-
-- Keep Vditor. SiYuan's block editor is Protyle; both editors use Lute for Markdown parsing/rendering. Sharing that engine does not make their block interaction layers interchangeable.
-- Full block menus, slash commands and selection-formatting toolbars remain follow-up scope. A change in priority must update this scope before implementation and remain within the eight-issue limit.
-- Individual list-item reparenting, arbitrary multiblock selections, persistent block references/backlinks and a general note-document model require separate scope. Existing single-image placement inside list points remains supported.
-- Long-review structure consolidation, background search indexing, batch expansion, article revision history and backup/import remain deferred below.
-
-### Release gates
-
-- [x] Block transactions retain inline formatting, links and repeated images, complete structural blocks, nested list-item contents, ordered numbering, task states, heading hierarchy and neighboring formulas, footnotes and HTML.
-- [x] Browser regressions verify paragraph, table, quotation, code, whole-list and nested-item movement, paired grips, heading and folded-chapter movement, nested/duplicate fold states, undo/redo, typing after history, save/reload, source-file preservation, image deletion protection and existing image keyboard movement/undo. Existing draft-conflict, reading-layout, search and authentication checks pass.
-- [x] Chinese/English, light/dark, desktop/tablet/mobile, keyboard/touch controls and selection preservation checks pass. Composition-marked shortcuts are ignored; original-position drops, Escape cancellation and edge-scroll stopping are verified.
-- [x] Direct left-margin entry and vertical travel across block/list gaps retain controls. Compact group/item grips share one row, keep distinct scopes and support group dragging, history and saving.
-- [x] List outlines include marker gutters and handles remain separate from markers. Bullet, nested, checkbox and long-numbered layouts are visually checked at 1440px, 1024px and 390px; gradual mouse travel keeps item scope and touch/keyboard movement works.
-- [x] Frontend: 49 tests and production build/type-check pass. Backend: 292 tests pass. Browser: 21 cases pass; source compilation, configuration JSON, production dependency audit and diff checks pass (2026-10-13).
-- [x] Folding remains display state, keeps the draft clean, preserves complete Markdown/images and reveals hidden outline destinations. Reading mode shows all content; folded sections and nested state survive movement and history.
-- [x] Article editor user guide, README and changelog describe the implemented behavior.
-- [x] Prepare `0.3.3.1` package metadata and [version notes](docs/releases/v0.3.3.1.md).
-- [ ] Build the production Docker image and complete its isolated runtime smoke checks before tagging or publishing the release.
-
 ## v0.3.3.0 — Review templates and image/text coordination
 
 Completed natural-language templates and three-stage review are recorded under `[0.3.3.0]` in `CHANGELOG.md` and `docs/releases/v0.3.3.0.md`. Release operations are authorized; publication and merge outcomes are recorded by the v0.3.3.0 GitHub release and release pull request.
