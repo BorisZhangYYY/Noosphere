@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.3.3.1] - Unreleased
+## [0.3.3.1] - 2026-10-14
 
 ### Added
 
@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Apply the configured APT mirror to the Docker builder as well as runtime dependency installation, use HTTPS for mirror requests, and retry transient build-dependency downloads (2026-10-14).
 - Separate list movement handles from bullets, ordered numbers and task checkboxes, and include the full marker gutter in list-item outlines. Nested and long-numbered lists retain their markers, and moving the pointer toward a handle keeps the selected item's scope stable. Narrow ordered lists reserve space for both grips even beside long numbers (2026-10-13).
 - Left-margin block controls now select rows directly and remain available across paragraph and list gaps. The full-height list bar becomes a compact group icon beside the item grip; hovering either entrance identifies its movement scope while dragging, keyboard and touch access remain available (2026-10-13).
 
