@@ -556,6 +556,16 @@ async def restore_collection(
 
 
 @mcp.tool()
+async def reorder_workspace(
+    kind: str, source_id: str, target_id: str, side: str = "before", scope_id: str = "",
+) -> dict[str, Any]:
+    """Reorder sibling Collections or articles within their existing Collection, never reclassify."""
+    from src.application.service import reorder_workspace as reorder
+
+    return await _to_thread(reorder, kind, source_id, target_id, side, scope_id or None)
+
+
+@mcp.tool()
 async def place_article(
     article_id: str,
     collection_id: str = "",
@@ -795,7 +805,7 @@ async def _recover_article_workspaces_lifespan(app):
 
 @mcp.tool()
 async def search_library(query: str, scope: str = "all", collection_id: str = "", limit: int = 30, offset: int = 0) -> dict:
-    """Search title, body, reflections or annotations; raw source is opt-in."""
+    """Search reviewed article text; scope accepts reviewed or its all alias."""
     from src.application.service import search_articles
     return await asyncio.to_thread(search_articles, query, scope=scope, collection_id=collection_id, limit=limit, offset=offset)
 
@@ -847,6 +857,7 @@ def create_app() -> Starlette:
         get_pipeline_settings,
         get_settings,
         get_collections,
+        reorder_workspace as reorder_workspace_route,
         get_upload_job,
         list_article_trash,
         list_capture_jobs,
@@ -925,6 +936,7 @@ def create_app() -> Starlette:
         Route("/api/v1/pipeline/settings", get_pipeline_settings, methods=["GET"]),
         Route("/api/v1/pipeline/settings", update_pipeline_settings, methods=["PATCH"]),
         Route("/api/v1/collections", get_collections, methods=["GET"]),
+        Route("/api/v1/workspace/order", reorder_workspace_route, methods=["POST"]),
         Route("/api/v1/collections", create_collection_route, methods=["POST"]),
         Route("/api/v1/collections/description/polish", polish_collection_description_route, methods=["POST"]),
         Route("/api/v1/collections/{collection_id}", update_collection_route, methods=["PATCH"]),

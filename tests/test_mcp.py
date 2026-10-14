@@ -330,3 +330,16 @@ async def test_polish_tool_applies_only_when_requested(monkeypatch, tmp_path: Pa
     applied_result = await polish_article_reflection("article", apply=True)
     assert applied_result["status"] == "applied"
     assert applied == ["Polished"]
+
+
+@pytest.mark.asyncio
+async def test_workspace_order_uses_shared_scope_preserving_operation(monkeypatch):
+    from src.mcp.server import reorder_workspace
+    received = []
+    def reorder(*args):
+        received.append(args)
+        return {"ok": True, "orderedIds": ["second", "first"]}
+    monkeypatch.setattr("src.application.service.reorder_workspace", reorder)
+    result = await reorder_workspace("article", "second", "first", "before", "category")
+    assert received == [("article", "second", "first", "before", "category")]
+    assert result["orderedIds"] == ["second", "first"]

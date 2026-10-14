@@ -1492,3 +1492,38 @@ async def test_review_job_resets_truncated_preview_and_reports_image_stages(web_
     assert snapshots[1]['stage'] == 'image_review' and snapshots[1]['progress'] == 80
     assert snapshots[2]['stage'] == 'image_layout' and snapshots[2]['progress'] == 88
     assert _review_jobs[job_id]['status'] == 'succeeded'
+
+
+def test_workspace_order_is_persistent_and_never_changes_ai_classification(web_client):
+    client, config_path, article_id = web_client
+    from src.core.collections import CollectionStore
+    store = CollectionStore()
+    a = store.create_collection(name="Alpha")
+    b = store.create_collection(name="Beta")
+    directory = load_config().output_dir_path / article_id
+    for clone_id in ["sort_second", "sort_foreign"]:
+        clone = directory.parent / clone_id
+        shutil.copytree(directory, clone)
+        manifest = json.loads((clone / "manifest.json").read_text())
+        manifest["article_id"] = clone_id
+        manifest["article"]["captured_at"] = "2000-01-01T00:00:00Z"
+        (clone / "manifest.json").write_text(json.dumps(manifest))
+    for item, category in [(article_id, a["id"]), ("sort_second", a["id"]), ("sort_foreign", b["id"])]:
+        store.assign_article(item, collection_id=category, source="ai", reason="Topic match", confidence=.89)
+    assignments = {item: store.get_assignment(item) for item in [article_id, "sort_second", "sort_foreign"]}
+    content = {name: (directory / name).read_bytes() for name in ["raw.md", "reviewed.md", "manifest.json"]}
+    response = client.post("/api/v1/workspace/order", json={"kind": "article", "sourceId": "sort_second", "targetId": article_id, "side": "before", "scopeId": a["id"]})
+    assert response.status_code == 200
+    assert response.json()["orderedIds"] == ["sort_second", article_id]
+    summaries = {item["id"]: item for item in client.get("/api/v1/articles").json()["articles"]}
+    assert summaries["sort_second"]["workspaceOrder"] == 0
+    assert summaries[article_id]["workspaceOrder"] == 1
+    rejected = client.post("/api/v1/workspace/order", json={"kind": "article", "sourceId": article_id, "targetId": "sort_foreign", "side": "after", "scopeId": a["id"]})
+    assert rejected.status_code == 400
+    assert assignments == {item: store.get_assignment(item) for item in assignments}
+    assert content == {name: (directory / name).read_bytes() for name in content}
+    response = client.post("/api/v1/workspace/order", json={"kind": "collection", "sourceId": b["id"], "targetId": a["id"], "side": "before", "scopeId": None})
+    assert response.status_code == 200
+    assert [node["id"] for node in client.get("/api/v1/collections").json()["collections"]] == [b["id"], a["id"]]
+    for payload in [[], {}, {"kind": "article", "sourceId": True, "targetId": article_id, "side": "after"}, {"kind": "article", "sourceId": "missing", "targetId": article_id, "side": "after"}]:
+        assert client.post("/api/v1/workspace/order", json=payload).status_code == 400

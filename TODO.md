@@ -51,6 +51,8 @@ The combined release operations are authorized. Publication and merge outcomes a
 
 ## Later product iterations
 
+Reading-mark ideas discussed on 2026-10-14 remain proposals awaiting scope: independent highlights without a required note, underline/background annotation styles and a lightweight selection toolbar. Current reading annotations retain their dashed underline and faint background; text color and article content are unchanged.
+
 - [ ] Heading-section folding and heading-with-section movement. Fold through the next heading of equal/higher level, retain all Markdown/export content, and move a heading with its complete section. Deliberately deferred from v0.3.3.1 after the user's 2026-10-13 clarification.
 
 - [ ] Improve article-level organization after bounded review: the live custom-perspective recovery retained duplicate template headings across parts. Preserve complete source content while consolidating the requested article structure; wider long-article adaptation remains deferred.

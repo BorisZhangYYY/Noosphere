@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import { cleanPassage } from "../markdownClean";
-import type { ArticleAnnotation } from "../types";
 
 function normalize(value: string) {
   return value.replace(/\s+/g, "").toLocaleLowerCase();
@@ -26,7 +25,7 @@ function matchingPrefix(left: string, right: string) {
   return length;
 }
 
-function findRenderedMatch(root: Element, hit: string, source: string, anchorOffset: number, sourceOffset: number) {
+function renderedText(root: Element) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement;
@@ -42,6 +41,22 @@ function findRenderedMatch(root: Element, hit: string, source: string, anchorOff
     nodes.push({ node, start: rendered.length, end: rendered.length + node.data.length });
     rendered += node.data;
   }
+  return { nodes, rendered };
+}
+
+function textRange(model: ReturnType<typeof renderedText>, start: number, length: number) {
+  const first = model.nodes.find(item => start >= item.start && start < item.end);
+  const end = start + length;
+  const last = model.nodes.find(item => end > item.start && end <= item.end);
+  if (!first || !last) return null;
+  const range = document.createRange();
+  range.setStart(first.node, start - first.start);
+  range.setEnd(last.node, end - last.start);
+  return range;
+}
+
+function findRenderedMatch(model: ReturnType<typeof renderedText>, hit: string, source: string, anchorOffset: number, sourceOffset: number) {
+  const { rendered } = model;
   if (!rendered || !hit) return null;
   const before = normalize(cleanPassage(source.slice(Math.max(0, anchorOffset - 100), anchorOffset), [], "").text).slice(-50);
   const after = normalize(cleanPassage(source.slice(anchorOffset + hit.length, anchorOffset + hit.length + 100), [], "").text).slice(0, 50);
@@ -58,117 +73,74 @@ function findRenderedMatch(root: Element, hit: string, source: string, anchorOff
     from = start + Math.max(1, term.length);
   }
   if (!best) return null;
-  const first = nodes.find((item) => best.start >= item.start && best.start < item.end);
-  const end = best.start + hit.length;
-  const last = nodes.find((item) => end > item.start && end <= item.end);
-  if (!first || !last) return null;
-  const range = document.createRange();
-  range.setStart(first.node, best.start - first.start);
-  range.setEnd(last.node, end - last.start);
-  return range;
+  return textRange(model, best.start, hit.length);
 }
 
-function showSearchFocus(range: Range) {
-  const layer = document.createElement("div");
-  layer.className = "search-focus-layer";
-  layer.setAttribute("aria-hidden", "true");
-  document.body.appendChild(layer);
-  const marks: HTMLSpanElement[] = [];
-  let frame = 0;
-  let disposed = false;
-  const paint = () => {
-    if (disposed || !range.startContainer.isConnected) return;
-    const rects = Array.from(range.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0);
-    while (marks.length < rects.length) {
-      const mark = document.createElement("span");
-      mark.className = "search-focus-rect";
-      layer.appendChild(mark);
-      marks.push(mark);
-    }
-    while (marks.length > rects.length) marks.pop()?.remove();
-    rects.forEach((rect, index) => {
-      const mark = marks[index];
-      mark.style.left = `${rect.left - 1}px`;
-      mark.style.top = `${rect.bottom + 3}px`;
-      mark.style.width = `${rect.width + 2}px`;
-      mark.style.height = "1.5px";
-    });
-    frame = requestAnimationFrame(paint);
+function allSearchRanges(model: ReturnType<typeof renderedText>, query: string, hit: string) {
+  const parts = Array.from(query.matchAll(/"([^"]+)"|(\S+)/g), match => match[1] || match[2]).filter(Boolean);
+  if (!parts.length && hit) parts.push(hit);
+  const expression = new RegExp([...new Set(parts)].sort((a, b) => b.length - a.length).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "giu");
+  return Array.from(model.rendered.matchAll(expression), match => textRange(model, match.index, match[0].length)).filter((range): range is Range => range !== null);
+}
+
+function showSearchFocus(ranges: Range[]) {
+  const name = "noosphere-search-matches";
+  const registry = (CSS as unknown as { highlights?: { set(name: string, value: unknown): void; get(name: string): unknown; delete(name: string): void } }).highlights;
+  const HighlightConstructor = (window as unknown as { Highlight?: new (...ranges: Range[]) => { priority: number } }).Highlight;
+  if (!registry || !HighlightConstructor) return () => undefined;
+  const highlight = new HighlightConstructor(...ranges);
+  highlight.priority = 1;
+  registry.set(name, highlight);
+  return () => {
+    if (registry.get(name) === highlight) registry.delete(name);
   };
-  frame = requestAnimationFrame(paint);
-  const timeout = window.setTimeout(dispose, 3000);
-  function dispose() {
-    if (disposed) return;
-    disposed = true;
-    window.clearTimeout(timeout);
-    cancelAnimationFrame(frame);
-    layer.remove();
-  }
-  return dispose;
 }
 
-export function SearchPassage({ articleId, annotations = [], onOpenAnnotation }: {
-  articleId: string;
-  annotations?: ArticleAnnotation[];
-  onOpenAnnotation?: (annotationId: string, focus: boolean) => void;
-}) {
+export function SearchPassage({ articleId, readOnly }: { articleId: string; readOnly: boolean }) {
   const [params] = useSearchParams();
   const { i18n } = useTranslation();
   const zh = i18n.resolvedLanguage?.startsWith("zh");
   const [notFound, setNotFound] = useState(false);
-  const openAnnotationRef = useRef(onOpenAnnotation);
-  openAnnotationRef.current = onOpenAnnotation;
   const digest = params.get("digest");
   const field = params.get("field") ?? "reviewed";
+  const supported = field === "reviewed";
   const start = Math.max(0, Number(params.get("start") ?? 0));
-  const hit = params.get("hit") || (params.get("search") ?? "").match(/"([^"]+)"|(\S+)/)?.slice(1).find(Boolean) || "";
+  const search = params.get("search") ?? "";
+  const hit = params.get("hit") || search.match(/"([^"]+)"|(\S+)/)?.slice(1).find(Boolean) || "";
   const args = new URLSearchParams({ article: articleId, field, digest: digest ?? "", start: String(start) });
-  const query = useQuery({ queryKey: ["search-passage", args.toString()], queryFn: () => api.searchPassage(args.toString()), enabled: Boolean(digest) });
+  const query = useQuery({ queryKey: ["search-passage", args.toString()], queryFn: () => api.searchPassage(args.toString()), enabled: Boolean(digest) && supported });
 
   useEffect(() => {
     setNotFound(false);
-    if (!digest || !query.data || query.data.changed || !hit) return;
-    let annotationSelector = "";
-    if (field === "annotations") {
-      let offset = 0;
-      for (const annotation of annotations) {
-        const noteLength = Array.from(annotation.note).length;
-        const length = noteLength + 1 + Array.from(annotation.quote).length;
-        if (start >= offset && start < offset + length) {
-          openAnnotationRef.current?.(annotation.id, true);
-          annotationSelector = start - offset <= noteLength ? ".annotation-note-view" : ".annotation-quoted-passage";
-          break;
-        }
-        offset += length + 2;
-      }
-    }
-    const selector = annotationSelector || (field === "reflection" ? ".reflection-section-body"
-      : field === "raw" ? ".article-source-search"
-        : field === "author" ? ".inspection-source-section"
-          : ".markdown-editor .vditor-wysiwyg .vditor-reset");
+    if (!digest || !supported || !readOnly || !query.data || query.data.changed || !hit) return;
     const anchorOffset = codePointToUtf16(query.data.text, Math.min(200, start));
-    let finished = false;
+    let located = false;
     let clearFocus: (() => void) | undefined;
     const locate = () => {
-      if (finished) return;
-      const root = document.querySelector(selector);
-      const range = root && findRenderedMatch(root, hit, query.data!.text, anchorOffset, start);
+      const root = document.querySelector(".markdown-editor .vditor-wysiwyg .vditor-reset");
+      if (!root) return;
+      const model = renderedText(root);
+      const range = findRenderedMatch(model, hit, query.data!.text, anchorOffset, start);
       if (!range) return;
-      range.startContainer.parentElement?.dispatchEvent(new CustomEvent("noosphere-reveal-block", { bubbles: true }));
-      range.startContainer.parentElement?.scrollIntoView({ behavior: "instant", block: "center" });
-      clearFocus = showSearchFocus(range);
-      finished = true;
+      if (!located) {
+        range.startContainer.parentElement?.dispatchEvent(new CustomEvent("noosphere-reveal-block", { bubbles: true }));
+        range.startContainer.parentElement?.scrollIntoView({ behavior: "instant", block: "center" });
+        located = true;
+      }
+      clearFocus?.();
+      clearFocus = showSearchFocus(allSearchRanges(model, search, hit));
     };
     const observer = new MutationObserver(locate);
-    observer.observe(field === "annotations" ? document.body : document.querySelector(".article-page") ?? document.body, { childList: true, subtree: true, characterData: true });
+    observer.observe(document.querySelector(".article-page") ?? document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class"] });
     const frame = requestAnimationFrame(locate);
-    const timeout = window.setTimeout(() => { observer.disconnect(); if (!finished) setNotFound(true); }, 4500);
+    const timeout = window.setTimeout(() => { if (!located) setNotFound(true); }, 4500);
     return () => { cancelAnimationFrame(frame); clearTimeout(timeout); observer.disconnect(); clearFocus?.(); };
-  }, [articleId, digest, field, hit, start, query.data, annotations]);
+  }, [articleId, digest, field, hit, search, start, query.data, readOnly, supported]);
 
   if (!digest) return null;
-  const message = query.data?.changed ? (zh ? "文章内容已更新，请重新搜索定位。" : "This article changed. Search again to locate the passage.")
-    : query.error ? String(query.error)
-      : notFound ? (zh ? "未能在当前文章视图中定位该片段。" : "The passage could not be located in this article view.") : "";
-  return message ? <div className="search-location-notice" role="status">{message} <Link to={`/search?q=${encodeURIComponent(params.get("search") ?? "")}`}>{zh ? "返回搜索" : "Back to search"}</Link></div> : null;
+  const message = !supported ? (zh ? "搜索现在仅支持正文，请重新搜索。" : "Search now covers article text only. Please search again.")
+    : query.data?.changed ? (zh ? "文章内容已更新，请重新搜索定位。" : "This article changed. Search again to locate the passage.")
+      : query.error ? String(query.error)
+        : notFound && readOnly ? (zh ? "未能在当前文章视图中定位该片段。" : "The passage could not be located in this article view.") : "";
+  return message ? <div className="search-location-notice" role="status">{message} <Link to={`/search?q=${encodeURIComponent(search)}`}>{zh ? "返回搜索" : "Back to search"}</Link></div> : null;
 }

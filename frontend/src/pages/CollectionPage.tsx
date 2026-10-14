@@ -15,6 +15,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import type { CollectionNode } from "../types";
+import { orderedWorkspaceArticles } from "../workspaceOrder";
+import { useWorkspaceOrdering } from "../components/useWorkspaceOrdering";
 
 function findCollection(
   collections: CollectionNode[],
@@ -35,6 +37,7 @@ export function CollectionPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const ordering = useWorkspaceOrdering();
   const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const activeCollectionIdRef = useRef(collectionId);
@@ -51,9 +54,9 @@ export function CollectionPage() {
     () => findCollection(collectionQuery.data?.collections ?? [], collectionId),
     [collectionId, collectionQuery.data]
   );
-  const directArticles = (articleQuery.data?.articles ?? []).filter(
+  const directArticles = orderedWorkspaceArticles((articleQuery.data?.articles ?? []).filter(
     (article) => article.collection?.collection_id === collectionId
-  );
+  ));
   const updateMutation = useMutation({
     mutationFn: ({ id, value }: { id: string; value: string; revision: number }) =>
       api.updateCollection(id, { description: value }),
@@ -194,6 +197,11 @@ export function CollectionPage() {
         </header>
 
         <section className="collection-index-contents">
+          {ordering.error && <p className="library-sidebar-error" role="alert">{ordering.error}</p>}
+          {ordering.drag && <p className={`workspace-order-hint${ordering.target?.blocked ? " blocked" : ""}`} role="status">
+            {ordering.target?.blocked ? t("knowledge.orderBlocked") : ordering.drag.kind === "collection"
+              ? t("knowledge.orderCollections") : t("knowledge.orderArticles", { name: collection.name })}
+          </p>}
           <div className="collection-index-heading">
             <div><span>02</span><h2>{t("knowledge.contents")}</h2></div>
             <small>{t("knowledge.contentsCount", { count: collection.children.length + directArticles.length })}</small>
@@ -202,21 +210,29 @@ export function CollectionPage() {
             <p className="collection-index-empty">{t("knowledge.emptyIndexDocument")}</p>
           ) : (
             <div className="collection-index-list">
-              {collection.children.map((child) => (
-                <Link className="collection-index-row collection-index-row-child" to={`/collections/${encodeURIComponent(child.id)}`} key={child.id}>
+              <div className={`workspace-collection-scope ${ordering.scopeClass("collection", collection.id)}`}>
+              {collection.children.map((child) => {
+                const { className, ...events } = ordering.row({ kind: "collection", id: child.id, scopeId: collection.id }, child.name, collection.children.map(item => item.id));
+                return <Link {...events} draggable={!ordering.isPending} data-order-id={child.id}
+                  className={`collection-index-row collection-index-row-child ${className}`} title={t("knowledge.dragCollection", { name: child.name })} to={`/collections/${encodeURIComponent(child.id)}`} key={child.id}>
                   <span className="collection-index-row-icon"><Note size={20} weight="duotone" /></span>
                   <span><strong>{child.name}</strong><small>{child.description || t("knowledge.nestedIndexDocument")}</small></span>
                   <em>{child.article_count}</em>
                   <ArrowRight size={17} />
-                </Link>
-              ))}
-              {directArticles.map((article) => (
-                <Link className="collection-index-row" to={`/articles/${encodeURIComponent(article.id)}`} key={article.id}>
+                </Link>;
+              })}
+              </div>
+              <div className={`workspace-article-scope ${ordering.scopeClass("article", collection.id)}`} data-order-scope={collection.id}>
+              {directArticles.map((article) => {
+                const { className, ...events } = ordering.row({ kind: "article", id: article.id, scopeId: collection.id }, article.title, directArticles.map(item => item.id));
+                return <Link {...events} draggable={!ordering.isPending} data-order-id={article.id}
+                  className={`collection-index-row ${className}`} title={t("knowledge.dragArticle", { title: article.title })} to={`/articles/${encodeURIComponent(article.id)}`} key={article.id}>
                   <span className="collection-index-row-icon"><FileText size={19} /></span>
                   <span><strong>{article.title}</strong><small>{article.author || article.platformLabel}</small></span>
                   <ArrowRight size={17} />
-                </Link>
-              ))}
+                </Link>;
+              })}
+              </div>
             </div>
           )}
         </section>

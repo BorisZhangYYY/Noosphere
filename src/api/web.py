@@ -1322,6 +1322,28 @@ async def get_collections(request: Request) -> JSONResponse:
     return JSONResponse({"collections": tree})
 
 
+async def reorder_workspace(request: Request) -> JSONResponse:
+    from src.application.service import reorder_workspace as reorder
+
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Ordering payload must be an object")
+        for key in ("kind", "sourceId", "targetId", "side"):
+            if not isinstance(payload.get(key), str) or not payload[key]:
+                raise ValueError(f"{key} must be a nonempty string")
+        scope = payload.get("scopeId")
+        if scope is not None and (not isinstance(scope, str) or not scope):
+            raise ValueError("scopeId must be a nonempty string or null")
+        result = await asyncio.to_thread(
+            reorder, payload["kind"], payload["sourceId"], payload["targetId"],
+            payload["side"], scope, locale=_request_language(request),
+        )
+    except (json.JSONDecodeError, ValueError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse(result)
+
+
 async def create_collection(request: Request) -> JSONResponse:
     try:
         payload = await request.json()

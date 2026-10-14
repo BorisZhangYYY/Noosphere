@@ -185,3 +185,8 @@ def test_perspective_save_accepts_natural_format_without_slots() -> None:
     ])
     assert args.sections == "{}"
     assert args.body_section == ""
+
+
+def test_workspace_order_cli_keeps_explicit_scope_and_side():
+    args = parse_args(["collections", "order", "article", "second", "first", "--scope-id", "category", "--side", "after", "--json"])
+    assert (args.kind, args.source_id, args.target_id, args.scope_id, args.side, args.json) == ("article", "second", "first", "category", "after", True)

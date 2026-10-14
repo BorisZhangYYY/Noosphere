@@ -6,7 +6,7 @@ It combines Crawl4AI and Firecrawl, downloads article assets, and asks a languag
 
 Noosphere is an article-processing service and MCP capability, not a general-purpose personal note-taking application. Downstream knowledge systems remain independent and receive content only through explicitly configured, user-authorized adapters.
 
-The current release is [v0.3.3.1](docs/releases/v0.3.3.1.md), with article block operations and heading folding.
+The current release is [v0.3.3.2](docs/releases/v0.3.3.2.md), with editor refinements, category-preserving workspace ordering, persistent quote bubbles and body-only search highlighting.
 
 In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into clean, structured, understandable, and portable knowledge.
 
@@ -18,8 +18,8 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 - Organize articles in a user-owned Knowledge workspace of clickable index documents with arbitrary nesting; articles may also remain directly at the workspace level.
 - Review text, analyze images independently from the resulting summary, then coordinate image placement and recoverable removal without changing `raw.md`.
 - Keep a personal `reflection.md` beside each article, optionally polish it with the reviewing model, and decide per article whether it is appended to an upload copy.
-- In reading mode, quote exact passages, underline resolved anchors, and keep Markdown interpretations in an independent `annotations.json` sidecar with rail-based navigation and management.
-- Search article text, reflections and annotations with highlighted excerpts and source-context navigation.
+- In reading mode, quote exact passages, underline resolved anchors, and keep Markdown interpretations in an independent `annotations.json` sidecar with persistent click-open quote bubbles, an Edit action and rail-based navigation and management.
+- Search reviewed article text with highlighted excerpts and navigation that marks every occurrence in the opened article; private annotations and reflections stay outside the index.
 - Process batches of URLs with duplicate checks, durable per-item progress, pause/cancel and failed-item retry.
 - Archive locally or upload reviewed content to SiYuan.
 - Use the same data, configuration, and business rules through the web app, MCP service, or CLI.
@@ -89,7 +89,7 @@ docker compose up -d --build
 open http://localhost:8080/app/
 ```
 
-The web workspace keeps navigation and the Collection tree together in one persistent sidebar. Collections can be created, renamed, deleted recoverably, and nested in place; their direct articles appear beneath them like a document directory and can be dragged onto another index to move them. The article workbench combines clickable Collection breadcrumbs, save state, an outline, editor, and collapsible inspection rail for placement, image recovery, review, and upload.
+The web workspace keeps navigation and the Collection tree together in one persistent sidebar. Collections can be created, renamed, deleted recoverably, and nested in place. Drag to reorder sibling Collections or articles within their existing Collection; a boundary and insertion line show the permitted area, and cross-Collection article drops are blocked. Display order persists without changing AI classification. The article workbench combines clickable Collection breadcrumbs, save state, an outline, editor, and collapsible inspection rail for explicit placement, image recovery, review, and upload. See [workspace ordering](docs/workspace-ordering.md).
 
 To install the optional Codex/Claude-compatible Noosphere skill:
 
@@ -148,6 +148,7 @@ Annotations never modify `raw.md`, `reviewed.md`, or `reflection.md`, and are ne
 | Extract, review, upload, full pipeline | Background actions | Synchronous tools and `start_*` jobs | Foreground commands with JSON output |
 | Article list, protected metadata, and prose update | Library and editor | `list_articles`, `get_article`, `update_article_content`, `update_missing_article_metadata` | `articles list/show/update/metadata` |
 | Arbitrary-depth Collections and article placement | Persistent sidebar and article rail | `list_collections`, `create_collection`, `update_collection`, `delete_collection`, `restore_collection`, `place_article` | `collections list/create/update/delete/restore/place` |
+| Ordering within existing categories | Sidebar and category index drag/keyboard ordering | `reorder_workspace` | `collections order` |
 | Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
 | Personal reflections and AI polish | Article section, floating editor, preview, and upload switch | `get_article_reflection`, `save_article_reflection`, `polish_article_reflection`, `start_polish` | `reflect`, plus upload inclusion overrides |
 | Anchored quote interpretations | Selection action, dashed underline, Markdown dialog, and rail management | `list_article_annotations`, `create_article_annotation`, `update_article_annotation`, `delete_article_annotation` | `annotations list/add/update/delete` |

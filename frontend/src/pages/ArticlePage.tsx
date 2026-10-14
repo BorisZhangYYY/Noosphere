@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useBeforeUnload, useBlocker, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useBeforeUnload, useBlocker, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { articleDraftReducer, emptyArticleDraft } from "../articleDraft";
 import { SearchPassage } from "../components/SearchPassage";
@@ -68,12 +68,9 @@ function ReviewProgress({ job }: { job: ReviewJob | null | undefined }) {
 export function ArticlePage() {
   const { t, i18n } = useTranslation();
   const { articleId = "" } = useParams();
-  const [searchParams] = useSearchParams();
-  const rawSearch = Boolean(searchParams.get("digest") && searchParams.get("field") === "raw");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["article", articleId, i18n.resolvedLanguage], queryFn: () => api.getArticle(articleId), enabled: Boolean(articleId) });
-  const rawQuery = useQuery({ queryKey: ["article-full", articleId, i18n.resolvedLanguage], queryFn: () => api.getArticleFull(articleId), enabled: Boolean(articleId) && rawSearch });
   const collectionQuery = useQuery({ queryKey: ["collections", i18n.resolvedLanguage], queryFn: api.getCollections });
   const pipelineSettingsQuery = useQuery({ queryKey: ["pipeline-settings", i18n.resolvedLanguage], queryFn: api.getPipelineSettings });
   const [draftState, dispatchDraft] = useReducer(articleDraftReducer, emptyArticleDraft);
@@ -150,12 +147,6 @@ export function ArticlePage() {
     setFocusAnnotationRequest(null);
     setPendingAnnotationDelete(null);
   }, [articleId]);
-  useEffect(() => {
-    if (searchParams.get("digest") && searchParams.get("field") === "author") {
-      setInspectionOpen(true);
-      setSourceExpanded(true);
-    }
-  }, [searchParams]);
   useEffect(() => {
     if (!quoteSelection) return;
     const clear = () => setQuoteSelection(null);
@@ -419,13 +410,13 @@ export function ArticlePage() {
     ? article.annotations.items.find((annotation) => annotation.id === annotationDialog.annotationId) ?? null
     : null;
   const resolvedAnnotationIdSet = new Set(resolvedAnnotationIds);
-  const openAnnotation = (annotationId: string, focus = false) => {
+  const openAnnotation = (annotationId: string, focus = false, edit = false) => {
     const annotation = article.annotations.items.find((item) => item.id === annotationId);
     if (!annotation) return;
     setQuoteSelection(null);
     setAnnotationDraft(annotation.note);
-    setAnnotationMarkdownMode("preview");
-    setAnnotationDialog({ mode: "view", annotationId });
+    setAnnotationMarkdownMode(edit ? "edit" : "preview");
+    setAnnotationDialog({ mode: edit ? "edit" : "view", annotationId });
     if (focus && resolvedAnnotationIdSet.has(annotationId)) {
       setFocusAnnotationRequest({ id: annotationId, token: Date.now() });
     }
@@ -530,7 +521,7 @@ export function ArticlePage() {
       <div className={`article-layout${inspectionOpen ? "" : " inspection-collapsed"}`}>
         <ArticleOutline markdown={draft} />
         <article className="reader-surface editor-surface">
-          <SearchPassage articleId={articleId} annotations={article.annotations.items} onOpenAnnotation={openAnnotation} />
+          <SearchPassage articleId={articleId} readOnly={readOnly} />
           <MarkdownEditor
             articleId={articleId}
             value={draft}
@@ -543,14 +534,10 @@ export function ArticlePage() {
             annotations={article.annotations.items}
             annotationSourceDigest={article.annotations.sourceDigest}
             onSelectQuote={readOnly && !dirty ? setQuoteSelection : undefined}
-            onOpenAnnotation={openAnnotation}
+            onOpenAnnotation={(id) => openAnnotation(id, false, true)}
             onResolvedAnnotationIds={(ids) => setResolvedAnnotationIds((current) => current.join("\n") === ids.join("\n") ? current : ids)}
             focusAnnotationRequest={focusAnnotationRequest}
           />
-          {rawSearch && rawQuery.data?.rawMarkdown && <section className="article-source-search" aria-label={i18n.resolvedLanguage?.startsWith("zh") ? "原文" : "Original article"}>
-            <h2>{i18n.resolvedLanguage?.startsWith("zh") ? "原文" : "Original article"}</h2>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ src, alt }) => <img src={src?.startsWith("assets/") ? `/api/v1/articles/${encodeURIComponent(articleId)}/${src}` : src} alt={alt ?? ""} /> }}>{rawQuery.data.rawMarkdown}</ReactMarkdown>
-          </section>}
           <section className="reflection-section" aria-label={t("article.reflectionTitle")}>
             <header className="reflection-section-header">
               <div>

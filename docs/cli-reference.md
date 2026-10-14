@@ -55,6 +55,8 @@ The web reader normally calculates prefix, suffix, and occurrence automatically.
 | Command | Purpose |
 |---|---|
 | `nsphr collections list --json` | List the complete arbitrary-depth Collection tree. |
+| `nsphr collections order collection SOURCE_ID TARGET_ID --side before --scope-id PARENT_ID` | Reorder sibling Collections; omit scope for root Collections. |
+| `nsphr collections order article SOURCE_ID TARGET_ID --side after --scope-id COLLECTION_ID` | Reorder articles within their existing Collection; omit scope for unfiled articles. |
 | `nsphr collections create --name "AI" --description "AI research"` | Create a root Collection. |
 | `nsphr collections create --name "AI interviews" --parent-id ID` | Create a child beneath any existing Collection. |
 | `nsphr collections update ID --name "Applied AI"` | Rename or describe a Collection. |
@@ -128,3 +130,7 @@ Run `nsphr COMMAND --help` for the authoritative option list of any command.
 ## Revision-aware content updates
 
 Read the article revision before replacing its content. Updates now require `--expected-revision` in CLI or `expected_revision` in MCP. A stale revision is rejected; fetch the current article and reconcile the draft before retrying. See the [upgrade guide](reliability-upgrade.md) for authentication and examples.
+
+### Full-text article search
+
+`nsphr search "关键词" [--scope reviewed] [--collection-id ID] [--limit 30] [--offset 0] --json` searches reviewed article text and headings. `--scope all` is a compatibility alias for the same search. Annotations, reflections, original source and metadata fields are not indexed. See [search operations](search-and-batches.md).

@@ -163,9 +163,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mcp_parser.add_argument("--host", default="127.0.0.1", help="Host to bind the MCP HTTP server (default: 127.0.0.1).")
     mcp_parser.add_argument("--port", type=int, default=8080, help="Port to bind the MCP HTTP server (default: 8080).")
 
-    search_parser = subparsers.add_parser("search", help="Search article content, reflections and annotations.")
+    search_parser = subparsers.add_parser("search", help="Search reviewed article text.")
     search_parser.add_argument("query")
-    search_parser.add_argument("--scope", choices=["all", "title", "author", "reviewed", "reflection", "annotations", "raw"], default="all")
+    search_parser.add_argument("--scope", choices=["all", "reviewed"], default="reviewed")
     search_parser.add_argument("--collection-id", default="")
     search_parser.add_argument("--limit", type=int, default=30)
     search_parser.add_argument("--offset", type=int, default=0)
@@ -200,6 +200,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     collections_list = collections_subparsers.add_parser("list", help="List the arbitrary-depth collection tree.")
     collections_list.add_argument("--include-deleted", action="store_true")
     collections_list.add_argument("--json", action="store_true")
+    collections_order = collections_subparsers.add_parser("order", help="Reorder siblings without changing category ownership.")
+    collections_order.add_argument("kind", choices=["article", "collection"])
+    collections_order.add_argument("source_id")
+    collections_order.add_argument("target_id")
+    collections_order.add_argument("--side", choices=["before", "after"], default="before")
+    collections_order.add_argument("--scope-id", default="", help="Existing Collection/parent ID; omit for root entries.")
+    collections_order.add_argument("--json", action="store_true")
     collections_create = collections_subparsers.add_parser("create", help="Create a root collection or a child at any depth.")
     collections_create.add_argument("--name", required=True)
     collections_create.add_argument("--description", default="")
@@ -628,6 +635,7 @@ async def _main_async(args: argparse.Namespace) -> int:
             create_collection,
             list_collections,
             place_article,
+            reorder_workspace,
             update_collection,
         )
 
@@ -638,6 +646,8 @@ async def _main_async(args: argparse.Namespace) -> int:
                         include_deleted=args.include_deleted,
                     )
                 }
+            elif args.collections_command == "order":
+                payload = reorder_workspace(args.kind, args.source_id, args.target_id, args.side, args.scope_id or None)
             elif args.collections_command == "create":
                 payload = {
                     "collection": create_collection(

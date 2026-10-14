@@ -92,6 +92,17 @@ class CollectionStore:
             )
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS noosphere_workspace_order (
+                    kind TEXT NOT NULL,
+                    item_id TEXT NOT NULL,
+                    scope_id TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    PRIMARY KEY(kind, item_id)
+                )
+                """
+            )
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS noosphere_collection_migrations (
                     migration_key TEXT PRIMARY KEY,
                     migrated_at TEXT NOT NULL
@@ -378,18 +389,105 @@ class CollectionStore:
                 if finalized is not None:
                     visible_children.append(finalized)
                     total += int(finalized["article_count"])
-            node["children"] = visible_children
+            node["children"] = sorted(visible_children, key=order_key)
             node["article_count"] = total
             if hidden and not include_retired:
                 return None
             return node
+
+        positions = self.workspace_positions("collection")
+
+        def order_key(node: dict[str, Any]) -> tuple:
+            saved = positions.get(node["id"])
+            position = saved["position"] if saved and saved["scope_id"] == (node["parent_id"] or "") else float("inf")
+            return (position, node["name"].casefold(), node["id"])
 
         result = [
             finalized
             for root in roots
             if (finalized := finalize(root, False)) is not None
         ]
-        return sorted(result, key=lambda item: item["name"].casefold())
+        return sorted(result, key=order_key)
+
+    def workspace_positions(self, kind: str) -> dict[str, dict[str, Any]]:
+        """Read display order separately from collection placement and AI provenance."""
+        self.ensure_schema()
+        with self._connect() as connection:
+            return self._workspace_positions(connection, kind)
+
+    def _workspace_positions(self, connection, kind: str) -> dict[str, dict[str, Any]]:
+        rows = connection.execute(
+            f"SELECT item_id, scope_id, position FROM noosphere_workspace_order WHERE kind = {self._placeholder}",
+            (kind,),
+        ).fetchall()
+        return {str(row["item_id"]): dict(row) for row in rows}
+
+    def reorder_workspace(
+        self, kind: str, source_id: str, target_id: str, side: str,
+        scope_id: str | None, peers: list[str],
+    ) -> list[str]:
+        """Move a display entry among siblings without changing its ownership."""
+        if kind not in {"article", "collection"} or side not in {"before", "after"}:
+            raise ValueError("Invalid ordering kind or side")
+        if source_id not in peers or target_id not in peers:
+            raise ValueError("Ordering entries must exist in the requested scope")
+        self.ensure_schema()
+        marker = self._placeholder
+        scope = scope_id or ""
+        with self._connect() as connection:
+            if self._postgres_url:
+                connection.execute("SELECT pg_advisory_xact_lock(7332032)")
+            else:
+                connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT c.id, c.parent_id, state.retired_at FROM noosphere_collections c "
+                "LEFT JOIN noosphere_collection_states state ON state.collection_id = c.id"
+            ).fetchall()
+            nodes = {str(row["id"]): dict(row) for row in rows}
+
+            def active(collection_id: str) -> bool:
+                visited: set[str] = set()
+                while collection_id:
+                    node = nodes.get(collection_id)
+                    if not node or node["retired_at"] or collection_id in visited:
+                        return False
+                    visited.add(collection_id)
+                    collection_id = str(node["parent_id"] or "")
+                return True
+
+            if scope and not active(scope):
+                raise ValueError("Ordering scope is no longer active")
+            if kind == "collection":
+                scopes = {item_id: str(node["parent_id"] or "") for item_id, node in nodes.items() if active(item_id)}
+            else:
+                placements = connection.execute("SELECT article_id, collection_id FROM noosphere_article_collections").fetchall()
+                scopes = {item_id: "" for item_id in peers}
+                for row in placements:
+                    current = str(row["collection_id"] or "")
+                    scopes[str(row["article_id"])] = current if active(current) else ""
+            if scopes.get(source_id) != scope or scopes.get(target_id) != scope:
+                raise ValueError("Entries can only be reordered within their existing scope")
+            current_peers = [item_id for item_id in peers if scopes.get(item_id) == scope]
+            saved = self._workspace_positions(connection, kind)
+            indices = {item_id: index for index, item_id in enumerate(current_peers)}
+            ordered = sorted(current_peers, key=lambda item_id: (
+                saved[item_id]["position"] if item_id in saved and saved[item_id]["scope_id"] == scope else float("inf"),
+                indices[item_id],
+            ))
+            if source_id == target_id:
+                return ordered
+            updated = [item_id for item_id in ordered if item_id != source_id]
+            updated.insert(updated.index(target_id) + (side == "after"), source_id)
+            if updated == ordered:
+                return ordered
+            for index, item_id in enumerate(updated):
+                connection.execute(
+                    f"INSERT INTO noosphere_workspace_order (kind, item_id, scope_id, position) "
+                    f"VALUES ({marker}, {marker}, {marker}, {marker}) "
+                    "ON CONFLICT(kind, item_id) DO UPDATE SET scope_id = excluded.scope_id, position = excluded.position",
+                    (kind, item_id, scope, index),
+                )
+        return updated
 
     def get_collection(
         self,
@@ -791,6 +889,15 @@ class CollectionStore:
             if collection is None:
                 raise ValueError(f"Active collection not found: {collection_id}")
         with self._connect() as connection:
+            previous = connection.execute(
+                f"SELECT collection_id FROM noosphere_article_collections WHERE article_id = {marker}",
+                (article_id,),
+            ).fetchone()
+            if (dict(previous).get("collection_id") if previous else None) != collection_id:
+                connection.execute(
+                    f"DELETE FROM noosphere_workspace_order WHERE kind = 'article' AND item_id = {marker}",
+                    (article_id,),
+                )
             connection.execute(
                 f"""
                 INSERT INTO noosphere_article_collections
@@ -870,6 +977,10 @@ class CollectionStore:
         self.ensure_schema()
         marker = self._placeholder
         with self._connect() as connection:
+            connection.execute(
+                f"DELETE FROM noosphere_workspace_order WHERE kind = 'article' AND item_id = {marker}",
+                (article_id,),
+            )
             connection.execute(
                 f"DELETE FROM noosphere_article_collections WHERE article_id = {marker}",
                 (article_id,),

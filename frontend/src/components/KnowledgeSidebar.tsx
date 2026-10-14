@@ -16,12 +16,14 @@ import {
   X
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import type { ArticleSummary, CollectionNode } from "../types";
+import { orderedWorkspaceArticles } from "../workspaceOrder";
+import { useWorkspaceOrdering, type WorkspaceOrdering } from "./useWorkspaceOrdering";
 
 function articleIdFromPath(pathname: string) {
   const encoded = matchPath("/articles/:articleId", pathname)?.params.articleId ?? "";
@@ -33,54 +35,26 @@ function articleIdFromPath(pathname: string) {
   }
 }
 
-function ArticleLeaf({
-  article,
-  active,
-  editing,
-  dragging,
-  onSelect,
-  onDelete,
-  onDragStart,
-  onDragEnd
-}: {
-  article: ArticleSummary;
-  active: boolean;
-  editing: boolean;
-  dragging: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
-  onDragEnd: () => void;
+function ArticleLeaf({ article, active, editing, ordering, siblings, onSelect, onDelete }: {
+  article: ArticleSummary; active: boolean; editing: boolean;
+  ordering: WorkspaceOrdering; siblings: string[];
+  onSelect: () => void; onDelete: () => void;
 }) {
   const { t } = useTranslation();
+  const { className, onKeyDown, ...events } = ordering.row(
+    { kind: "article", id: article.id, scopeId: article.collection?.collection_id ?? null }, article.title, siblings
+  );
   return (
-    <div
-      className={`knowledge-article-row${active ? " active" : ""}${editing ? " editing" : ""}${dragging ? " dragging" : ""}`}
-      title={t("knowledge.dragArticle", { title: article.title })}
-    >
-      <button
-        type="button"
-        className="knowledge-article-leaf"
-        aria-current={active ? "page" : undefined}
-        draggable
-        onClick={onSelect}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-      >
-        <FileText size={14} weight={active ? "fill" : "regular"} />
-        <span>{article.title}</span>
+    <div {...events} data-order-id={article.id}
+      className={`knowledge-article-row ${className}${active ? " active" : ""}${editing ? " editing" : ""}`}
+      title={t("knowledge.dragArticle", { title: article.title })}>
+      <button type="button" className="knowledge-article-leaf" aria-current={active ? "page" : undefined}
+        draggable={!ordering.isPending} onClick={onSelect} onKeyDown={onKeyDown}>
+        <FileText size={14} weight={active ? "fill" : "regular"} /><span>{article.title}</span>
       </button>
-      {editing && (
-        <button
-          type="button"
-          className="knowledge-article-delete"
-          aria-label={t("knowledge.deleteArticle", { title: article.title })}
-          title={t("knowledge.deleteArticle", { title: article.title })}
-          onClick={onDelete}
-        >
-          <Trash size={13} />
-        </button>
-      )}
+      {editing && <button type="button" className="knowledge-article-delete"
+        aria-label={t("knowledge.deleteArticle", { title: article.title })}
+        title={t("knowledge.deleteArticle", { title: article.title })} onClick={onDelete}><Trash size={13} /></button>}
     </div>
   );
 }
@@ -108,16 +82,14 @@ function CollectionBranch({
   selectedCollectionId,
   activeCollectionId,
   editingArticles,
-  draggingArticleId,
+  ordering,
+  siblingIds,
   renamingId,
   renameValue,
   pendingDeleteId,
   busy,
   onSelectArticle,
   onDeleteArticle,
-  onMoveArticle,
-  onDragArticleStart,
-  onDragArticleEnd,
   onSelectCollection,
   onCreateChild,
   onBeginRename,
@@ -132,16 +104,14 @@ function CollectionBranch({
   selectedCollectionId: string;
   activeCollectionId: string;
   editingArticles: boolean;
-  draggingArticleId: string | null;
+  ordering: WorkspaceOrdering;
+  siblingIds: string[];
   renamingId: string | null;
   renameValue: string;
   pendingDeleteId: string | null;
   busy: boolean;
   onSelectArticle: (articleId: string) => void;
   onDeleteArticle: (article: ArticleSummary) => void;
-  onMoveArticle: (articleId: string, collectionId: string) => void;
-  onDragArticleStart: (articleId: string, event: DragEvent<HTMLButtonElement>) => void;
-  onDragArticleEnd: () => void;
   onSelectCollection: (collectionId: string) => void;
   onCreateChild: (collection: CollectionNode) => void;
   onBeginRename: (collection: CollectionNode) => void;
@@ -151,46 +121,27 @@ function CollectionBranch({
   onDelete: (collection: CollectionNode) => void;
 }) {
   const { t } = useTranslation();
-  const directArticles = articles.filter(
+  const directArticles = orderedWorkspaceArticles(articles.filter(
     (article) => article.collection?.collection_id === collection.id
-  );
+  ));
   const selectedInside = Boolean(
     selectedCollectionId && containsCollection(collection, selectedCollectionId)
   );
   const selected = activeCollectionId === collection.id;
   const [open, setOpen] = useState(selectedInside || directArticles.length > 0);
-  const [dragOver, setDragOver] = useState(false);
+  const { className, onKeyDown, ...events } = ordering.row(
+    { kind: "collection", id: collection.id, scopeId: collection.parent_id }, collection.name, siblingIds
+  );
 
   useEffect(() => {
     if (selectedInside) setOpen(true);
   }, [selectedInside]);
 
   return (
-    <div className="collection-branch">
-      <div
-        className={`collection-row${selected ? " current-path" : ""}${selectedInside && !selected ? " contains-selection" : ""}${dragOver && draggingArticleId ? " drop-target" : ""}`}
-        title={draggingArticleId ? t("knowledge.dropArticleInside", { name: collection.name }) : undefined}
-        onDragOver={(event) => {
-          if (!draggingArticleId) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "move";
-          setDragOver(true);
-        }}
-        onDragLeave={(event) => {
-          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-          setDragOver(false);
-        }}
-        onDrop={(event) => {
-          if (!draggingArticleId) return;
-          event.preventDefault();
-          event.stopPropagation();
-          setDragOver(false);
-          setOpen(true);
-          const articleId = event.dataTransfer.getData("application/x-noosphere-article-id")
-            || draggingArticleId;
-          onMoveArticle(articleId, collection.id);
-        }}
-      >
+    <div className={`collection-branch ${className}`} data-order-id={collection.id}>
+      <div {...events}
+        className={`collection-row${selected ? " current-path" : ""}${selectedInside && !selected ? " contains-selection" : ""}`}
+        title={t("knowledge.dragCollection", { name: collection.name })}>
         <button
           type="button"
           className="collection-toggle"
@@ -226,7 +177,7 @@ function CollectionBranch({
           </form>
         ) : (
           <>
-            <button type="button" className="collection-name" onClick={() => onSelectCollection(collection.id)}>
+            <button type="button" className="collection-name" draggable={!busy} onKeyDown={onKeyDown} onClick={() => onSelectCollection(collection.id)}>
               <span>{collection.name}</span>
               <small>{collection.article_count}</small>
             </button>
@@ -271,19 +222,21 @@ function CollectionBranch({
       </div>
       {open && (
         <div className="collection-children">
+          <div className={`workspace-article-scope ${ordering.scopeClass("article", collection.id)}`} data-order-scope={collection.id}>
           {directArticles.map((article) => (
             <ArticleLeaf
               article={article}
               active={selectedArticleId === article.id}
               editing={editingArticles}
-              dragging={draggingArticleId === article.id}
+              ordering={ordering}
+              siblings={directArticles.map(item => item.id)}
               onSelect={() => onSelectArticle(article.id)}
               onDelete={() => onDeleteArticle(article)}
-              onDragStart={(event) => onDragArticleStart(article.id, event)}
-              onDragEnd={onDragArticleEnd}
               key={article.id}
             />
           ))}
+          </div>
+          <div className={`workspace-collection-scope ${ordering.scopeClass("collection", collection.id)}`}>
           {collection.children.map((child) => (
             <CollectionBranch
               collection={child}
@@ -292,16 +245,14 @@ function CollectionBranch({
               selectedCollectionId={selectedCollectionId}
               activeCollectionId={activeCollectionId}
               editingArticles={editingArticles}
-              draggingArticleId={draggingArticleId}
+              ordering={ordering}
+              siblingIds={collection.children.map(item => item.id)}
               renamingId={renamingId}
               renameValue={renameValue}
               pendingDeleteId={pendingDeleteId}
               busy={busy}
               onSelectArticle={onSelectArticle}
               onDeleteArticle={onDeleteArticle}
-              onMoveArticle={onMoveArticle}
-              onDragArticleStart={onDragArticleStart}
-              onDragArticleEnd={onDragArticleEnd}
               onSelectCollection={onSelectCollection}
               onCreateChild={onCreateChild}
               onBeginRename={onBeginRename}
@@ -312,6 +263,7 @@ function CollectionBranch({
               key={child.id}
             />
           ))}
+          </div>
         </div>
       )}
     </div>
@@ -335,7 +287,6 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
   const [renameValue, setRenameValue] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [articleToDelete, setArticleToDelete] = useState<ArticleSummary | null>(null);
-  const [draggingArticleId, setDraggingArticleId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const headerMenuRef = useRef<HTMLDivElement>(null);
   const captureMenuRef = useRef<HTMLDivElement>(null);
@@ -369,7 +320,7 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
         .some((value) => String(value).toLocaleLowerCase().includes(normalized))
     );
   }, [articles, search]);
-  const rootArticles = visibleArticles.filter((article) => !article.collection?.collection_id);
+  const rootArticles = orderedWorkspaceArticles(visibleArticles.filter((article) => !article.collection?.collection_id));
   const deletedCollections = deletedCollectionRoots(managedCollectionQuery.data?.collections ?? []);
 
   useEffect(() => {
@@ -451,17 +402,8 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
     },
     onError: (error: Error) => setFeedback(error.message)
   });
-  const moveMutation = useMutation({
-    mutationFn: ({ articleId, collectionId }: { articleId: string; collectionId: string }) =>
-      api.updateArticleCollection(articleId, collectionId),
-    onSuccess: async () => {
-      setFeedback("");
-      await refresh();
-    },
-    onError: (error: Error) => setFeedback(error.message),
-    onSettled: () => setDraggingArticleId(null)
-  });
-  const busy = createMutation.isPending || updateMutation.isPending || restoreCollectionMutation.isPending || trashMutation.isPending || moveMutation.isPending;
+  const ordering = useWorkspaceOrdering(createMutation.isPending || updateMutation.isPending || restoreCollectionMutation.isPending || trashMutation.isPending);
+  const busy = createMutation.isPending || updateMutation.isPending || restoreCollectionMutation.isPending || trashMutation.isPending || ordering.isPending;
 
   useEffect(() => {
     if (!headerMenuOpen) return;
@@ -493,22 +435,6 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
     navigate(`/collections/${encodeURIComponent(collectionId)}`);
   }
 
-  function beginArticleDrag(articleId: string, event: DragEvent<HTMLButtonElement>) {
-    setDraggingArticleId(articleId);
-    setFeedback("");
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("application/x-noosphere-article-id", articleId);
-    event.dataTransfer.setData("text/plain", articleId);
-  }
-
-  function moveArticle(articleId: string, collectionId: string) {
-    const article = articles.find((item) => item.id === articleId);
-    if (article?.collection?.collection_id === collectionId) {
-      setDraggingArticleId(null);
-      return;
-    }
-    moveMutation.mutate({ articleId, collectionId });
-  }
 
   return (
     <section className="library-sidebar-workspace">
@@ -659,7 +585,13 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
           </div>
         </form>
       )}
-      {feedback && <p className="library-sidebar-error" role="alert">{feedback}</p>}
+      {(feedback || ordering.error) && <p className="library-sidebar-error" role="alert">{feedback || ordering.error}</p>}
+      {ordering.drag && <p className={`workspace-order-hint${ordering.target?.blocked ? " blocked" : ""}`} role="status">
+        {ordering.target?.blocked ? t("knowledge.orderBlocked") : ordering.drag.kind === "collection"
+          ? t("knowledge.orderCollections") : t("knowledge.orderArticles", {
+            name: articles.find(item => item.id === ordering.drag?.id)?.collection?.collection_name || t("knowledge.unfiled")
+          })}
+      </p>}
       <div className="library-sidebar-tree">
         {(articleQuery.isLoading || collectionQuery.isLoading) && (
           <div className="library-sidebar-loading" aria-label={t("knowledge.loading")}>
@@ -672,22 +604,22 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
           <p className="library-sidebar-error">{((articleQuery.error ?? collectionQuery.error) as Error).message}</p>
         )}
         {rootArticles.length > 0 && (
-          <div className="collection-root-articles">
+          <div className={`collection-root-articles workspace-article-scope ${ordering.scopeClass("article", null)}`} data-order-scope="root">
             {rootArticles.map((article) => (
               <ArticleLeaf
                 article={article}
                 active={selectedArticleId === article.id}
                 editing={editingArticles}
-                dragging={draggingArticleId === article.id}
+                ordering={ordering}
+                siblings={rootArticles.map(item => item.id)}
                 onSelect={() => selectArticle(article.id)}
                 onDelete={() => setArticleToDelete(article)}
-                onDragStart={(event) => beginArticleDrag(article.id, event)}
-                onDragEnd={() => setDraggingArticleId(null)}
                 key={article.id}
               />
             ))}
           </div>
         )}
+        <div className={`workspace-collection-scope ${ordering.scopeClass("collection", null)}`}>
         {collections.map((collection) => (
           <CollectionBranch
             collection={collection}
@@ -696,16 +628,14 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
             selectedCollectionId={selectedCollectionId}
             activeCollectionId={activeCollectionId}
             editingArticles={editingArticles}
-            draggingArticleId={draggingArticleId}
+            ordering={ordering}
+            siblingIds={collections.map(item => item.id)}
             renamingId={renamingId}
             renameValue={renameValue}
             pendingDeleteId={pendingDeleteId}
             busy={busy}
             onSelectArticle={selectArticle}
             onDeleteArticle={setArticleToDelete}
-            onMoveArticle={moveArticle}
-            onDragArticleStart={beginArticleDrag}
-            onDragArticleEnd={() => setDraggingArticleId(null)}
             onSelectCollection={selectCollection}
             onCreateChild={beginCreate}
             onBeginRename={(item) => {
@@ -733,6 +663,7 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
             key={collection.id}
           />
         ))}
+        </div>
         {!articleQuery.isLoading && visibleArticles.length === 0 && collections.length === 0 && (
           <div className="knowledge-tree-empty">
             <NotePencil size={25} weight="duotone" />

@@ -49,9 +49,12 @@ Quote interpretations are independent `annotations.json` records. Create tools a
 - `polish_collection_description`
 - `delete_collection`
 - `restore_collection`
+- `reorder_workspace`
 - `place_article`
 
 Safe organization flow:
+
+`reorder_workspace(kind, source_id, target_id, side="before", scope_id="")` changes only display order. For `kind="article"`, both articles must already belong to the requested Collection; for `kind="collection"`, both must have the requested parent. Empty scope means root entries. Ordering never calls placement or changes AI provenance. See [workspace ordering](workspace-ordering.md).
 
 1. Call `list_collections`.
 2. Create missing structure explicitly with `create_collection`; `parent_id` may identify a Collection at any depth.
@@ -177,3 +180,7 @@ These operations never modify the article, reflection, or upload payload.
 ## Revision-aware content updates
 
 Read the article revision before replacing its content. Updates now require `--expected-revision` in CLI or `expected_revision` in MCP. A stale revision is rejected; fetch the current article and reconcile the draft before retrying. See the [upgrade guide](reliability-upgrade.md) for authentication and examples.
+
+### Full-text article search
+
+`search_library(query, scope="reviewed", collection_id="", limit=30, offset=0)` searches reviewed article text and headings. `all` remains an alias for `reviewed`. Private annotations, reflections, original source and metadata fields are excluded; other scopes are rejected. See [search operations](search-and-batches.md).

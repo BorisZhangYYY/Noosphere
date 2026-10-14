@@ -14,11 +14,13 @@ from threading import RLock
 
 from src.core.config.config import load_config
 from src.core.paths import runtime_home
-from src.core.workspace import article_lock, read_json
+from src.core.workspace import article_lock
+from src.core.article_metadata import editable_article_markdown
 
 _LOCK = RLock()
-_FIELDS = {"title", "author", "reviewed", "reflection", "annotations", "raw"}
-_FILES = ("manifest.json", "reviewed.md", "reflection.md", "annotations.json", "raw.md")
+_FIELDS = {"reviewed"}
+_FILES = ("reviewed.md",)
+_INDEX_VERSION = "reviewed-body-v2"
 _LOCAL_IMAGE_RE = re.compile(r'!\[([^\]]*)\]\((assets/[^\s)]+)\)')
 _MARKDOWN_RESOURCE_RE = re.compile(r'!?\[[^\]\n]*\]\([^\n)]*\)')
 
@@ -89,6 +91,7 @@ def _synchronize(output, changed):
     with store._connect() as connection:
         deleted = {row['article_id'] for row in connection.execute('SELECT article_id FROM noosphere_article_deletions').fetchall()}
     with _connect() as db:
+        db.execute("DELETE FROM search_passages WHERE field <> 'reviewed'")
         known = {row["article_id"]: row["stamp"] for row in db.execute("SELECT * FROM search_files")}
         found = set()
         for manifest in sorted(output.glob("*/manifest.json")):
@@ -106,28 +109,15 @@ def _synchronize(output, changed):
                     if path.is_file() and not path.is_symlink():
                         stat = path.stat()
                         stamps.append((name, stat.st_mtime_ns, stat.st_size))
-                stamp = json.dumps(stamps)
+                stamp = json.dumps([_INDEX_VERSION, stamps])
                 if known.get(article_id) == stamp:
                     continue
-                manifest_data = read_json(manifest)
-                metadata = manifest_data.get("article", {})
-                data = {"title": str(metadata.get("title") or ""), "author": str(metadata.get("author") or "")}
-                for field in ("reviewed", "reflection", "raw"):
-                    path = folder / f"{field}.md"
-                    data[field] = path.read_text(encoding="utf-8") if path.is_file() and not path.is_symlink() else ""
-                from src.core.article_metadata import article_metadata_state
-                data["author"] = article_metadata_state(manifest_data, data["raw"])["author"]["value"]
-                title = re.search(r"^#\s+(.+)$", data["reviewed"], re.M)
-                if title:
-                    data["title"] = title[1]
-                annotations_path = folder / "annotations.json"
-                annotations = read_json(annotations_path) if not annotations_path.is_symlink() else {}
-                data["annotations"] = "\n\n".join(str(a.get("note") or "") + "\n" + str(a.get("quote") or "") for a in annotations.get("annotations", []) if isinstance(a, dict))
+                path = folder / "reviewed.md"
+                text = editable_article_markdown(path.read_text(encoding="utf-8")) if path.is_file() and not path.is_symlink() else ""
                 if article_id in known:
                     db.execute("DELETE FROM search_passages WHERE article_id = ?", (article_id,))
-                for field, text in data.items():
-                    if text.strip():
-                        db.execute("INSERT INTO search_passages VALUES (?, ?, ?, ?, ?)", (article_id, field, text, hashlib.sha256(text.encode()).hexdigest(), encoded(text)))
+                if text.strip():
+                    db.execute("INSERT INTO search_passages VALUES (?, ?, ?, ?, ?)", (article_id, "reviewed", text, hashlib.sha256(text.encode()).hexdigest(), encoded(text)))
                 db.execute("INSERT OR REPLACE INTO search_files VALUES (?, ?)", (article_id, stamp))
                 changed += 1
         removed = set(known) - found
@@ -185,7 +175,7 @@ def search_articles(query: str, *, scope: str = "all", collection_id: str = "", 
     from src.core.library import _article_summary
 
     if scope != "all" and scope not in _FIELDS:
-        raise ValueError("Unknown search scope")
+        raise ValueError("Full-text search only supports reviewed article text")
     if offset < 0 or not 1 <= limit <= 100:
         raise ValueError("Invalid search pagination")
     for value in (after, before):
@@ -198,7 +188,7 @@ def search_articles(query: str, *, scope: str = "all", collection_id: str = "", 
     if not parts:
         return {"results": [], "total": 0, "index": index}
     expression = " AND ".join('"' + encoded(part) + '"' for part in parts)
-    fields = sorted(_FIELDS - {"raw"}) if scope == "all" else [scope]
+    fields = ["reviewed"]
 
     with _index_lock(), _connect() as db:
         rows = db.execute(f"SELECT article_id, field, original, digest, bm25(search_passages) AS rank FROM search_passages WHERE search_passages MATCH ? AND field IN ({','.join('?' for _ in fields)}) ORDER BY rank", (expression, *fields)).fetchall()
