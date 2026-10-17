@@ -7,7 +7,7 @@ import { useTheme } from "../theme";
 import type { ArticleAnnotation, QuoteAnchorDraft } from "../types";
 import { createImageDropResolver, dragScrollDistance, dragScrollVelocity, imageDropMarkdown, nearestDragBlock, preserveDraggedImageReferences } from "../imageDrag";
 import { captureBlockSelection, createBlockDropResolver, isMovableArticleBlock, isMovableMarkdownBlock, moveMappedBlockMarkdown, articleBlockMap, restoreBlockSelection, remapMovedRange, reconcileBlockEdits, markdownStateKey, markdownBlocks, headingSectionEnd, articleBlockMovePlan } from "../blockDrag";
-import { installBlockControls } from "./blockControls";
+import { GRIP_SVG, installBlockControls } from "./blockControls";
 import { createHeadingFolds } from "./headingFolds";
 import { QuoteAnnotationPreview, type AnnotationPreviewAnchor } from "./QuoteAnnotationPreview";
 
@@ -47,7 +47,7 @@ function hasSameImageStructure(candidate: string, reference: string) {
     && candidateImages.every((image, index) => image === referenceImages[index]);
 }
 
-export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAssetNames = [], showRemovedImages = true, onDeleteImage, onRestoreImage, annotations = [], annotationSourceDigest = "", onSelectQuote, onOpenAnnotation, onResolvedAnnotationIds, focusAnnotationRequest }: MarkdownEditorProps) {
+export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAssetNames = [], showRemovedImages = false, onDeleteImage, onRestoreImage, annotations = [], annotationSourceDigest = "", onSelectQuote, onOpenAnnotation, onResolvedAnnotationIds, focusAnnotationRequest }: MarkdownEditorProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -91,6 +91,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     const annotationRanges = new Map<string, Range>();
     const highlightName = "noosphere-article-annotations";
     const actions = new Map<string, HTMLDivElement>();
+    const imageGrips = new Map<string, HTMLButtonElement>();
     let blockControls: ReturnType<typeof installBlockControls> | null = null;
     const headingFolds = createHeadingFolds({
       root: () => host.querySelector<HTMLElement>(".vditor-wysiwyg .vditor-reset"),
@@ -147,6 +148,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     let dragFrame = 0;
     let lastDragFrameTime = 0;
     let dragPreview: HTMLCanvasElement | null = null;
+    let imagePointer: { id: number; button: HTMLButtonElement; image: HTMLImageElement;
+      start: { x: number; y: number }; started: boolean } | null = null;
     const frameBounds = new Map<Node, DOMRect>();
     const boundsFor = (node: Node) => {
       let bounds = frameBounds.get(node);
@@ -188,6 +191,9 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       });
     };
     const clearDrag = () => {
+      const pointer = imagePointer;
+      imagePointer = null;
+      if (pointer?.button.hasPointerCapture(pointer.id)) pointer.button.releasePointerCapture(pointer.id);
       dragging?.source.classList.remove("noosphere-image-dragging", "noosphere-block-dragging");
       dragging = null;
       dropPosition = null;
@@ -202,14 +208,11 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       frameRef.current?.classList.remove("markdown-editor-dragging");
       if (!cancelled) scheduleDecoration();
     };
-    const handleDragStart = (event: DragEvent) => {
-      const image = event.target instanceof Element ? event.target.closest<HTMLImageElement>("img[data-asset-name]") : null;
-      if (!image) return;
-      event.stopImmediatePropagation();
-      if (readOnlyRef.current || removedNamesRef.current.has(image.dataset.assetName!)) { event.preventDefault(); return; }
+    const beginImageDrag = (image: HTMLImageElement) => {
+      if (readOnlyRef.current) return false;
       clearDrag();
       const root = image.closest<HTMLElement>(".vditor-wysiwyg .vditor-reset");
-      if (!root) { event.preventDefault(); return; }
+      if (!root) return false;
       const images = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
       let scrollHost: HTMLElement | null = host;
       while (scrollHost && (scrollHost.scrollHeight <= scrollHost.clientHeight
@@ -222,10 +225,17 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       };
       image.classList.add("noosphere-image-dragging");
       frameRef.current?.classList.add("markdown-editor-dragging");
+      return true;
+    };
+    const handleDragStart = (event: DragEvent) => {
+      const image = event.target instanceof Element ? event.target.closest<HTMLImageElement>("img[data-asset-name]") : null;
+      if (!image) return;
+      event.stopImmediatePropagation();
+      if (!beginImageDrag(image)) { event.preventDefault(); return; }
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.clearData();
-        event.dataTransfer.setData("application/x-noosphere-image", `${articleId}:${dragging.index}`);
+        event.dataTransfer.setData("application/x-noosphere-image", `${articleId}:${dragging!.index}`);
         if (image.complete && image.naturalWidth && image.naturalHeight) {
           const preview = document.createElement("canvas");
           preview.width = 160;
@@ -468,10 +478,10 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         if (moved) blockControls?.show(moved);
       }
     };
-    const handleImageKeyboard = (event: KeyboardEvent) => {
+    const handleImageKeyboard = (event: KeyboardEvent, imageOverride?: HTMLImageElement) => {
       if (readOnlyRef.current || !event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
-      const image = event.target instanceof Element ? event.target.closest<HTMLImageElement>("img[data-asset-name]") : null;
-      if (!image || removedNamesRef.current.has(image.dataset.assetName!)) return;
+      const image = imageOverride ?? (event.target instanceof Element ? event.target.closest<HTMLImageElement>("img[data-asset-name]") : null);
+      if (!image) return;
       const source = image.closest("p") ?? image;
       const direction = event.key === "ArrowUp" ? "before" : "after";
       const target = direction === "before" ? source.previousElementSibling : source.nextElementSibling;
@@ -482,6 +492,45 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       moveImage(index, target, direction);
       requestAnimationFrame(() => host.querySelectorAll<HTMLImageElement>(".vditor-wysiwyg img")[direction === "before" ? Math.max(0, index - Number(target.querySelector("img") !== null)) : index + Number(target.querySelector("img") !== null)]?.focus());
     };
+    const gripImage = (button: HTMLButtonElement) => host.querySelectorAll<HTMLImageElement>(".vditor-wysiwyg img")[Number(button.dataset.imageIndex)];
+    const imageGripDown = (event: PointerEvent) => {
+      if (event.button !== 0 || readOnlyRef.current || !(event.currentTarget instanceof HTMLButtonElement)) return;
+      const button = event.currentTarget, image = gripImage(button);
+      if (!image) return;
+      event.preventDefault();
+      event.stopPropagation();
+      imagePointer = { id: event.pointerId, button, image, start: { x: event.clientX, y: event.clientY }, started: false };
+      button.setPointerCapture(event.pointerId);
+      button.focus({ preventScroll: true });
+    };
+    const imageGripMove = (event: PointerEvent) => {
+      const pointer = imagePointer;
+      if (!pointer || event.pointerId !== pointer.id) return;
+      if (!pointer.started && Math.hypot(event.clientX - pointer.start.x, event.clientY - pointer.start.y) >= 5) {
+        // Preserve this pointer capture while initializing the shared image transaction.
+        imagePointer = null;
+        pointer.started = beginImageDrag(pointer.image);
+        imagePointer = pointer;
+      }
+      if (pointer.started) {
+        event.preventDefault();
+        dragPointer = { x: event.clientX, y: event.clientY, fallback: null };
+        scheduleDragFrame();
+      }
+    };
+    const imageGripUp = (event: PointerEvent) => {
+      const pointer = imagePointer;
+      if (!pointer || event.pointerId !== pointer.id) return;
+      imagePointer = null;
+      if (pointer.button.hasPointerCapture(pointer.id)) pointer.button.releasePointerCapture(pointer.id);
+      if (pointer.started && dragging?.kind === "image") {
+        updateDropPosition(event.clientX, event.clientY);
+        if (dropPosition && dragging.value === valueRef.current) moveImage(dragging.index, dropPosition.target, dropPosition.side);
+      }
+      clearDrag();
+    };
+    const cancelImageGrip = () => { if (imagePointer) clearDrag(); };
+    window.addEventListener("blur", cancelImageGrip);
     const decorateImages = () => {
       if (dragging) return;
       headingFolds.refresh();
@@ -499,8 +548,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         const removed = removedNamesRef.current.has(name);
         img.classList.toggle("noosphere-image-removed", removed);
         img.dataset.assetName = name;
-        img.draggable = !readOnlyRef.current && !removed;
-        img.tabIndex = readOnlyRef.current || removed ? -1 : 0;
+        img.draggable = !readOnlyRef.current;
+        img.tabIndex = readOnlyRef.current ? -1 : 0;
         img.setAttribute("aria-description", t("article.dragImage"));
         const paragraph = img.closest("p");
         const shell = img.closest<HTMLElement>("[data-type='img']")
@@ -514,6 +563,31 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         if (readOnlyRef.current || shell.getClientRects().length === 0) return;
         const key = `${name}:${index}`;
         visibleActions.add(key);
+        let grip = imageGrips.get(key);
+        if (!grip) {
+          grip = document.createElement("button");
+          grip.type = "button";
+          grip.className = "noosphere-image-handle";
+          grip.innerHTML = GRIP_SVG;
+          grip.onpointerdown = imageGripDown;
+          grip.onpointermove = imageGripMove;
+          grip.onpointerup = imageGripUp;
+          grip.onpointercancel = cancelImageGrip;
+          grip.onlostpointercapture = cancelImageGrip;
+          grip.onkeydown = event => {
+            if (event.key === "Escape" && imagePointer) { event.preventDefault(); clearDrag(); }
+            else handleImageKeyboard(event, gripImage(event.currentTarget as HTMLButtonElement));
+          };
+          actionLayer.append(grip);
+          imageGrips.set(key, grip);
+        }
+        grip.dataset.imageIndex = String(index);
+        grip.dataset.assetName = name;
+        grip.setAttribute("aria-label", t("article.dragImage"));
+        grip.title = t("article.dragImage");
+        const imageBounds = img.getBoundingClientRect();
+        grip.style.left = `${Math.max(4, imageBounds.left - frameBounds.left - 30)}px`;
+        grip.style.top = `${imageBounds.top - frameBounds.top + Math.min(12, imageBounds.height / 2)}px`;
         let actionGroup = actions.get(key);
         if (!actionGroup) {
           actionGroup = document.createElement("div");
@@ -540,12 +614,15 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
         stateAction.title = label;
         const shellBounds = shell.getBoundingClientRect();
         actionGroup.style.top = `${Math.max(0, shellBounds.top - frameBounds.top + 12)}px`;
-        actionGroup.style.right = `${Math.max(12, frameBounds.right - shellBounds.right + 12)}px`;
+        const actionRight = Math.max(shellBounds.right, imageBounds.left + 160);
+        actionGroup.style.right = `${Math.max(12, frameBounds.right - actionRight + 12)}px`;
       });
       actions.forEach((action, key) => {
         if (visibleActions.has(key)) return;
         action.remove();
         actions.delete(key);
+        imageGrips.get(key)?.remove();
+        imageGrips.delete(key);
       });
       blockControls?.refresh();
     };
@@ -1028,6 +1105,7 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       host.removeEventListener("dragend", clearDrag, true);
       host.removeEventListener("keydown", handleImageKeyboard, true);
       window.removeEventListener("scroll", handleDragScroll, true);
+      window.removeEventListener("blur", cancelImageGrip);
       blockControls?.destroy();
       blockControls = null;
       headingFolds.destroy();
@@ -1043,6 +1121,8 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
       resizeObserver?.disconnect();
       actions.forEach((action) => action.remove());
       actions.clear();
+      imageGrips.forEach(grip => grip.remove());
+      imageGrips.clear();
       editor?.destroy();
       editorRef.current = null;
       decorateImagesRef.current = () => undefined;
@@ -1089,6 +1169,10 @@ export function MarkdownEditor({ articleId, value, onChange, readOnly, removedAs
     removedNamesRef.current = new Set(removedAssetNames);
     decorateImagesRef.current();
   }, [removedAssetKey]);
+
+  useEffect(() => {
+    decorateImagesRef.current();
+  }, [showRemovedImages]);
 
   useEffect(() => {
     const editor = editorRef.current;

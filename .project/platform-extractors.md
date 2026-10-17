@@ -44,6 +44,8 @@ Each extractor overrides specific hooks in the pipeline:
 
 **Without this:** the AI receives 3000+ characters of noise mixed with 800 characters of article, wasting tokens and confusing the review.
 
+Successful HTTP/crawler responses can still contain only a login wall, logo and recruiting footer. Short access-page text and access-denied/rate-limit HTTP statuses trigger the configured fallback crawler; the platform parser rejects access pages from either crawler before article files or AI review are created. Full article bodies may quote login messages without being rejected.
+
 ### Xiaoheihe (`xiaoheihe`)
 
 **Challenge:** The page structure is unusual and Crawl4AI frequently returns empty Markdown. URLs carry metadata in a `redirect_data` query parameter.

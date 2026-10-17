@@ -39,7 +39,7 @@ export function BatchForm({ onCreated, compact = false }: { onCreated: (job: Bat
   return (
     <form className={`batch-form${compact ? " batch-form-compact" : ""}`} onSubmit={e => { e.preventDefault(); create.mutate({ urls, mode, language, collectionId }); }}>
       <label className="batch-url-field"><span>{zh ? "文章链接" : "Article URLs"}<small>{zh ? "每行一个，最多 100 条" : "One per line, up to 100"}</small></span>
-        <textarea rows={compact ? 5 : 6} value={text} onChange={e => { setText(e.target.value); preview.reset(); }} placeholder="https://mp.weixin.qq.com/s/…" aria-describedby={limitError ? "batch-limit-error" : undefined} />
+        <textarea rows={compact ? 5 : 6} value={text} onChange={e => { setText(e.target.value); preview.reset(); }} aria-describedby={limitError ? "batch-limit-error" : undefined} />
       </label>
       <label className="batch-file-field"><span>{zh ? "也可以导入文本文件" : "Or import a text file"}</span>
         <input type="file" accept=".txt,text/plain" onChange={async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 1024 * 1024) { setFileError(zh ? "文件不能超过 1 MB" : "File must be under 1 MB"); return; } setFileError(""); setText(await file.text()); preview.reset(); }} />

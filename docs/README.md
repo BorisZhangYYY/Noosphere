@@ -10,8 +10,11 @@ This directory contains user-facing installation, deployment, operation, and int
 - [MCP reference](mcp-reference.md): tool groups, background jobs, and Collection-placement patterns.
 - [Configuration and portable data](configuration.md): provider, crawler, archive, checkpoint, and data-directory settings.
 - [Article editor](article-editor.md): contextual block handles, tables and quotations, paired list/item grips, heading folding and section movement, keyboard/touch controls, undo/redo, and saving.
+- [Workspace tasks and live review](workspace-tasks.md): article-page task synchronization, incremental review output, reconnecting and dashboard status.
 
 ## Project Information
+
+- [v0.3.3.3 — 实时审阅、任务历史与图片操作](releases/v0.3.3.3.md)
 
 - [Main README](../README.md)
 - [Changelog](../CHANGELOG.md)

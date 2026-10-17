@@ -198,10 +198,6 @@ export function CollectionPage() {
 
         <section className="collection-index-contents">
           {ordering.error && <p className="library-sidebar-error" role="alert">{ordering.error}</p>}
-          {ordering.drag && <p className={`workspace-order-hint${ordering.target?.blocked ? " blocked" : ""}`} role="status">
-            {ordering.target?.blocked ? t("knowledge.orderBlocked") : ordering.drag.kind === "collection"
-              ? t("knowledge.orderCollections") : t("knowledge.orderArticles", { name: collection.name })}
-          </p>}
           <div className="collection-index-heading">
             <div><span>02</span><h2>{t("knowledge.contents")}</h2></div>
             <small>{t("knowledge.contentsCount", { count: collection.children.length + directArticles.length })}</small>

@@ -1,12 +1,12 @@
 export type ArticleStatus = "captured" | "reviewed" | "uploaded" | "failed";
-export type CaptureJobStatus = "queued" | "running" | "awaiting_review" | "succeeded" | "recovered" | "failed";
+export type CaptureJobStatus = "queued" | "running" | "awaiting_review" | "succeeded" | "recovered" | "failed" | "cancelled";
 export type ReviewMode = "auto_upload" | "ai_then_manual";
 export type OutputLanguage = "follow_ui" | "zh-CN" | "en-US" | "source";
 
 export interface CaptureJobEvent {
   id: string;
   at: string;
-  stage: "capture" | "image_review" | "ai_review" | "validation" | "classification" | "upload" | "system";
+  stage: "capture" | "image_review" | "image_layout" | "ai_review" | "validation" | "classification" | "upload" | "system";
   level: "info" | "success" | "warning" | "error";
   message: string;
   details?: string;
@@ -32,6 +32,22 @@ export interface CaptureJob {
   recoveredByReviewJobId?: string | null;
   retryOfJobId?: string | null;
   retriedByJobId?: string | null;
+}
+
+export interface BackgroundJob {
+  id: string;
+  kind: "capture" | "review" | "upload" | "polish" | "batch";
+  status: string;
+  createdAt: string;
+  articleId?: string | null;
+  url?: string;
+  stage?: string;
+  progress?: number | null;
+  reviewPreview?: string;
+  events?: CaptureJobEvent[];
+  result?: { hpath?: string } | null;
+  error?: string | null;
+  cancellable?: boolean;
 }
 
 export interface ArticleSummary {
@@ -148,9 +164,11 @@ export interface ReviewJob {
   id: string;
   articleId: string;
   perspective: string;
-  status: "queued" | "running" | "succeeded" | "failed";
-  stage: "queued" | "reviewing" | "ai_review" | "image_review" | "image_layout" | "validation" | "classification" | "completed" | "failed";
-  progress: number;
+  status: "queued" | "running" | "succeeded" | "failed" | "awaiting_review" | "cancelled";
+  stage: "queued" | "capture" | "upload" | "reviewing" | "ai_review" | "image_review" | "image_layout" | "validation" | "classification" | "completed" | "failed" | "cancelled";
+  cancellable?: boolean;
+  reviewRevision?: string;
+  progress: number | null;
   createdAt?: string;
   startedAt?: string | null;
   finishedAt?: string | null;

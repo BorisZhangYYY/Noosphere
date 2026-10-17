@@ -14,6 +14,7 @@ import aiohttp
 from src.core.config.config import load_config
 from src.core.config.schema import Config
 from src.core.paths.paths import get_paths
+from src.core.extraction_quality import zhihu_access_page
 
 CRAWL4AI_RUNTIME = get_paths().ensure_crawl4ai_runtime_dir()
 os.environ.setdefault("CRAWL4AI_BASE_DIRECTORY", str(CRAWL4AI_RUNTIME))
@@ -356,7 +357,8 @@ async def crawl_page(
         and "mp.weixin.qq.com/s/" in resolved_url
         and len(_MARKDOWN_IMAGE_REF_RE.findall(page.markdown)) <= 1
     )
-    if page.success and not weak_wechat_capture:
+    blocked_zhihu = "zhuanlan.zhihu.com/p/" in resolved_url and zhihu_access_page(page.markdown, page.status_code)
+    if page.success and not weak_wechat_capture and not blocked_zhihu:
         page.crawler_used = primary_name
         return page
 
@@ -372,7 +374,7 @@ async def crawl_page(
         return page
 
     fallback_name = "firecrawl" if fallback_fn is _crawl_page_firecrawl else "crawl4ai"
-    reason = "returned too few WeChat images" if weak_wechat_capture else "failed"
+    reason = "returned a Zhihu access page" if blocked_zhihu else "returned too few WeChat images" if weak_wechat_capture else "failed"
     sys.stderr.write(f"[crawler] {primary_name} {reason} for {url}, trying {fallback_name} fallback...\n")
 
     try:
@@ -401,6 +403,9 @@ async def crawl_page(
         )
 
     if fallback_page.success:
+        if blocked_zhihu and zhihu_access_page(fallback_page.markdown, fallback_page.status_code):
+            page.crawler_used = primary_name
+            return page
         primary_images = len(_MARKDOWN_IMAGE_REF_RE.findall(page.markdown))
         fallback_images = len(_MARKDOWN_IMAGE_REF_RE.findall(fallback_page.markdown))
         if weak_wechat_capture and (fallback_images <= primary_images or len(fallback_page.markdown) < 100):

@@ -25,6 +25,7 @@ import { BatchDialog } from "./BatchDialog";
 import { useTheme } from "../theme";
 import { InlineSelect } from "./InlineSelect";
 import { KnowledgeSidebar } from "./KnowledgeSidebar";
+import { useBackgroundJobSync } from "../useBackgroundJobs";
 import type { CaptureJob, OutputLanguage, ReviewMode } from "../types";
 
 const navItems = [
@@ -40,6 +41,7 @@ const helpSources = [
 ];
 
 export function AppShell() {
+  useBackgroundJobSync();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);

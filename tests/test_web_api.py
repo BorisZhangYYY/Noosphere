@@ -483,8 +483,13 @@ def test_article_detail_recovers_active_review_and_reuses_it(web_client) -> None
 
 def test_frontend_client_routes_serve_spa_entry(web_client) -> None:
     client, _, article_id = web_client
-    assert client.get("/app/settings").status_code == 200
-    assert client.get(f"/app/articles/{article_id}").status_code == 200
+    for path in ("/app/", "/app/index.html", "/app/settings", f"/app/articles/{article_id}"):
+        entry = client.get(path)
+        assert entry.status_code == 200
+        assert entry.headers["cache-control"] == "no-cache"
+        revalidated = client.get(path, headers={"If-None-Match": entry.headers["etag"]})
+        assert revalidated.status_code == 304
+        assert revalidated.headers["cache-control"] == "no-cache"
 
     asset = client.get(f"/api/v1/articles/{article_id}/assets/image.png")
     assert asset.status_code == 200
@@ -1008,7 +1013,9 @@ def test_article_can_be_re_reviewed_from_current_reviewed_markdown(web_client, m
     }
 
     async def fake_review(path: Path, *, perspective: str, source_markdown: str, output_language: str):
-        assert path == reviewed_path
+        assert path != reviewed_path
+        assert path.parent.name == article_id
+        assert path.read_text() == reviewed_path.read_text()
         assert perspective == "original"
         assert source_markdown.startswith("# Manually edited")
         path.write_text("# AI reviewed\n\nRewritten.\n", encoding="utf-8")
@@ -1048,14 +1055,17 @@ def test_capture_ai_then_manual_runs_review_and_pauses(web_client, monkeypatch) 
         assert url == "https://example.com/article"
         return reviewed_path
 
-    async def fake_review(path: Path, *, perspective: str, output_language: str):
-        assert path == reviewed_path
+    async def fake_review(path: Path, *, perspective: str, output_language: str, source_markdown: str):
+        assert path != reviewed_path
+        assert path.parent.name == article_id
+        assert path.read_text() == reviewed_path.read_text()
         assert perspective == "original"
         return SimpleNamespace(ok=True, issues=[])
 
     async def fake_place(placed_article_id: str, path: Path, locale: str):
         assert placed_article_id == article_id
-        assert path == reviewed_path
+        assert path != reviewed_path
+        assert path.parent.name == article_id
         return {"collection_id": "agent", "collection_name": "Agent"}
 
     monkeypatch.setattr("src.graph.graph.run_extract_graph", fake_extract)
@@ -1083,7 +1093,7 @@ def test_capture_waits_for_human_review_by_default(web_client, monkeypatch) -> N
     async def fake_extract(url: str):
         return reviewed_path
 
-    async def fake_review(path: Path, *, perspective: str, output_language: str):
+    async def fake_review(path: Path, *, perspective: str, output_language: str, source_markdown: str):
         return SimpleNamespace(ok=True, issues=[])
 
     async def fake_place(placed_article_id: str, path: Path, locale: str):
@@ -1111,7 +1121,7 @@ def test_capture_auto_upload_runs_without_human_checkpoint(web_client, monkeypat
     async def fake_extract(url: str):
         return reviewed_path
 
-    async def fake_review(path: Path, *, perspective: str, output_language: str):
+    async def fake_review(path: Path, *, perspective: str, output_language: str, source_markdown: str):
         return SimpleNamespace(ok=True, issues=[])
 
     async def fake_place(placed_article_id: str, path: Path, locale: str):
@@ -1371,6 +1381,35 @@ def test_mcp_and_cli_share_article_image_state(web_client, capsys) -> None:
     assert restored["assets"][0]["name"] == "image.png"
 
 
+def test_removed_image_position_survives_save_reload_and_restore(web_client):
+    client, config_path, article_id = web_client
+    article_dir = config_path.parent / "articles" / article_id
+    original_raw = (article_dir / "raw.md").read_bytes()
+    article_url = f"/api/v1/articles/{article_id}"
+    detail = client.get(article_url).json()
+    removed = client.patch(f"{article_url}/images/image.png", json={
+        "state": "removed", "reviewedMarkdown": detail["editableMarkdown"], "expectedRevision": detail["revision"],
+    })
+    assert removed.status_code == 200
+    detail = client.get(article_url).json()
+    target = f"/api/v1/articles/{article_id}/removed/image.png?state=removed"
+    draft = f"# Reviewed\n\nFirst paragraph.\n\n![diagram]({target})\n\nLast paragraph.\n"
+    saved = client.patch(article_url, json={"reviewedMarkdown": draft, "expectedRevision": detail["revision"]})
+    assert saved.status_code == 200
+    detail = client.get(article_url).json()
+    assert detail["editableMarkdown"].index("First paragraph.") < detail["editableMarkdown"].index(target) < detail["editableMarkdown"].index("Last paragraph.")
+    assert "![diagram]" not in detail["reviewedMarkdown"]
+    assert (article_dir / "removed/image.png").is_file()
+    restored = client.patch(f"{article_url}/images/image.png", json={
+        "state": "active", "reviewedMarkdown": detail["editableMarkdown"], "expectedRevision": detail["revision"],
+    })
+    assert restored.status_code == 200
+    detail = client.get(article_url).json()
+    assert detail["reviewedMarkdown"].index("First paragraph.") < detail["reviewedMarkdown"].index("assets/image.png") < detail["reviewedMarkdown"].index("Last paragraph.")
+    assert detail["removedAssets"] == []
+    assert (article_dir / "raw.md").read_bytes() == original_raw
+
+
 def test_unified_job_endpoints_cover_all_background_kinds(web_client) -> None:
     client, _, article_id = web_client
     _capture_jobs["capture-1"] = {
@@ -1488,10 +1527,29 @@ async def test_review_job_resets_truncated_preview_and_reports_image_stages(web_
     monkeypatch.setattr('src.core.collections.place_reviewed_article', place)
     await _run_article_review_job(job_id, article_id, 'original', 'zh-CN')
     assert snapshots[0]['reviewPreview'] == ''
-    assert snapshots[0]['progress'] == 20
-    assert snapshots[1]['stage'] == 'image_review' and snapshots[1]['progress'] == 80
-    assert snapshots[2]['stage'] == 'image_layout' and snapshots[2]['progress'] == 88
+    assert snapshots[0]['progress'] is None
+    assert snapshots[1]['stage'] == 'image_review' and snapshots[1]['progress'] is None
+    assert snapshots[2]['stage'] == 'image_layout' and snapshots[2]['progress'] is None
     assert _review_jobs[job_id]['status'] == 'succeeded'
+
+
+@pytest.mark.asyncio
+async def test_review_progress_does_not_count_provider_events_or_empty_previews():
+    from src.api.web import _review_event_sink
+
+    job = {'stage': 'ai_review', 'progress': None, 'events': [], 'reviewPreview': ''}
+    sink = _review_event_sink(job)
+    for _ in range(200):
+        await sink('ai_output_delta', '', 'Internal provider response')
+        await sink('review_output', '', '')
+    assert job['progress'] is None
+    assert job['reviewPreview'] == ''
+    await sink('review_output', '', 'First visible paragraph.')
+    assert job['progress'] is None
+    assert job['reviewPreview'] == 'First visible paragraph.'
+    await sink('image_review', 'pipeline.events.imageReviewStarted', None)
+    assert job['stage'] == 'image_review' and job['progress'] is None
+    assert not job.get('finishedAt')
 
 
 def test_workspace_order_is_persistent_and_never_changes_ai_classification(web_client):

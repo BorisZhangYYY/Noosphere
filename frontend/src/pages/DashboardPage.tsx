@@ -1,4 +1,4 @@
-import { ArrowClockwise, ArrowCounterClockwise, ArrowRight, BookOpenText, CaretDown, CaretUp, Check, CheckSquare, Circle, CloudArrowUp, MagnifyingGlass, Path, SpinnerGap, Square, Trash, WarningCircle } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowCounterClockwise, ArrowRight, BookOpenText, Check, CheckSquare, CloudArrowUp, MagnifyingGlass, Path, SpinnerGap, Square, Trash, WarningCircle } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { ErrorPanel, LoadingPanel } from "../components/StatePanel";
 import { StatusBadge } from "../components/StatusBadge";
+import { backgroundJobsKey } from "../useBackgroundJobs";
 import { localizedPlatformLabel } from "../localization";
 import type { ArticleSummary, TrashedArticle } from "../types";
 
@@ -74,17 +75,19 @@ export function DashboardPage() {
   const query = useQuery({ queryKey: ["articles", i18n.resolvedLanguage], queryFn: api.listArticles });
   const trashQuery = useQuery({ queryKey: ["article-trash"], queryFn: api.listTrashedArticles });
   const jobsQuery = useQuery({
-    queryKey: ["capture-jobs"],
-    queryFn: api.listCaptureJobs,
-    refetchInterval: (jobQuery) => jobQuery.state.data?.jobs.some((job) => job.status === "queued" || job.status === "running") ? 1200 : false
+    queryKey: backgroundJobsKey,
+    queryFn: api.listBackgroundJobs
   });
   const [search, setSearch] = useState("");
-  const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [view, setView] = useState<"library" | "trash">("library");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingAction, setPendingAction] = useState<{ action: "trash" | "restore" | "delete"; ids: string[] } | null>(null);
   const articles = query.data?.articles ?? [];
   const jobs = jobsQuery.data?.jobs ?? [];
+  const [jobView, setJobView] = useState<"current" | "history">("current");
+  const currentJobs = jobs.filter(job => ["queued", "running"].includes(job.status));
+  const historyJobs = jobs.filter(job => !["queued", "running"].includes(job.status));
+  const visibleJobs = jobView === "current" ? currentJobs : historyJobs;
   const trashedArticles = trashQuery.data?.articles ?? [];
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const visibleArticles = articles.filter((article) => {
@@ -112,9 +115,8 @@ export function DashboardPage() {
   });
   const retryMutation = useMutation({
     mutationFn: api.retryCaptureJob,
-    onSuccess: async (job) => {
-      setExpandedJob(job.id);
-      await queryClient.invalidateQueries({ queryKey: ["capture-jobs"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: backgroundJobsKey });
     }
   });
   const visibleIds = view === "library" ? visibleArticles.map((article) => article.id) : trashedArticles.map((article) => article.id);
@@ -146,7 +148,6 @@ export function DashboardPage() {
         <label className="search-field">
           <MagnifyingGlass size={19} />
           <input type="search" placeholder={t("library.search")} aria-label={t("library.search")} value={search} onChange={(event) => setSearch(event.target.value)} />
-          <kbd>⌘K</kbd>
         </label>
       </header>
 
@@ -159,65 +160,42 @@ export function DashboardPage() {
 
       <section className="workspace-surface dashboard-jobs">
         <div className="section-heading dashboard-section-heading">
-          <div><h2>{t("pipeline.currentTitle")}</h2><p>{t("pipeline.currentDescription")}</p></div>
-          <span className="dashboard-section-count">{jobs.length}</span>
+          <div><h2>{t(jobView === "current" ? "pipeline.currentTitle" : "pipeline.historyTitle")}</h2><p>{t(jobView === "current" ? "pipeline.currentDescription" : "pipeline.historyDescription")}</p></div>
+          <div className="library-view-switch" role="tablist" aria-label={t("pipeline.taskViews")}>
+            <button type="button" role="tab" aria-selected={jobView === "current"} className={jobView === "current" ? "active" : ""} onClick={() => setJobView("current")}>{t("pipeline.currentTitle")}<small>{currentJobs.length}</small></button>
+            <button type="button" role="tab" aria-selected={jobView === "history"} className={jobView === "history" ? "active" : ""} onClick={() => setJobView("history")}>{t("pipeline.historyTitle")}<small>{historyJobs.length}</small></button>
+          </div>
         </div>
         {jobsQuery.isLoading && <LoadingPanel />}
         {jobsQuery.isError && <ErrorPanel message={(jobsQuery.error as Error).message} />}
-        {!jobsQuery.isLoading && !jobs.length && (
-          <div className="dashboard-jobs-empty"><Check size={17} />{t("pipeline.emptyTitle")}</div>
+        {!jobsQuery.isLoading && !jobsQuery.isError && !visibleJobs.length && (
+          <div className="dashboard-jobs-empty"><Check size={17} />{t(jobView === "current" ? "pipeline.currentEmpty" : "pipeline.historyEmpty")}</div>
         )}
-        {jobs.slice(0, 6).map((job) => {
-          const expanded = expandedJob === job.id;
-          const detail = job.error || job.result?.hpath || (
-            job.status === "recovered"
-              ? t("pipeline.recoveredHelp")
-              : job.status === "awaiting_review"
-                ? t("pipeline.awaitingReviewHelp")
-                : t("pipeline.working")
-          );
-          return (
-            <article className={`dashboard-job${expanded ? " expanded" : ""}`} key={job.id}>
-              <button type="button" aria-expanded={expanded} onClick={() => setExpandedJob(expanded ? null : job.id)}>
-                <span className={`dashboard-job-state dashboard-job-${job.status}`}>
-                  {job.status === "failed"
-                    ? <WarningCircle size={18} />
-                    : ["succeeded", "awaiting_review", "recovered"].includes(job.status)
-                      ? <Check size={17} />
-                      : <Circle size={15} />}
-                </span>
-                <span><strong>{job.url}</strong><small>{detail}</small></span>
-                <em>{t(`status.${job.status}`)}</em>
-                {expanded ? <CaretUp size={15} /> : <CaretDown size={15} />}
+        {visibleJobs.map((job) => {
+          const active = job.status === "queued" || job.status === "running";
+          const article = articles.find(item => item.id === job.articleId);
+          const label = article?.title || job.url || t(`pipeline.jobKinds.${job.kind}`);
+          const progress = active && ["capture", "review"].includes(job.kind) ? undefined : job.progress ?? undefined;
+          const destination = job.articleId ? `/articles/${encodeURIComponent(job.articleId)}` : job.kind === "batch" ? `/batches?batch=${encodeURIComponent(job.id)}` : null;
+          const content = <>
+            <span className={`dashboard-job-state dashboard-job-${job.status}`}>
+              {job.status === "failed" ? <WarningCircle size={18} /> : active ? <SpinnerGap className="spin" size={17} /> : <Check size={17} />}
+            </span>
+            <span className="dashboard-job-summary"><strong>{label}</strong><small>{job.error || (active ? t(`article.reviewStages.${job.stage ?? "queued"}`, { defaultValue: t("pipeline.working") }) : t(`pipeline.jobKinds.${job.kind}`))}</small>
+              {active && <progress max="100" value={progress} aria-label={t(`pipeline.jobKinds.${job.kind}`)} />}
+            </span>
+            <em>{active ? progress === undefined ? t("pipeline.working") : `${progress}%` : t(`status.${job.status}`)}</em>
+            {destination && <span className="dashboard-job-open"><span>{t(job.kind === "batch" ? "pipeline.openBatch" : "pipeline.openArticle")}</span><ArrowRight size={16} /></span>}
+          </>;
+          return <article className="dashboard-job" key={job.id}>
+            {destination ? <Link className="dashboard-job-row" to={destination}>{content}</Link> : <div className="dashboard-job-row">{content}</div>}
+            {job.status === "failed" && job.kind === "capture" && <div className="dashboard-job-actions">
+              <button className="button-secondary compact-button" type="button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate(job.id)}>
+                <ArrowClockwise size={15} />{t("pipeline.retry")}
               </button>
-              {expanded && (
-                <div className="dashboard-job-details">
-                  {job.events.slice(-5).map((event) => (
-                    <div key={event.id}><time>{new Date(event.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><span>{t(event.message)}</span></div>
-                  ))}
-                  <div className="dashboard-job-actions">
-                    {job.status === "failed" && (
-                      <button
-                        className="button-primary compact-button"
-                        type="button"
-                        disabled={retryMutation.isPending}
-                        onClick={() => retryMutation.mutate(job.id)}
-                      >
-                        {retryMutation.isPending && retryMutation.variables === job.id
-                          ? <SpinnerGap className="spin" size={15} />
-                          : <ArrowClockwise size={15} />}
-                        {t("pipeline.retry")}
-                      </button>
-                    )}
-                    {job.articleId && <Link to={`/articles/${encodeURIComponent(job.articleId)}`}>{t("pipeline.openArticle")}<ArrowRight size={15} /></Link>}
-                  </div>
-                  {retryMutation.isError && retryMutation.variables === job.id && (
-                    <p className="job-action-error" role="alert">{(retryMutation.error as Error).message}</p>
-                  )}
-                </div>
-              )}
-            </article>
-          );
+              {retryMutation.isError && retryMutation.variables === job.id && <p className="job-action-error" role="alert">{(retryMutation.error as Error).message}</p>}
+            </div>}
+          </article>;
         })}
       </section>
 

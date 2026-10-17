@@ -176,7 +176,11 @@ async def edit_article(
         metadata_candidates = serialize_metadata_candidates(payload.metadata_candidates)
     else:
         try:
-            response = await client.generate_text(response_prompt, user_prompt)
+            if perspective:
+                from src.core.review.streaming import generate_review_text
+                response = await generate_review_text(client, response_prompt, user_prompt)
+            else:
+                response = await client.generate_text(response_prompt, user_prompt)
         except AIOutputTruncatedError:
             if not perspective:
                 raise
@@ -209,6 +213,10 @@ async def edit_article(
     if perspective:
         summary = payload.summary
     prepared_markdown = response_markdown if perspective else prepare_rewritten_markdown(response_markdown, content_type)
+    if perspective:
+        from src.core.review.output_contract import clean_review_markdown
+        from src.core.telemetry import emit_event
+        await emit_event("review_output", "", clean_review_markdown(prepared_markdown))
     return {
         "markdown": normalize_markdown_links(prepared_markdown),
         "model": response.model,
@@ -418,8 +426,25 @@ async def _review_long_article(
     chunk_cache_dir = runtime_home() / "review_chunks" / cache_key
     chunk_cache_dir.mkdir(parents=True, exist_ok=True)
     semaphore = asyncio.Semaphore(2)
+    previews = ["" for _ in chunks]
+    completed = [False for _ in chunks]
+    published_preview = ""
 
-    async def generate_chunk(part_label: str, chunk: str, depth: int = 0):
+    async def publish_part(index: int, content: str, *, done: bool = False):
+        nonlocal published_preview
+        previews[index - 1] = content
+        completed[index - 1] = done
+        visible = []
+        for part, ready in zip(previews, completed):
+            visible.append(part)
+            if not ready:
+                break
+        preview = "\n\n".join(part for part in visible if part)
+        if preview != published_preview:
+            published_preview = preview
+            await emit_event("review_output", "", preview)
+
+    async def generate_chunk(part_label: str, chunk: str, depth: int = 0, update=None):
         try:
             async with semaphore:
                 await emit_event(
@@ -427,9 +452,12 @@ async def _review_long_article(
                     "pipeline.events.aiReviewChunk",
                     f"{part_label}/{len(chunks)} · {len(chunk)} characters",
                 )
-                response = await client.generate_text(
+                from src.core.review.streaming import generate_review_text
+                response = await generate_review_text(
+                    client,
                     system_prompt + chunk_protocol,
                     f"Article part {part_label} of {len(chunks)}:\n\n{chunk}",
+                    protocol="tag", update=update,
                 )
             content, summary, candidates = _parse_long_review_chunk_response(response.text)
             if not content:
@@ -464,8 +492,11 @@ async def _review_long_article(
                 return fallback, _fallback_chunk_summary(fallback), {}, None
             sub_results = []
             for sub_index, sub_chunk in enumerate(sub_chunks, start=1):
+                async def sub_update(text):
+                    if update:
+                        await update("\n\n".join([*(result[0] for result in sub_results), text]))
                 sub_results.append(
-                    await generate_chunk(f"{part_label}.{sub_index}", sub_chunk, depth + 1)
+                    await generate_chunk(f"{part_label}.{sub_index}", sub_chunk, depth + 1, sub_update)
                 )
             return (
                 "\n\n".join(result[0] for result in sub_results),
@@ -482,9 +513,13 @@ async def _review_long_article(
         cached = _read_review_chunk_cache(chunk_cache_dir / f"part-{index:03d}.json")
         if cached is not None:
             content, summary, candidates = cached
+            await publish_part(index, _preserve_chunk_images(content, chunk), done=True)
             return _preserve_chunk_images(content, chunk), summary, candidates, None
-        content, summary, candidates, response = await generate_chunk(str(index), chunk)
+        async def update(text):
+            await publish_part(index, text)
+        content, summary, candidates, response = await generate_chunk(str(index), chunk, update=update)
         _write_review_chunk_cache(chunk_cache_dir / f"part-{index:03d}.json", content, summary, candidates)
+        await publish_part(index, _preserve_chunk_images(content, chunk), done=True)
         return _preserve_chunk_images(content, chunk), summary, candidates, response
 
     results = await asyncio.gather(*(

@@ -33,7 +33,7 @@ export function articleOutlineFromMarkdown(markdown: string): OutlineHeading[] {
   return headings;
 }
 
-export function ArticleOutline({ markdown }: { markdown: string }) {
+export function ArticleOutline({ markdown, streaming = false }: { markdown: string; streaming?: boolean }) {
   const { t } = useTranslation();
   const headings = useMemo(() => articleOutlineFromMarkdown(markdown), [markdown]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -41,13 +41,13 @@ export function ArticleOutline({ markdown }: { markdown: string }) {
   const itemHeight = Math.max(10, Math.min(18, 216 / headings.length));
 
   useEffect(() => {
-    const host = document.querySelector<HTMLElement>(".markdown-editor");
+    const host = document.querySelector<HTMLElement>(".article-review-stream, .article-saved-content:not([hidden]) .markdown-editor");
     const scrollRoot = document.querySelector<HTMLElement>(".article-page .reader-surface");
     if (!host || !scrollRoot || headings.length === 0) return;
     let headingObserver: IntersectionObserver | null = null;
     const bindHeadings = () => {
       headingObserver?.disconnect();
-      const nodes = host.querySelectorAll<HTMLElement>(".vditor-wysiwyg > .vditor-reset > :is(h1,h2,h3,h4,h5,h6)");
+      const nodes = host.querySelectorAll<HTMLElement>(":scope > :is(h1,h2,h3,h4,h5,h6), .vditor-wysiwyg > .vditor-reset > :is(h1,h2,h3,h4,h5,h6)");
       headingObserver = new IntersectionObserver((entries) => {
         const visible = entries
           .filter((entry) => entry.isIntersecting)
@@ -67,12 +67,12 @@ export function ArticleOutline({ markdown }: { markdown: string }) {
       headingObserver?.disconnect();
       mutationObserver.disconnect();
     };
-  }, [headings.length]);
+  }, [headings.length, streaming]);
 
-  if (headings.length === 0) return null;
+  if (headings.length === 0) return streaming ? <nav className="article-outline" aria-label={t("article.outline")} /> : null;
 
   function goToHeading(index: number) {
-    const nodes = document.querySelectorAll<HTMLElement>(".markdown-editor .vditor-wysiwyg > .vditor-reset > :is(h1,h2,h3,h4,h5,h6)");
+    const nodes = document.querySelectorAll<HTMLElement>(".article-review-stream .vditor-reset > :is(h1,h2,h3,h4,h5,h6), .article-saved-content:not([hidden]) .markdown-editor .vditor-wysiwyg > .vditor-reset > :is(h1,h2,h3,h4,h5,h6)");
     const target = nodes.item(index);
     const scrollRoot = document.querySelector<HTMLElement>(".article-page .reader-surface");
     if (!target || !scrollRoot) return;

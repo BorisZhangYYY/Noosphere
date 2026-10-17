@@ -38,6 +38,16 @@ Choose **Save reviewed Markdown / 保存审阅稿** to persist the new position.
 
 List items currently reorder within the same parent list. Moving items into another list or changing indentation remains separate scope. Paragraphs inside quotations retain ordinary text editing; the quotation moves as one complete block. Image removal and recovery continue through the existing image controls.
 
+## Move a removed image preview
+
+Removed images are hidden by default in both reading and editing modes. Choose **Show removed images / 显示已删除图片** in the inspection rail's Resources section to reveal their muted previews. Opening another article or reloading returns to the clean, hidden view.
+
+In editing mode, each image has a six-dot movement grip at its left edge, including small images, adjacent images sharing a paragraph and explicitly shown removed-image previews. Drag the grip to the insertion line, or focus the grip or image and use **Alt + Up/Down**. Direct image dragging remains available. Moving an image does not move other images sharing its paragraph.
+
+In Edit mode, drag a visible preview or focus it and press **Alt + Up/Down** to adjust its position. Moving a preview keeps the image removed. Save the article to retain that position after reopening it; restoring the image then uses its new position.
+
+Preview positions are stored separately in the article manifest. Removed images stay out of `reviewed.md`, AI review input and uploaded article content. The captured source is unchanged.
+
 ## Quoted interpretations
 
 In reading mode, select an exact passage to create an independent Markdown interpretation. Resolved quotes have a subtle background and dashed underline. Click the annotated words to open a compact speech bubble above the right end of the quote. Near an edge, it stays inside the viewport and can appear below when there is insufficient space above. Moving the pointer away does not dismiss it; click outside, click the quote again, use the close button, or press Escape to close it. Choose **Edit / 编辑** inside the bubble to modify the interpretation. Long notes scroll inside the bubble while its actions remain available. Touch users can tap the quote, and the article rail retains its quote list and management actions. Saving changes only the interpretation, preserving the article, source text and reflection. An ambiguous or stale quote is not attached to an unrelated sentence.

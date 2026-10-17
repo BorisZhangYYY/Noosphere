@@ -344,7 +344,6 @@ def save_reviewed_markdown(
     normalized_markdown = strip_editor_artifacts(reviewed_markdown)
     for asset_name, state in normalized_states.items():
         if state == "removed":
-            normalized_markdown = article_rendering._replace_image_target(normalized_markdown, asset_name, None)
             continue
         normalized_markdown = article_rendering._replace_image_target(
             normalized_markdown,
@@ -393,6 +392,18 @@ def save_reviewed_markdown(
 
     protected_markdown = render_protected_review(normalized_markdown, manifest, raw_markdown)
     persisted_markdown = article_rendering._persistable_reviewed_markdown(protected_markdown, removed_names)
+    previous_positions = image_filter.get("removed_image_positions")
+    positions = article_rendering._removed_image_positions(protected_markdown, persisted_markdown, removed_names)
+    if positions["items"]:
+        image_filter["removed_image_positions"] = positions
+    elif not removed_names:
+        image_filter.pop("removed_image_positions", None)
+    elif previous_positions:
+        image_filter["removed_image_positions"] = {
+            **previous_positions,
+            "items": [item for item in previous_positions.get("items", []) if item.get("name") in removed_names],
+        }
+    positions_changed = image_filter.get("removed_image_positions") != previous_positions
     original_reviewed = reviewed_path.read_text(encoding="utf-8") if reviewed_path.is_file() else None
     original_manifest = manifest_path.read_text(encoding="utf-8") if manifest_path.is_file() else None
     completed_moves: list[tuple[Path, Path]] = []
@@ -401,7 +412,7 @@ def save_reviewed_markdown(
             source.rename(destination)
             completed_moves.append((source, destination))
         workspace.atomic_write_text(reviewed_path, persisted_markdown)
-        if normalized_states:
+        if normalized_states or positions_changed:
             workspace.atomic_write_text(
                 manifest_path,
                 json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",

@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup, Tag
 
 from src.core.models.article import Article
 from src.core.base_extractor import BaseArticleExtractor
+from src.core.extraction_quality import zhihu_access_page
 from src.core.registry import register_extractor
 from src.core.markdown.cleaner import first_text, meta_content
 from src.integrations.crawler import CrawledPage
@@ -60,6 +61,11 @@ class ZhihuZhuanlanExtractor(BaseArticleExtractor):
 
     def content_node(self, soup: BeautifulSoup) -> Tag | None:
         return soup.select_one(".Post-RichTextContainer, .RichContent-inner, .RichText, article")
+
+    async def _parse(self, page: CrawledPage, url: str) -> Article:
+        if zhihu_access_page(page.markdown, page.status_code):
+            raise ValueError("Zhihu did not return article content: login or access restriction. Check access to the original article or try another URL.")
+        return await super()._parse(page, url)
 
     def too_short_message(self, page: CrawledPage) -> str:
         return f"Zhihu article body is too short; status={page.status_code}, crawl error={page.error!r}"

@@ -888,6 +888,12 @@ class CollectionStore:
             collection = self.get_collection(collection_id)
             if collection is None:
                 raise ValueError(f"Active collection not found: {collection_id}")
+        from src.core.review.transaction import pending_review
+
+        transaction = pending_review(article_id)
+        if transaction:
+            return transaction.stage_assignment(collection_id=collection_id, reason=reason.strip(),
+                                                confidence=confidence, source=source.strip() or "manual")
         with self._connect() as connection:
             previous = connection.execute(
                 f"SELECT collection_id FROM noosphere_article_collections WHERE article_id = {marker}",

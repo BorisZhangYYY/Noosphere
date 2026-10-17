@@ -3,7 +3,7 @@ import { articleNodeAtPath, articleNodePath, isMovableArticleBlock, outerArticle
 
 interface Point { x: number; y: number }
 interface HoverRow { node: HTMLElement; top: number; bottom: number; left: number }
-const GRIP_SVG = '<svg viewBox="0 0 12 18" width="12" height="18" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="3" cy="15" r="1.5"/><circle cx="9" cy="15" r="1.5"/></svg>';
+export const GRIP_SVG = '<svg viewBox="0 0 12 18" width="12" height="18" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="9" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="3" cy="15" r="1.5"/><circle cx="9" cy="15" r="1.5"/></svg>';
 const GROUP_GRIP_SVG = '<svg viewBox="0 0 18 18" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M4 1.5H1.5v15H4M14 1.5h2.5v15H14" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="4" r="1.25"/><circle cx="12" cy="4" r="1.25"/><circle cx="6" cy="9" r="1.25"/><circle cx="12" cy="9" r="1.25"/><circle cx="6" cy="14" r="1.25"/><circle cx="12" cy="14" r="1.25"/></svg>';
 interface BlockControlsOptions {
   host: HTMLElement;
