@@ -28,7 +28,7 @@ async def sign_in(page, token="browser-test-token"):
 
 
 @pytest.fixture
-def browser_server(tmp_path, monkeypatch):
+def browser_server(tmp_path, monkeypatch, request):
     directory = tmp_path / "articles" / "browser_article"
     directory.mkdir(parents=True)
     for name in ("raw.md", "reviewed.md"):
@@ -43,8 +43,60 @@ def browser_server(tmp_path, monkeypatch):
         socket_.bind(("127.0.0.1", 0))
         port = socket_.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
+    command = [sys.executable, "-m", "uvicorn", "src.mcp.server:create_app", "--factory", "--host", "127.0.0.1", "--port", str(port), "--no-proxy-headers"]
+    if getattr(request, "param", None) in {"streaming_review", "streaming_long_review", "streaming_wait_review"}:
+        script = tmp_path / "streaming_server.py"
+        script.write_text('''
+import asyncio, json, os, sys
+from pathlib import Path
+from types import SimpleNamespace
+import uvicorn
+import src.graph.graph as graph
+import src.core.collections as collections
+from src.core.telemetry import emit_event
+from src.core.workspace import atomic_write_text
+from src.mcp.server import create_app
+
+async def review(path, **kwargs):
+    controls = Path(os.environ["NOOSPHERE_CONFIG"]).parent
+    if os.environ.get("NOOSPHERE_WAIT_REVIEW_FIXTURE") == "1":
+        for _ in range(200):
+            await emit_event("review_output", "", "")
+        while not (controls / "allow-first").exists():
+            await asyncio.sleep(0.05)
+    first = "# Browser article\\n\\nFirst streamed paragraph."
+    second = "\\n\\nSecond streamed paragraph.\\n"
+    if os.environ.get("NOOSPHERE_LONG_REVIEW_FIXTURE") == "1":
+        second += "Continuous long article paragraph with 中文🙂 text.\\n\\n" * 1200
+    await emit_event("review_output", "", first)
+    while not (controls / "allow-second").exists():
+        await asyncio.sleep(0.05)
+    await emit_event("review_output", "", first + second)
+    while not (controls / "finish-review").exists():
+        await asyncio.sleep(0.05)
+    final = first + second + "\\nFinal reviewed ending.\\n"
+    atomic_write_text(path, final)
+    atomic_write_text(path.with_name("review.json"), json.dumps({"status": "reviewed"}))
+    return SimpleNamespace(ok=True, issues=[])
+
+async def place(*args, **kwargs):
+    return {"collection_id": None, "reason": "Isolated streaming fixture"}
+
+async def extract(url):
+    return Path(os.environ["NOOSPHERE_CONFIG"]).parent / "articles/browser_article/reviewed.md"
+
+graph.run_ai_review_graph = review
+graph.run_extract_graph = extract
+collections.place_reviewed_article = place
+uvicorn.run(create_app(), host="127.0.0.1", port=int(sys.argv[1]), proxy_headers=False)
+''')
+        command = [sys.executable, str(script), str(port)]
+        if request.param == "streaming_long_review":
+            monkeypatch.setenv("NOOSPHERE_LONG_REVIEW_FIXTURE", "1")
+        if request.param == "streaming_wait_review":
+            monkeypatch.setenv("NOOSPHERE_WAIT_REVIEW_FIXTURE", "1")
     with (tmp_path / "server.log").open("w") as log:
-        process = subprocess.Popen([sys.executable, "-m", "uvicorn", "src.mcp.server:create_app", "--factory", "--host", "127.0.0.1", "--port", str(port), "--no-proxy-headers"], stdout=log, stderr=log)
+        process = subprocess.Popen(command, stdout=log, stderr=log)
         try:
             for _ in range(100):
                 try:
@@ -163,10 +215,17 @@ async def test_structural_blocks_drag_history_selection_and_save(browser_server,
         await page.keyboard.press('ControlOrMeta+y')
         await page.wait_for_function(order)
         for selector in [':scope > blockquote', ':scope > div[data-type="code-block"]']:
-            await root.locator(selector).hover()
+            target = root.locator(selector)
+            await target.hover(position={"x": 8, "y": 8})
             await expect(handle).to_be_visible()
+            await page.wait_for_function('''selector => {
+              const root = document.querySelector('.vditor-wysiwyg > .vditor-reset');
+              const block = root.querySelector(selector), controls = document.querySelector('.noosphere-block-controls');
+              return block && controls && Math.abs(block.getBoundingClientRect().top - controls.getBoundingClientRect().top) < 2;
+            }''', arg=selector)
             await handle.focus()
             await page.keyboard.press('Alt+ArrowUp')
+            await expect(target).to_be_visible()
         await page.locator('.article-save-button').click()
         await expect(page.locator('.article-save-state')).to_have_text('已保存')
         saved = (directory / 'reviewed.md').read_text()
@@ -339,6 +398,9 @@ def test_authenticated_remote_mcp_stream_uses_shared_access_control(browser_serv
     with httpx.stream("GET", base + "/sse", headers={"Authorization": "Bearer browser-test-token", "Host": "noosphere.example"}, timeout=5, trust_env=False) as response:
         assert response.status_code == 200
         assert next(response.iter_lines()) == "event: endpoint"
+    with httpx.stream("GET", base + "/api/v1/jobs/stream", headers={"Authorization": "Bearer browser-test-token", "Host": "noosphere.example"}, timeout=5, trust_env=False) as response:
+        assert response.status_code == 200
+        assert next(response.iter_lines()) == "event: jobs"
 
 
 @pytest.mark.asyncio
@@ -1071,7 +1133,7 @@ async def test_workspace_drag_order_stays_inside_category_and_survives_reload(br
         count = len(requests)
         await begin(article('second').locator('button').first, article('foreign'))
         await expect(article('foreign')).to_have_class(re.compile('workspace-order-blocked'))
-        await expect(sidebar.locator('.workspace-order-hint')).to_have_class(re.compile('blocked'))
+        await expect(sidebar.locator('.workspace-order-hint')).to_have_count(0)
         await page.screenshot(path=str(tmp_path / f'workspace-forbidden-{width}.png'))
         await release()
         assert len(requests) == count
@@ -1108,7 +1170,7 @@ async def test_workspace_drag_order_stays_inside_category_and_survives_reload(br
         await expect(root).to_be_visible()
         text_before = await root.inner_text()
         await begin(article('second').locator('button').first, root)
-        await expect(sidebar.locator('.workspace-order-hint')).to_have_class(re.compile('blocked'))
+        await expect(sidebar.locator('.workspace-order-hint')).to_have_count(0)
         await release()
         assert await root.inner_text() == text_before
         assert assignments == {item: store.get_assignment(item) for item in assignments}

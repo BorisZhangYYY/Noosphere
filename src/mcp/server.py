@@ -37,9 +37,11 @@ class SPAStaticFiles(StaticFiles):
         except HTTPException as exc:
             if exc.status_code != 404 or Path(path).suffix:
                 raise
-            return await super().get_response("index.html", scope)
+            response = await super().get_response("index.html", scope)
         if response.status_code == 404 and not Path(path).suffix:
-            return await super().get_response("index.html", scope)
+            response = await super().get_response("index.html", scope)
+        if not Path(path).suffix or Path(path).suffix == ".html":
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
 mcp = FastMCP("noosphere")
@@ -862,6 +864,8 @@ def create_app() -> Starlette:
         list_article_trash,
         list_capture_jobs,
         list_jobs as list_web_jobs,
+        stream_jobs,
+        cancel_review_job,
         list_articles,
         permanently_delete_article,
         restore_article_trash,
@@ -924,7 +928,9 @@ def create_app() -> Starlette:
         Route("/api/v1/reviews/{job_id}", get_article_review_job, methods=["GET"]),
         Route("/api/v1/polish/{job_id}", get_polish_job, methods=["GET"]),
         Route("/api/v1/jobs", list_web_jobs, methods=["GET"]),
+        Route("/api/v1/jobs/stream", stream_jobs, methods=["GET"]),
         Route("/api/v1/jobs/{job_id}", get_web_job, methods=["GET"]),
+        Route("/api/v1/jobs/{job_id}/cancel", cancel_review_job, methods=["POST"]),
         Route("/api/v1/captures", create_capture, methods=["POST"]),
         Route("/api/v1/captures", list_capture_jobs, methods=["GET"]),
         Route("/api/v1/captures/{job_id}/retry", retry_capture_job, methods=["POST"]),

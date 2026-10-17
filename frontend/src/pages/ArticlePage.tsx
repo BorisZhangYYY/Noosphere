@@ -9,6 +9,9 @@ import { useBeforeUnload, useBlocker, useNavigate, useParams } from "react-route
 import { api } from "../api";
 import { articleDraftReducer, emptyArticleDraft } from "../articleDraft";
 import { SearchPassage } from "../components/SearchPassage";
+import { ArticleReviewStream } from "../components/ArticleReviewStream";
+import { useReviewPreview } from "../useReviewPreview";
+import { backgroundJobsKey } from "../useBackgroundJobs";
 import { ArticleOutline } from "../components/ArticleOutline";
 import { InlineSelect } from "../components/InlineSelect";
 import { MarkdownEditor } from "../components/MarkdownEditor";
@@ -50,16 +53,17 @@ function ReviewProgress({ job }: { job: ReviewJob | null | undefined }) {
   const ended = job?.finishedAt ? Date.parse(job.finishedAt) : now;
   const seconds = Number.isFinite(started) ? Math.max(0, Math.floor((ended - started) / 1000)) : 0;
   const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-  const waiting = job?.status === "running" && job.stage === "ai_review" && !job.reviewPreview;
+  const active = job?.status === "queued" || job?.status === "running";
+  const progress = active ? undefined : job?.progress ?? 100;
+  const stageLabel = t(`article.reviewStages.${job?.stage ?? "queued"}`);
   const chunking = job?.status === "running" && job.stage === "ai_review"
     && job.events.some((event) => event.message === "pipeline.events.aiReviewTruncatedFallback");
   const plannedChunking = job?.status === "running" && job.stage === "ai_review"
     && job.events.some((event) => event.message === "pipeline.events.aiReviewPreflightSplit");
   return <div className="upload-progress">
-    <div><span>{t(`article.reviewStages.${job?.stage ?? "queued"}`)}</span><strong>{job?.progress ?? 0}%</strong></div>
-    <progress max="100" value={job?.progress ?? 0} />
+    <div><span>{stageLabel}</span>{progress !== undefined && <strong>{progress}%</strong>}</div>
+    <progress max="100" value={progress} aria-label={stageLabel} />
     <p className="rail-note">{t("article.reviewElapsed", { time: elapsed })}</p>
-    {waiting && <p className="rail-note">{t("article.reviewWaitingForModel")}</p>}
     {chunking && <p className="rail-note" role="status">{t("article.reviewChunkingAfterTruncation")}</p>}
     {plannedChunking && !chunking && <p className="rail-note" role="status">{t("article.reviewChunkingPlanned")}</p>}
   </div>;
@@ -78,6 +82,7 @@ export function ArticlePage() {
   const setDraft = (text: string) => dispatchDraft({ type: "edit", text });
   const [readOnly, setReadOnly] = useState(true);
   const [uploadJobId, setUploadJobId] = useState<string | null>(null);
+  const [followingReview, setFollowingReview] = useState(true);
   const [reviewJobId, setReviewJobId] = useState<string | null>(null);
   const [reviewPerspective, setReviewPerspective] = useState("");
   const [reviewLanguage, setReviewLanguage] = useState<OutputLanguage>("follow_ui");
@@ -89,7 +94,7 @@ export function ArticlePage() {
   const [metadataPublishedAt, setMetadataPublishedAt] = useState("");
   const [pendingImageAction, setPendingImageAction] = useState<{ name: string; state: "active" | "removed" } | null>(null);
   const [pendingImageStates, setPendingImageStates] = useState<Record<string, "active" | "removed">>({});
-  const [showRemovedImages, setShowRemovedImages] = useState(true);
+  const [showRemovedImages, setShowRemovedImages] = useState(false);
   const [previewAsset, setPreviewAsset] = useState<{ name: string; url: string; removed: boolean; reason?: string } | null>(null);
   const [reflectionOpen, setReflectionOpen] = useState(false);
   const [reflectionMode, setReflectionMode] = useState<"edit" | "preview">("edit");
@@ -115,7 +120,6 @@ export function ArticlePage() {
     if (!query.data) return;
     dispatchDraft({ type: "receive", articleId, text: query.data.editableMarkdown, revision: query.data.revision, hasImageChanges: Object.keys(pendingImageStates).length > 0 });
     setUploadJobId(query.data.activeUpload?.id ?? null);
-    setReviewJobId(query.data.activeReview?.id ?? null);
     setCollectionId(query.data.collection?.collection_id ?? "");
     setMetadataAuthor(query.data.metadata.author.origin === "missing" ? "" : query.data.metadata.author.value);
     setMetadataPublishedAt(query.data.metadata.publishedAt.origin === "missing" ? "" : query.data.metadata.publishedAt.value);
@@ -129,13 +133,14 @@ export function ArticlePage() {
     }
   }, [query.data, reflectionOpen]);
   useEffect(() => {
+    setReviewJobId(query.data?.id === articleId ? query.data.activeReview?.id ?? null : null);
     setReadOnly(true);
     setSourceExpanded(true);
     setBackupExpanded(false);
     setPreviewAsset(null);
     setPendingImageAction(null);
     setPendingImageStates({});
-    setShowRemovedImages(true);
+    setShowRemovedImages(false);
     setReflectionOpen(false);
     setReflectionMode("edit");
     setReflectionDraft("");
@@ -250,8 +255,17 @@ export function ArticlePage() {
     queryKey: ["review-job", reviewJobId],
     queryFn: () => api.getReviewJob(reviewJobId!),
     enabled: Boolean(reviewJobId),
-    refetchInterval: (state) => state.state.data && ["succeeded", "failed"].includes(state.state.data.status) ? false : 700
+    refetchInterval: (state) => state.state.data && !["queued", "running"].includes(state.state.data.status) ? false : 700
   });
+  const backgroundJobsQuery = useQuery({ queryKey: backgroundJobsKey, queryFn: api.listBackgroundJobs });
+  const sharedReview = backgroundJobsQuery.data?.jobs.find(job => job.articleId === articleId && ["capture", "review"].includes(job.kind) && ["queued", "running"].includes(job.status));
+  const trackedReview = (backgroundJobsQuery.data?.jobs.find(job => job.id === reviewJobId) as ReviewJob | undefined) ?? reviewJobQuery.data;
+  const reviewJob = trackedReview && (!sharedReview || trackedReview.id === sharedReview.id || (trackedReview.createdAt ?? "") >= sharedReview.createdAt)
+    ? trackedReview : (sharedReview as ReviewJob | undefined) ?? query.data?.activeReview;
+  useEffect(() => { setFollowingReview(true); }, [articleId, reviewJob?.id]);
+  useEffect(() => {
+    if (reviewJob && ["queued", "running"].includes(reviewJob.status)) setReviewJobId(reviewJob.id);
+  }, [reviewJob?.id, reviewJob?.status]);
   const polishJobQuery = useQuery({
     queryKey: ["polish-job", polishJobId],
     queryFn: () => api.getPolishJob(polishJobId!),
@@ -263,11 +277,11 @@ export function ArticlePage() {
     void queryClient.invalidateQueries({ queryKey: ["article", articleId] });
   }, [articleId, polishJobQuery.data, queryClient]);
   useEffect(() => {
-    if (reviewJobQuery.data?.status !== "succeeded") return;
+    if (!reviewJob || ["queued", "running"].includes(reviewJob.status)) return;
     void queryClient.invalidateQueries({ queryKey: ["article", articleId] });
     void queryClient.invalidateQueries({ queryKey: ["articles"] });
     void queryClient.invalidateQueries({ queryKey: ["collections"] });
-  }, [articleId, queryClient, reviewJobQuery.data?.status]);
+  }, [articleId, queryClient, reviewJob?.status]);
 
   const persistDraft = async () => {
     const submitted = draft;
@@ -302,10 +316,30 @@ export function ArticlePage() {
       return api.reviewArticle(articleId, reviewPerspective, reviewLanguage);
     },
     onSuccess: async (job) => {
+      await queryClient.cancelQueries({ queryKey: backgroundJobsKey });
+      queryClient.setQueryData(["review-job", job.id], job);
+      queryClient.setQueryData<Awaited<ReturnType<typeof api.listBackgroundJobs>>>(backgroundJobsKey, current => ({ jobs: [{ ...job, kind: "review", createdAt: job.createdAt ?? new Date().toISOString() }, ...(current?.jobs ?? []).filter(item => item.id !== job.id)] }));
       setReviewJobId(job.id);
-      await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
+      void queryClient.invalidateQueries({ queryKey: backgroundJobsKey });
+      void queryClient.invalidateQueries({ queryKey: ["article", articleId] });
     }
   });
+  const cancelReviewMutation = useMutation({
+    mutationFn: () => api.cancelReviewJob(reviewJob!.id),
+    onSuccess: async (job) => {
+      queryClient.setQueryData(["review-job", job.id], job);
+      queryClient.setQueryData<Awaited<ReturnType<typeof api.listBackgroundJobs>>>(backgroundJobsKey, current => current ? { jobs: current.jobs.map(item => item.id === job.id ? { ...item, ...job } : item) } : current);
+      await queryClient.invalidateQueries({ queryKey: ["article", articleId] });
+      await queryClient.invalidateQueries({ queryKey: backgroundJobsKey });
+    }
+  });
+  const playback = useReviewPreview(reviewJob, reviewMutation.isPending);
+  const awaitingSavedArticle = Boolean(reviewJob?.reviewRevision && ["succeeded", "awaiting_review"].includes(reviewJob.status) && (
+    (query.data?.revision !== reviewJob.reviewRevision && query.isFetching)
+    || (query.data?.revision === reviewJob.reviewRevision && draftState.revision !== reviewJob.reviewRevision)
+  ));
+  const preview = { ...playback, showing: playback.showing || awaitingSavedArticle };
+  const reviewBusy = preview.showing;
   const mirrorMutation = useMutation({
     mutationFn: () => api.retryMirror(articleId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["article", articleId] })
@@ -386,8 +420,7 @@ export function ArticlePage() {
   const platformLabel = localizedPlatformLabel(article.platform, article.platformLabel, t);
   const uploadJob = uploadJobQuery.data ?? article.activeUpload;
   const uploading = Boolean(uploadMutation.isPending || (uploadJobId && (!uploadJob || ["queued", "running"].includes(uploadJob.status))));
-  const reviewJob = reviewJobQuery.data ?? article.activeReview;
-  const reviewing = reviewMutation.isPending || Boolean(reviewJobId && (!reviewJob || ["queued", "running"].includes(reviewJob.status)));
+  const reviewing = reviewBusy;
   const polishJob = polishJobQuery.data ?? article.activePolish;
   const polishing = polishMutation.isPending || Boolean(polishJobId && (!polishJob || ["queued", "running"].includes(polishJob.status)));
   const polishStale = Boolean(
@@ -503,9 +536,9 @@ export function ArticlePage() {
             </button>
             <div className="editor-mode-toggle" aria-label={t("article.modeLabel")}>
               <button type="button" className={readOnly ? "active" : ""} onClick={() => setReadOnly(true)}><Eye size={17} />{t("article.readOnly")}</button>
-              <button type="button" className={!readOnly ? "active" : ""} onClick={() => { setReadOnly(false); setSourceExpanded(true); }}><PencilSimple size={17} />{t("article.edit")}</button>
+              <button type="button" className={!readOnly ? "active" : ""} disabled={reviewBusy} onClick={() => { setReadOnly(false); setSourceExpanded(true); }}><PencilSimple size={17} />{t("article.edit")}</button>
             </div>
-            {!readOnly && <button className="button-secondary article-save-button" type="button" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !dirty}>
+            {!readOnly && <button className="button-secondary article-save-button" type="button" onClick={() => saveMutation.mutate()} disabled={reviewBusy || saveMutation.isPending || !dirty}>
               {saveMutation.isPending ? <SpinnerGap className="spin" size={17} /> : <FloppyDisk size={17} />}{t("article.saveDraft")}
             </button>}
           </div>
@@ -519,13 +552,24 @@ export function ArticlePage() {
         </nav>
       </header>
       <div className={`article-layout${inspectionOpen ? "" : " inspection-collapsed"}`}>
-        <ArticleOutline markdown={draft} />
+        <ArticleOutline markdown={preview.showing ? preview.visible : draft} streaming={preview.showing} />
+        <div className={`article-reader-pane${preview.showing ? " is-streaming" : ""}`}>
+          {preview.showing && <div className="article-review-status" role="status">
+            <span><SpinnerGap className="spin" size={16} />{t(preview.active ? "article.aiReviewing" : "pipeline.outputStreaming")}</span>
+            <div className="article-review-status-actions"><button className="button-secondary compact-button" type="button" aria-pressed={followingReview} onClick={() => setFollowingReview(value => !value)}>{t(followingReview ? "article.stopFollowing" : "article.startFollowing")}</button>
+            {preview.active && reviewJob?.cancellable && <button className="button-secondary compact-button" type="button" onClick={() => cancelReviewMutation.mutate()} disabled={cancelReviewMutation.isPending}>{t(cancelReviewMutation.isPending ? "article.cancellingReview" : "article.cancelReview")}</button>}
+            </div>
+          </div>}
         <article className="reader-surface editor-surface">
+          {cancelReviewMutation.isError && <p className="article-action-error" role="alert">{(cancelReviewMutation.error as Error).message}</p>}
+          {reviewJob?.status === "cancelled" && <p className="article-review-restored" role="status">{t("article.reviewRestored")}</p>}
+          {preview.showing && <ArticleReviewStream key={reviewJob?.id ?? "starting"} articleId={articleId} text={preview.visible} source={reviewMutation.isPending ? "" : reviewJob?.reviewPreview ?? ""} following={followingReview} onFollowingChange={setFollowingReview} />}
+          <div className="article-saved-content" data-article-id={articleId} hidden={preview.showing}>
           <SearchPassage articleId={articleId} readOnly={readOnly} />
           <MarkdownEditor
             articleId={articleId}
             value={draft}
-            readOnly={readOnly}
+            readOnly={readOnly || reviewBusy}
             removedAssetNames={effectiveRemovedAssetNames}
             showRemovedImages={showRemovedImages}
             onDeleteImage={(name) => setPendingImageAction({ name, state: "removed" })}
@@ -538,7 +582,8 @@ export function ArticlePage() {
             onResolvedAnnotationIds={(ids) => setResolvedAnnotationIds((current) => current.join("\n") === ids.join("\n") ? current : ids)}
             focusAnnotationRequest={focusAnnotationRequest}
           />
-          <section className="reflection-section" aria-label={t("article.reflectionTitle")}>
+          </div>
+          <section hidden={preview.showing} className="reflection-section" aria-label={t("article.reflectionTitle")}>
             <header className="reflection-section-header">
               <div>
                 <span>{t("article.reflectionEyebrow")}</span>
@@ -555,6 +600,7 @@ export function ArticlePage() {
           </section>
           {(saveMutation.isError || uploadMutation.isError) && <p className="article-action-error" role="alert">{((saveMutation.error || uploadMutation.error) as Error).message}</p>}
         </article>
+        </div>
 
         <aside className="inspection-rail" aria-hidden={!inspectionOpen}>
           <section className={`inspection-section inspection-source-section${sourceExpanded ? " inspection-source-expanded" : ""}`}>
@@ -567,12 +613,12 @@ export function ArticlePage() {
                 <dl>
                   <div><dt>{t("article.platform")}</dt><dd>{platformLabel}</dd></div>
                   <div><dt>{t("article.author")}</dt><dd>
-                    {!readOnly && article.metadata.author.editable
+                    {!readOnly && !reviewBusy && article.metadata.author.editable
                       ? <input className="metadata-field-input" value={metadataAuthor} onChange={(event) => setMetadataAuthor(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
                       : article.metadata.author.value}
                   </dd></div>
                   <div><dt>{t("article.published")}</dt><dd>
-                    {!readOnly && article.metadata.publishedAt.editable
+                    {!readOnly && !reviewBusy && article.metadata.publishedAt.editable
                       ? <input className="metadata-field-input" value={metadataPublishedAt} onChange={(event) => setMetadataPublishedAt(event.target.value)} placeholder={t("article.missingMetadataPlaceholder")} />
                       : article.metadata.publishedAt.value}
                   </dd></div>
@@ -586,7 +632,7 @@ export function ArticlePage() {
                     <span>{[article.metadata[key].provider, article.metadata[key].model].filter(Boolean).join(" · ")}</span>
                   </div>
                   : null)}
-                {!readOnly && (article.metadata.author.editable || article.metadata.publishedAt.editable) && <button className="button-secondary metadata-save-button" type="button" onClick={() => metadataMutation.mutate()} disabled={metadataMutation.isPending}>{t("article.saveMissingMetadata")}</button>}
+                {!readOnly && (article.metadata.author.editable || article.metadata.publishedAt.editable) && <button className="button-secondary metadata-save-button" type="button" onClick={() => metadataMutation.mutate()} disabled={reviewBusy || metadataMutation.isPending}>{t("article.saveMissingMetadata")}</button>}
                 {!readOnly && !article.metadata.author.editable && !article.metadata.publishedAt.editable && <p className="rail-note">{t("article.metadataProtected")}</p>}
                 {metadataMutation.isError && <p className="article-action-error" role="alert">{(metadataMutation.error as Error).message}</p>}
                 <a href={article.url} target="_blank" rel="noreferrer" className="source-link">{t("article.openSource")} <ArrowSquareOut size={16} /></a>
@@ -601,14 +647,14 @@ export function ArticlePage() {
                 value={collectionId || "__root"}
                 ariaLabel={t("article.collection")}
                 onChange={(value) => setCollectionId(value === "__root" ? "" : value)}
-                disabled={collectionQuery.isLoading}
+                disabled={reviewBusy || collectionQuery.isLoading}
                 options={[
                   { value: "__root", label: t("knowledge.unfiled"), description: t("article.collectionRootHelp") },
                   ...availableCollections
                 ]}
               />
               {article.collection?.source === "ai" && <p className="rail-note">{t("article.aiCollectionConfidence", { confidence: Math.round(article.collection.confidence * 100) })}</p>}
-              <button className="button-secondary" type="button" onClick={() => collectionMutation.mutate(collectionId)} disabled={collectionMutation.isPending}>{t("article.moveCollection")}</button>
+              <button className="button-secondary" type="button" onClick={() => collectionMutation.mutate(collectionId)} disabled={reviewBusy || collectionMutation.isPending}>{t("article.moveCollection")}</button>
               {!readOnly && collectionMutation.isError && <p className="article-action-error" role="alert">{(collectionMutation.error as Error).message}</p>}
             </div>
           </section>
@@ -622,7 +668,7 @@ export function ArticlePage() {
               <p className="operation-counts">{t("article.reviewCount", { count: article.operationSummary.reviewCount })} · {t("article.rereviewCount", { count: article.operationSummary.rereviewCount })}</p>
               {(reviewing || reviewJob?.status === "succeeded") && <ReviewProgress job={reviewJob} />}
               {(reviewMutation.isError || reviewJob?.status === "failed") && <p className="article-action-error" role="alert">{(reviewMutation.error as Error)?.message || reviewJob?.error}</p>}
-              <button className="button-primary" type="button" onClick={() => reviewMutation.mutate()} disabled={readOnly || !reviewPerspective || reviewing}><MagicWand size={17} />{reviewing ? t("article.aiReviewing") : t("article.startAiSecondReview")}</button>
+              <button className="button-primary" type="button" onClick={() => reviewMutation.mutate()} disabled={readOnly || !reviewPerspective || reviewing || uploading}><MagicWand size={17} />{t(preview.active || reviewMutation.isPending ? "article.aiReviewing" : reviewing ? "pipeline.outputStreaming" : "article.startAiSecondReview")}</button>
             </div>
           </section>
 
@@ -734,7 +780,7 @@ export function ArticlePage() {
             <p className="operation-counts">{t("article.uploadCount", { count: article.operationSummary.uploadCount })}</p>
             {(uploading || uploadJob?.status === "succeeded") && <div className="upload-progress" aria-live="polite"><div><span>{t(`article.uploadStages.${uploadJob?.stage ?? "queued"}`)}</span><strong>{uploadJob?.progress ?? 0}%</strong></div><progress max="100" value={uploadJob?.progress ?? 0} /></div>}
             {uploadJob?.status === "failed" && <p className="article-action-error" role="alert">{uploadJob.error}</p>}
-            <button className="button-primary" type="button" onClick={() => uploadMutation.mutate()} disabled={readOnly || uploadMutation.isPending || uploading}>
+            <button className="button-primary" type="button" onClick={() => uploadMutation.mutate()} disabled={reviewBusy || readOnly || uploadMutation.isPending || uploading}>
               {uploadMutation.isPending || uploading ? <SpinnerGap className="spin" size={17} /> : <UploadSimple size={17} />}
               {article.hasUploaded ? t("article.reupload") : t("article.upload")}
             </button>

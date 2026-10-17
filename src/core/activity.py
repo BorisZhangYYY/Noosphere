@@ -53,6 +53,12 @@ class ArticleActivityStore:
     def record(self, article_id: str, event_type: str, **details: Any) -> None:
         if not article_id:
             return
+        from src.core.review.transaction import pending_review
+
+        transaction = pending_review(article_id)
+        if transaction:
+            transaction.activities.append((event_type, details))
+            return
         self.ensure_schema()
         marker = self._placeholder
         with self._connect() as connection:

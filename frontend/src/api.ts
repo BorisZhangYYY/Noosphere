@@ -1,4 +1,5 @@
 import i18n from "./i18n";
+import type { BackgroundJob } from "./types";
 import type { BatchJob, BatchItem, ArticleAnnotation, ArticleAnnotations, ArticleDetail, ArticleSummary, ArticleWorkspaceDetail, CaptureJob, CollectionNode, OutputLanguage, PipelineSettings, PolishJob, ReviewJob, ReviewMode, SettingsData, SettingsSecretTarget, SettingsUpdate, TrashedArticle, UploadJob } from "./types";
 
 function locale() { return i18n.resolvedLanguage?.startsWith("zh") ? "zh-CN" : "en-US"; }
@@ -23,6 +24,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  listBackgroundJobs: () => request<{ jobs: BackgroundJob[] }>("/api/v1/jobs"),
   authStatus: () => request<{ required: boolean; authenticated: boolean }>("/api/v1/auth/status"),
   login: (password: string) => request<{ ok: boolean }>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
   logout: () => request<{ ok: boolean }>("/api/v1/auth/logout", { method: "POST" }),
@@ -85,6 +87,7 @@ export const api = {
   getUploadJob: (jobId: string) => request<UploadJob>(`/api/v1/uploads/${encodeURIComponent(jobId)}`),
   reviewArticle: (articleId: string, perspective: string, outputLanguage: OutputLanguage = "follow_ui") => request<ReviewJob>(localized(`/api/v1/articles/${encodeURIComponent(articleId)}/review`), { method: "POST", body: JSON.stringify({ perspective, outputLanguage }) }),
   getReviewJob: (jobId: string) => request<ReviewJob>(`/api/v1/reviews/${encodeURIComponent(jobId)}`),
+  cancelReviewJob: (jobId: string) => request<ReviewJob>(`/api/v1/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
   saveReflection: (articleId: string, payload: { markdown?: string; uploadEnabled?: boolean }) =>
     request<{ articleId: string; markdown: string; uploadEnabled: boolean; exists: boolean }>(`/api/v1/articles/${encodeURIComponent(articleId)}/reflection`, {
       method: "PATCH",

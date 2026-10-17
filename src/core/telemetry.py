@@ -34,3 +34,8 @@ async def emit_event(kind: str, message: str, details: str | None = None) -> Non
 def has_event_sink() -> bool:
     """Return whether the current task has an interactive progress consumer."""
     return _event_sink.get() is not None
+
+
+def get_event_sink() -> EventSink | None:
+    """Capture the parent consumer before installing a task-local transformer."""
+    return _event_sink.get()

@@ -18,6 +18,22 @@ REFLECTION_MARKDOWN = "# Reflection\n\nWorth keeping.\n"
 ANNOTATIONS_JSON = json.dumps({"version": 1, "annotations": []}, ensure_ascii=False)
 
 
+@pytest.mark.parametrize("markdown", [
+    "# Title\n\nLead.\n\n![one](assets/one.png)\n\nTail.\n",
+    "# Title\n\nLead.\n\n![one](assets/one.png)\n\n![two](assets/two.png)\n",
+    "# Title\n\nLead.\n\n![one](assets/one.png)![two](assets/two.png)\n",
+    "# Title\n\n![one](assets/one.png)\n\nLead.\n\n![again](assets/one.png)\n",
+])
+def test_removed_image_layout_round_trips_without_entering_article_text(markdown):
+    from src.core.article_rendering import _persistable_reviewed_markdown, _removed_image_positions, _restore_removed_image_positions
+    removed = {"one.png", "two.png"}
+    persisted = _persistable_reviewed_markdown(markdown, removed)
+    positions = _removed_image_positions(markdown, persisted, removed)
+    restored = _restore_removed_image_positions(persisted, positions, removed)
+    assert restored == markdown
+    assert "assets/" not in persisted
+
+
 @pytest.fixture
 def content_store(monkeypatch, tmp_path: Path):
     runtime_home = tmp_path / ".noosphere"

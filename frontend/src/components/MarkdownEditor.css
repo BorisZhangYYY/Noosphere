@@ -35,13 +35,15 @@
 
 .markdown-editor .vditor-content,
 .markdown-editor .vditor-wysiwyg,
-.markdown-editor .vditor-wysiwyg pre.vditor-reset {
+.markdown-editor .vditor-wysiwyg pre.vditor-reset,
+.article-review-stream .article-review-prose {
   margin: 0;
   border: 0 !important;
   background: transparent !important;
 }
 
-.markdown-editor .vditor-wysiwyg pre.vditor-reset {
+.markdown-editor .vditor-wysiwyg pre.vditor-reset,
+.article-review-stream .article-review-prose {
   width: min(1080px, 100%);
   margin-left: max(0px, calc((100% - 1080px) / 2 - 22px));
   margin-right: auto;
@@ -193,6 +195,7 @@
 .noosphere-heading-toggle[hidden] { display: none; }
 
 .noosphere-block-handle,
+.noosphere-image-handle,
 .noosphere-container-handle,
 .noosphere-heading-toggle,
 .noosphere-block-directions button {
@@ -211,11 +214,15 @@
 }
 
 .noosphere-block-handle,
+.noosphere-image-handle,
 .noosphere-container-handle {
   cursor: grab;
   touch-action: none;
   grid-row: 1;
 }
+
+.noosphere-image-handle { position: absolute; z-index: 2; pointer-events: auto; background: var(--surface-solid); border: 1px solid var(--line); }
+.noosphere-image-handle:hover, .noosphere-image-handle:focus-visible { color: var(--accent-strong); outline: 2px solid var(--accent-soft); }
 
 .noosphere-container-handle {
   grid-column: 1;

@@ -200,9 +200,12 @@ class ArticleContentStore:
 
 def mirror_content(article_id: str, **fields: str | None) -> None:
     """Mirror changes and retain a visible, retryable health record on failure."""
+    from src.core.review.transaction import pending_review
     from src.core.workspace import atomic_write_text, validate_article_id
 
     validate_article_id(article_id)
+    if pending_review(article_id):
+        return
     article_dir = load_config().output_dir_path / article_id
     status_path = runtime_home() / "mirror-status" / f"{article_id}.json"
     try:

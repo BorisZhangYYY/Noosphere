@@ -93,7 +93,7 @@ export function PipelinePage() {
                           {t("pipeline.retry")}
                         </button>
                       )}
-                      {job.articleId && <Link className="button-secondary job-review-link" to={`/articles/${encodeURIComponent(job.articleId)}`}>{job.status === "awaiting_review" ? t("pipeline.reviewArticle") : t("pipeline.openArticle")}</Link>}
+                      {job.articleId && <Link className="button-secondary job-review-link" to={`/articles/${encodeURIComponent(job.articleId)}`}>{t("pipeline.openArticle")}</Link>}
                     </div>
                     {retryMutation.isError && retryMutation.variables === job.id && <p className="job-action-error" role="alert">{(retryMutation.error as Error).message}</p>}
                   </div>

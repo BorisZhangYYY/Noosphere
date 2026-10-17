@@ -359,7 +359,9 @@ async def _edit_node(state: ArticleState) -> dict[str, object]:
             "output_language": state.get("output_language", "en-US"),
         }
     )
-    completed = await asyncio.to_thread(_commit_review, state.get("article_id") or Path(state["reviewed_path"]).parent.name, state, edit_result, attempts, expected_revision)
+    from src.core.review.transaction import joined_worker
+
+    completed = await joined_worker(_commit_review, state.get("article_id") or Path(state["reviewed_path"]).parent.name, state, edit_result, attempts, expected_revision)
     for outcome in completed["metadata_enrichment_outcomes"]:
         await emit_event("ai_review", "pipeline.events.metadataEnrichmentAccepted" if outcome.get("action") == "accepted" else "pipeline.events.metadataEnrichmentReverted", f"{outcome.get('field')}: {outcome.get('value')}")
     await emit_event("ai_review", "pipeline.events.aiReviewCompleted", f"{len(completed['reviewed_markdown'])} characters")
@@ -447,7 +449,9 @@ async def _coordinate_images_node(state: ArticleState) -> dict[str, object]:
         except Exception as exc:
             outcome = {"status": "preserved", "operations": [], "text_edits": [], "warning": str(exc)}
             await emit_event("image_layout", "pipeline.events.imageLayoutPreserved", str(exc))
-    completed = await asyncio.to_thread(
+    from src.core.review.transaction import joined_worker
+
+    completed = await joined_worker(
         _commit_image_layout, state.get("article_id") or Path(state["reviewed_path"]).parent.name,
         state, layout, outcome, {entry.path for entry in catalog},
     )

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse
+from starlette.responses import FileResponse, JSONResponse, StreamingResponse
 
 from src.core.config.config import clear_config_cache, config_path, load_config
 from src.core.config.schema import Config
@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 _background_tasks: set[asyncio.Task] = set()
+_job_tasks: dict[str, asyncio.Task] = {}
 _job_semaphores: dict[asyncio.AbstractEventLoop, asyncio.Semaphore] = {}
 
 
@@ -75,6 +76,7 @@ def _prune_completed_jobs(group: dict) -> None:
 
 async def _run_durable_job(group: dict, job_id: str, runner, args: tuple) -> None:
     from src.core.jobs import JobStore
+    from src.core.review.transaction import joined_worker
 
     job = group[job_id]
     loop = asyncio.get_running_loop()
@@ -85,13 +87,16 @@ async def _run_durable_job(group: dict, job_id: str, runner, args: tuple) -> Non
             task = asyncio.create_task(runner(job_id, *args))
             while not task.done():
                 await asyncio.wait({task}, timeout=1)
-                await asyncio.to_thread(JobStore().save, copy.deepcopy(job))
+                await joined_worker(JobStore().save, copy.deepcopy(job))
             await task
     except asyncio.CancelledError:
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-        job.update(status="failed", error="Service stopped before this job completed. Retry explicitly.", interrupted=True, finishedAt=_utc_now())
+        if job.get("cancelRequested"):
+            job.update(status="cancelled", stage="cancelled", progress=0, reviewPreview="", error=None, cancellable=False, finishedAt=_utc_now())
+        else:
+            job.update(status="failed", error="Service stopped before this job completed. Retry explicitly.", interrupted=True, cancellable=False, finishedAt=_utc_now())
         raise
     except Exception as exc:
         if task is not None and not task.done():
@@ -100,8 +105,8 @@ async def _run_durable_job(group: dict, job_id: str, runner, args: tuple) -> Non
         job.update(status="failed", error=_exception_message(exc), finishedAt=_utc_now())
     finally:
         try:
-            await asyncio.to_thread(JobStore().save, copy.deepcopy(job))
-            await asyncio.to_thread(JobStore().prune)
+            await joined_worker(JobStore().save, copy.deepcopy(job))
+            await joined_worker(JobStore().prune)
         except Exception:
             logger.exception("Could not persist final job state for %s", job_id)
         _prune_completed_jobs(group)
@@ -117,7 +122,9 @@ def _queue_job(group: dict, job_id: str, runner, *args) -> None:
         raise
     task = asyncio.create_task(_run_durable_job(group, job_id, runner, args))
     _background_tasks.add(task)
+    _job_tasks[job_id] = task
     task.add_done_callback(_background_tasks.discard)
+    task.add_done_callback(lambda completed: _job_tasks.pop(job_id, None) if _job_tasks.get(job_id) is completed else None)
 
 
 def recover_background_jobs() -> None:
@@ -231,73 +238,90 @@ def _recover_failed_capture_jobs(article_id: str, review_job_id: str) -> None:
         )
 
 
+def _review_event_sink(job: dict[str, Any]):
+    async def sink(kind: str, message: str, details: str | None) -> None:
+        if job.get("cancelRequested"):
+            return
+        if kind == "review_output":
+            job["reviewPreview"] = details or ""
+            return
+        if kind == "ai_output_delta":
+            return
+        stage = {"download": "capture", "upload": "upload"}.get(kind, kind if kind in {"image_review", "image_layout", "validation"} else "ai_review")
+        job["stage"] = stage
+        job["progress"] = None
+        if message == "pipeline.events.aiReviewTruncatedFallback":
+            job["reviewPreview"] = ""
+        _add_job_event(job, stage, message, details=details)
+    return sink
+
+
+async def _review_article_transaction(job: dict[str, Any], reviewed_path: Path, perspective: str, output_language: str) -> None:
+    from src.core.collections import place_reviewed_article
+    from src.core.localization import resolve_output_language
+    from src.core.review.output_contract import clean_review_markdown
+    from src.core.review.transaction import ReviewTransaction
+    from src.graph.graph import run_ai_review_graph
+
+    job.update(stage="ai_review", progress=None, cancellable=True)
+    async with ReviewTransaction(reviewed_path.parent) as transaction:
+        staged_path = transaction.staged / reviewed_path.name
+        validation = await run_ai_review_graph(
+            staged_path, perspective=perspective,
+            source_markdown=staged_path.read_text(encoding="utf-8"), output_language=output_language,
+        )
+        if not validation.ok:
+            issues = "; ".join(issue.message for issue in validation.issues[:6])
+            raise ValueError(issues or "AI review validation failed")
+        markdown = staged_path.read_text(encoding="utf-8")
+        job["reviewPreview"] = clean_review_markdown(markdown)
+        job.update(stage="classification", progress=None)
+        _add_job_event(job, "classification", "pipeline.events.classificationStarted")
+        try:
+            assignment = await place_reviewed_article(reviewed_path.parent.name, staged_path, resolve_output_language(output_language, markdown))
+            if assignment.get("collection_id"):
+                _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=assignment.get("collection_name") or "")
+            else:
+                _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(assignment.get("reason") or ""))
+        except Exception as exc:
+            _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
+        job["cancellable"] = False
+        transaction.publish()
+        job.update(stage="completed", progress=100, reviewRevision=content_revision(reviewed_path.parent))
+
+
 async def _run_capture_job(job_id: str, url: str, review_mode: str, perspective: str, output_language: str) -> None:
     job = _capture_jobs[job_id]
-    job.update(status="running", startedAt=_utc_now())
+    job.update(status="running", stage="capture", progress=None, startedAt=_utc_now())
     _add_job_event(job, "capture", "pipeline.events.captureStarted")
     try:
         from src.core.telemetry import reset_event_sink, set_event_sink
-        from src.graph.graph import run_ai_review_graph, run_extract_graph, run_upload_graph
+        from src.graph.graph import run_extract_graph, run_upload_graph
 
-        async def event_sink(kind: str, message: str, details: str | None) -> None:
-            if kind == "ai_output_delta":
-                job["reviewPreview"] = (job.get("reviewPreview", "") + (details or ""))[-24000:]
-                return
-            stage = {
-                "download": "capture",
-                "image_review": "image_review",
-                "image_layout": "image_review",
-                "validation": "validation",
-                "upload": "upload",
-            }.get(kind, "ai_review")
-            _add_job_event(job, stage, message, details=details)
-
-        token = set_event_sink(event_sink)
+        token = set_event_sink(_review_event_sink(job))
         try:
             reviewed_path = await run_extract_graph(url)
             job["articleId"] = reviewed_path.parent.name
             manifest = _read_json(reviewed_path.with_name("manifest.json"))
             assets = (manifest.get("assets") or {}).get("downloaded") or []
-            _add_job_event(
-                job,
-                "capture",
-                "pipeline.events.captureCompleted",
-                level="success",
-                details=f"{len(assets)} assets",
-            )
-            validation = await run_ai_review_graph(reviewed_path, perspective=perspective, output_language=output_language)
-            if not validation.ok:
-                issues = "; ".join(issue.message for issue in validation.issues[:6])
-                raise ValueError(issues or "AI review validation failed")
-            try:
-                from src.core.collections import place_reviewed_article
-
-                _add_job_event(job, "classification", "pipeline.events.classificationStarted")
-                from src.core.localization import resolve_output_language
-                classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
-                assignment = await place_reviewed_article(reviewed_path.parent.name, reviewed_path, classification_language)
-                if not assignment.get("collection_id"):
-                    _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(assignment.get("reason") or ""))
-                else:
-                    label = assignment.get("collection_name") or ""
-                    _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
-            except Exception as exc:
-                _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
+            _add_job_event(job, "capture", "pipeline.events.captureCompleted", level="success", details=f"{len(assets)} assets")
+            await _review_article_transaction(job, reviewed_path, perspective, output_language)
             if review_mode == "auto_upload":
+                job.update(stage="upload", progress=None)
                 _add_job_event(job, "upload", "pipeline.events.uploadStarted")
                 upload_result = await run_upload_graph(reviewed_path, target="siyuan")
                 job["result"] = {"hpath": upload_result.hpath, "created": upload_result.created}
                 _add_job_event(job, "upload", "pipeline.events.uploadCompleted", level="success")
-                job.update(status="succeeded", finishedAt=_utc_now())
+                job.update(status="succeeded", stage="completed", progress=100, finishedAt=_utc_now())
             else:
                 _add_job_event(job, "system", "pipeline.events.awaitingReview", level="success")
                 job.update(status="awaiting_review", finishedAt=_utc_now())
         finally:
             reset_event_sink(token)
-    except Exception as exc:  # Preserve pipeline failures for inspection through the job API.
+    except Exception as exc:
         error = _exception_message(exc)
         _add_job_event(job, "system", "pipeline.events.failed", level="error", details=error)
-        job.update(status="failed", finishedAt=_utc_now(), error=error)
+        job.update(status="failed", stage="failed", cancellable=False, finishedAt=_utc_now(), error=error)
 
 
 async def start_capture_job(
@@ -342,6 +366,7 @@ async def start_capture_job(
         "perspective": selected_perspective,
         "outputLanguage": selected_language,
         "articleId": None,
+        "stage": "queued", "progress": 0, "cancellable": False,
         "reviewPreview": "",
         "events": [],
         "result": None,
@@ -399,60 +424,19 @@ async def _run_article_review_job(job_id: str, article_id: str, perspective: str
     _add_job_event(job, "ai_review", "pipeline.events.aiReviewStarted")
     try:
         from src.core.telemetry import reset_event_sink, set_event_sink
-        from src.graph.graph import run_ai_review_graph
 
-        article_dir = _safe_article_dir(article_id)
-        reviewed_path = article_dir / "reviewed.md"
-        source_markdown = reviewed_path.read_text(encoding="utf-8")
-
-        async def event_sink(kind: str, message: str, details: str | None) -> None:
-            if kind == "ai_output_delta":
-                job["reviewPreview"] = (job.get("reviewPreview", "") + (details or ""))[-24000:]
-                job["progress"] = min(78, int(job.get("progress", 12)) + 1)
-                return
-            stage = kind if kind in {"image_review", "image_layout", "validation"} else "ai_review"
-            job["stage"] = stage
-            stage_progress = {"image_review": 80, "image_layout": 88, "validation": 89}.get(stage, 20)
-            job["progress"] = max(stage_progress, int(job.get("progress", 12)))
-            if message == "pipeline.events.aiReviewTruncatedFallback":
-                job["reviewPreview"] = ""
-                job["progress"] = 20
-            _add_job_event(job, stage, message, details=details)
-
-        token = set_event_sink(event_sink)
+        token = set_event_sink(_review_event_sink(job))
         try:
-            validation = await run_ai_review_graph(
-                reviewed_path,
-                perspective=perspective,
-                source_markdown=source_markdown,
-                output_language=output_language,
-            )
+            await _review_article_transaction(job, _safe_article_dir(article_id) / "reviewed.md", perspective, output_language)
         finally:
             reset_event_sink(token)
-        if not validation.ok:
-            issues = "; ".join(issue.message for issue in validation.issues[:6])
-            raise ValueError(issues or "AI review validation failed")
-
-        job.update(stage="classification", progress=90)
-        try:
-            from src.core.collections import place_reviewed_article
-            from src.core.localization import resolve_output_language
-            classification_language = resolve_output_language(output_language, reviewed_path.read_text(encoding="utf-8"))
-            assignment = await place_reviewed_article(article_id, reviewed_path, classification_language)
-            if not assignment.get("collection_id"):
-                _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(assignment.get("reason") or ""))
-            else:
-                label = assignment.get("collection_name") or ""
-                _add_job_event(job, "classification", "pipeline.events.classificationCompleted", level="success", details=label)
-        except Exception as exc:
-            _add_job_event(job, "classification", "pipeline.events.classificationSkipped", level="warning", details=str(exc))
         _add_job_event(job, "system", "pipeline.events.articleReviewCompleted", level="success")
         job.update(status="succeeded", stage="completed", progress=100, finishedAt=_utc_now())
         _recover_failed_capture_jobs(article_id, job_id)
     except Exception as exc:
         error = _exception_message(exc)
         _add_job_event(job, "system", "pipeline.events.failed", level="error", details=error)
-        job.update(status="failed", stage="failed", error=error, finishedAt=_utc_now())
+        job.update(status="failed", stage="failed", cancellable=False, error=error, finishedAt=_utc_now())
 
 
 async def start_article_review_job(
@@ -475,6 +459,8 @@ async def start_article_review_job(
     active_job = _active_job_for_article(_review_jobs, article_id)
     if active_job is not None:
         return active_job
+    if _active_job_for_article(_capture_jobs, article_id):
+        raise ValueError("This article is already being reviewed by its capture job")
     _check_job_capacity()
     job_id = uuid.uuid4().hex
     _review_jobs[job_id] = {
@@ -482,7 +468,7 @@ async def start_article_review_job(
         "perspective": selected_perspective, "outputLanguage": selected_language,
         "status": "queued", "stage": "queued", "progress": 0,
         "createdAt": _utc_now(), "startedAt": None, "finishedAt": None,
-        "reviewPreview": "", "events": [], "error": None,
+        "reviewPreview": "", "events": [], "error": None, "cancellable": True,
     }
     _queue_job(_review_jobs, job_id, _run_article_review_job, article_id, selected_perspective, selected_language)
     return _review_jobs[job_id]
@@ -510,7 +496,7 @@ async def create_article_review(request: Request) -> JSONResponse:
 
 
 async def get_article_review_job(request: Request) -> JSONResponse:
-    job = _review_jobs.get(request.path_params["job_id"])
+    job = _review_jobs.get(request.path_params["job_id"]) or _capture_jobs.get(request.path_params["job_id"])
     if not job:
         return JSONResponse({"error": "Review job not found"}, status_code=404)
     return JSONResponse(job)
@@ -518,6 +504,30 @@ async def get_article_review_job(request: Request) -> JSONResponse:
 
 
 
+
+
+async def cancel_review_job(request: Request) -> JSONResponse:
+    from src.core.jobs import JobStore
+    from src.core.review.transaction import joined_worker
+
+    job_id = request.path_params["job_id"]
+    job = _review_jobs.get(job_id) or _capture_jobs.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Review job not found"}, status_code=404)
+    if job.get("status") == "cancelled":
+        return JSONResponse(job)
+    if job.get("status") not in {"queued", "running"} or not job.get("cancellable"):
+        return JSONResponse({"error": "This review can no longer be cancelled"}, status_code=409)
+    task = _job_tasks.get(job_id)
+    if task is None:
+        return JSONResponse({"error": "Review worker is unavailable"}, status_code=409)
+    if not job.get("cancelRequested"):
+        job["cancelRequested"] = True
+        task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    job.update(status="cancelled", stage="cancelled", progress=0, reviewPreview="", error=None, cancellable=False, finishedAt=_utc_now())
+    await joined_worker(JobStore().save, copy.deepcopy(job))
+    return JSONResponse(job)
 
 
 async def list_articles(request: Request) -> JSONResponse:
@@ -694,6 +704,7 @@ def _get_article_response(article_id: str, locale: str, editable_only: bool) -> 
         article_id=article_id,
         active_names={asset["name"] for asset in assets},
         removed_names={asset["name"] for asset in removed_assets},
+        removed_positions=image_filter.get("removed_image_positions"),
     )
     from src.core.article_metadata import article_metadata_state, editable_article_markdown
 
@@ -702,7 +713,7 @@ def _get_article_response(article_id: str, locale: str, editable_only: bool) -> 
     from src.core.collections import CollectionStore
     collection = summary.get("collection") or CollectionStore().get_assignment(article_id)
     active_upload = _active_job_for_article(_upload_jobs, article_id)
-    active_review = _active_job_for_article(_review_jobs, article_id)
+    active_review = _active_job_for_article(_review_jobs, article_id) or _active_job_for_article(_capture_jobs, article_id)
     active_polish = _active_job_for_article(_polish_jobs, article_id)
     from src.application.service import get_article_annotations, get_reflection
 
@@ -1186,6 +1197,41 @@ async def list_jobs(request: Request) -> JSONResponse:
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
     return JSONResponse({"jobs": jobs})
+
+
+async def _background_job_events(request: Request, kind: str):
+    previous: dict[str, dict] = {}
+    initial = True
+    heartbeat_at = asyncio.get_running_loop().time()
+    while not await request.is_disconnected():
+        jobs = list_background_jobs(kind=kind)
+        current = {job["id"]: copy.deepcopy(job) for job in jobs}
+        changed = [job for job in current.values() if job != previous.get(job["id"])]
+        removed = sorted(previous.keys() - current.keys())
+        if initial or changed or removed:
+            payload = {"reset": initial, "jobs": changed, "removedIds": removed}
+            yield f"event: jobs\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            previous = current
+            initial = False
+            heartbeat_at = asyncio.get_running_loop().time()
+        elif asyncio.get_running_loop().time() - heartbeat_at >= 15:
+            yield ": heartbeat\n\n"
+            heartbeat_at = asyncio.get_running_loop().time()
+        await asyncio.sleep(0.25)
+
+
+async def stream_jobs(request: Request):
+    """Stream job changes; reconnecting clients receive a complete current snapshot."""
+    kind = request.query_params.get("kind", "all")
+    try:
+        list_background_jobs(kind=kind)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return StreamingResponse(
+        _background_job_events(request, kind),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 async def get_job(request: Request) -> JSONResponse:

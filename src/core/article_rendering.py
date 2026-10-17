@@ -1,5 +1,6 @@
 """Shared transformations for article image references."""
 from __future__ import annotations
+import hashlib
 import re
 import urllib.parse
 from pathlib import Path
@@ -29,13 +30,15 @@ def _ensure_inventory_images_visible(
     article_id: str,
     active_names: set[str],
     removed_names: set[str],
+    removed_positions: dict | None = None,
 ) -> str:
     """Project every local image into the editor without mutating reviewed.md."""
     from src.core.review.image_filter import _restore_images_to_original_positions
     from src.core.review.output_contract import normalize_source_metadata_boundary
 
     inventory = active_names | removed_names
-    visible = normalize_source_metadata_boundary(markdown, raw_markdown)
+    visible = _restore_removed_image_positions(markdown, removed_positions or {}, removed_names)
+    visible = normalize_source_metadata_boundary(visible, raw_markdown)
     present = {_markdown_image_name(match.group(2)) for match in MARKDOWN_IMAGE_RE.finditer(visible)}
     missing_paths = {
         f"assets/{name}"
@@ -53,6 +56,55 @@ def _ensure_inventory_images_visible(
         removed_target = f"/api/v1/articles/{encoded_article}/removed/{encoded_name}?state=removed"
         visible = _replace_image_target(visible, name, removed_target)
     return visible
+
+
+def _removed_image_positions(markdown: str, persisted: str, removed_names: set[str]) -> dict:
+    """Keep removed-image placement outside the Markdown used for review and delivery."""
+    untrimmed = MARKDOWN_IMAGE_RE.sub(
+        lambda match: "" if _markdown_image_name(match.group(2)) in removed_names else match.group(0), markdown,
+    )
+    items = []
+    offset = 0
+    previous = 0
+    for match in MARKDOWN_IMAGE_RE.finditer(markdown):
+        offset += match.start() - previous
+        name = _markdown_image_name(match.group(2))
+        if name in removed_names:
+            items.append({"name": name, "alt": match.group(1), "offset": offset,
+                          "before": untrimmed[max(0, offset - 120):offset],
+                          "after": untrimmed[offset:offset + 120]})
+        else:
+            offset += len(match.group(0))
+        previous = match.end()
+    return {"digest": hashlib.sha256(persisted.encode()).hexdigest(), "items": items,
+            "trailing": untrimmed[len(untrimmed.rstrip()):]}
+
+
+def _restore_removed_image_positions(markdown: str, positions: dict, removed_names: set[str]) -> str:
+    unchanged = positions.get("digest") == hashlib.sha256(markdown.encode()).hexdigest()
+    if unchanged:
+        trailing = positions.get("trailing", "")
+        if isinstance(trailing, str) and not trailing.strip():
+            markdown = markdown.rstrip() + trailing
+    present = {_markdown_image_name(match.group(2)) for match in MARKDOWN_IMAGE_RE.finditer(markdown)}
+    insertions = []
+    for item in positions.get("items", []):
+        name = item.get("name")
+        if name not in removed_names or name in present:
+            continue
+        offset = item.get("offset")
+        if not unchanged:
+            before, after = item.get("before", ""), item.get("after", "")
+            context = before + after
+            if not context or markdown.count(context) != 1:
+                continue
+            offset = markdown.index(context) + len(before)
+        if not isinstance(offset, int) or not 0 <= offset <= len(markdown):
+            continue
+        insertions.append((offset, len(insertions), f'![{item.get("alt", name)}](assets/{name})'))
+    for offset, _, image in sorted(insertions, reverse=True):
+        markdown = markdown[:offset] + image + markdown[offset:]
+    return markdown
 
 
 def _persistable_reviewed_markdown(markdown: str, removed_names: set[str]) -> str:

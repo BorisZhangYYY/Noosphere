@@ -586,12 +586,6 @@ export function KnowledgeSidebar({ onCapture, onBatchCapture }: { onCapture: () 
         </form>
       )}
       {(feedback || ordering.error) && <p className="library-sidebar-error" role="alert">{feedback || ordering.error}</p>}
-      {ordering.drag && <p className={`workspace-order-hint${ordering.target?.blocked ? " blocked" : ""}`} role="status">
-        {ordering.target?.blocked ? t("knowledge.orderBlocked") : ordering.drag.kind === "collection"
-          ? t("knowledge.orderCollections") : t("knowledge.orderArticles", {
-            name: articles.find(item => item.id === ordering.drag?.id)?.collection?.collection_name || t("knowledge.unfiled")
-          })}
-      </p>}
       <div className="library-sidebar-tree">
         {(articleQuery.isLoading || collectionQuery.isLoading) && (
           <div className="library-sidebar-loading" aria-label={t("knowledge.loading")}>
