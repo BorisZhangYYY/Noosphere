@@ -2,6 +2,20 @@
 
 This file contains only unresolved, deliberately deferred, or release-blocking work. Completed user-visible changes belong in `CHANGELOG.md`.
 
+## v0.3.3.3 — Release verification
+
+Completed article operations, live review and workspace feedback are recorded in `CHANGELOG.md` and [the release notes](docs/releases/v0.3.3.3.md). The user accepted the interaction corrections and authorized publication as v0.3.3.3 on 2026-10-17. The existing dashboard and Noosphere background are retained; the withdrawn standalone workbench is outside this release.
+
+### Release gates
+
+- [x] Final host suite: 336 backend and 53 browser cases pass; 59 frontend tests pass.
+- [x] Production build/type checking, source compilation, example configuration and diff checks pass.
+- [x] User-run long-article review completed and archived; final release acceptance received on 2026-10-17. Automated provider-output tests preserve cancellation, publication, source order and continuous playback.
+- [x] Complete production Docker build passes. Image verification: 336 SQLite-backed tests and 334 PostgreSQL-applicable tests pass; both SQLite-only migration cases are covered by the SQLite run. Isolated live HTTP streaming, successful publication, cancelled re-review, restart persistence, authentication, source hashes and non-root Chromium pass.
+Publication and merge-back are authorized. The v0.3.3.3 GitHub Release, tag-triggered image workflow and release pull request record their outcomes.
+
+Wider long-article organization improvements remain under Later product iterations.
+
 ## v0.3.3.0 — Review templates and image/text coordination
 
 Completed natural-language templates and three-stage review are recorded under `[0.3.3.0]` in `CHANGELOG.md` and `docs/releases/v0.3.3.0.md`. Release operations are authorized; publication and merge outcomes are recorded by the v0.3.3.0 GitHub release and release pull request.
@@ -52,8 +66,6 @@ The combined release operations are authorized. Publication and merge outcomes a
 ## Later product iterations
 
 Reading-mark ideas discussed on 2026-10-14 remain proposals awaiting scope: independent highlights without a required note, underline/background annotation styles and a lightweight selection toolbar. Current reading annotations retain their dashed underline and faint background; text color and article content are unchanged.
-
-- [ ] Heading-section folding and heading-with-section movement. Fold through the next heading of equal/higher level, retain all Markdown/export content, and move a heading with its complete section. Deliberately deferred from v0.3.3.1 after the user's 2026-10-13 clarification.
 
 - [ ] Improve article-level organization after bounded review: the live custom-perspective recovery retained duplicate template headings across parts. Preserve complete source content while consolidating the requested article structure; wider long-article adaptation remains deferred.
 

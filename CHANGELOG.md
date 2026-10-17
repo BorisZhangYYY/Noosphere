@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.3.3] - 2026-10-17
+
+### Added
+
+- Add explicit Follow output / Stop following controls above the live article; keep the transparent status bar outside the scrolling prose, retain following through incoming text and image layout changes, and preserve an explicit pause until resumed and the reading position through completion. Separate finished tasks automatically into dashboard Task history with independent counts and failed-capture retry (2026-10-17).
+- Show continuous, rendered AI review directly in the knowledge workspace article; retain the existing Noosphere background and workbench, with compact task progress and direct article access. Captured articles are available unfiled before review; final classification follows successful completion. Keep live output across navigation/reconnection and finish buffered text before returning to the saved editor (2026-10-16).
+- Cancel a new review midway and immediately restore its starting article. Stage prose, images, metadata and classification until success, preserving the prior review count and protecting concurrent saved edits; keep raw source, reflections and annotations independent (2026-10-16).
+
+### Fixed
+
+- Keep capture/review previews blank until prose arrives, remove the waiting copy, and prevent stale article/job snapshots from flashing the starting article during re-review. Reuse completed Markdown blocks and incrementally process appended Unicode text to reduce long-article playback stalls, preserving continuous output, cancellation and completion handoff (2026-10-17).
+- Replace event-count-based capture/review percentages with indeterminate activity and actual stages, keeping the article blank before prose arrives. Suppress unchanged empty previews from out-of-order long-article parts, retain automatic completion/history after publication, and revalidate the application entry page after updates (2026-10-17).
+- Reject Zhihu login and access pages before saving an article or invoking AI, trying the configured fallback crawler first. Label completed manual-upload capture tasks as “AI review complete” and remove the nonexistent approval instruction; later edits and uploads remain independent operations (2026-10-16).
+- Give each image its own six-dot movement grip, including small images and adjacent images sharing a paragraph. Hide removed-image previews by default; when explicitly shown, allow grip, image and keyboard movement without restoring them. Retain their position through saving and reopening while keeping removed images out of saved article text and uploads (2026-10-16).
+- Include article-page review, upload, reflection-polish and batch jobs in the dashboard; refresh article status, counts and Collections as background work progresses and completes (2026-10-15).
+- Remove workspace drag warning text from the sidebar and Collection index, retaining insertion lines, scope boundaries and forbidden-drop feedback without covering titles (2026-10-15).
+- Align workspace and capture menu text consistently, remove the inactive Command+K dashboard hint, and use readable batch-capture input text matching single capture without an example URL (2026-10-15).
+
 ## [0.3.3.2] - 2026-10-14
 
 ### Added

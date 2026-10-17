@@ -162,6 +162,7 @@ Each article gets a workspace at `outputs/<article_id>/`:
 ## Notes
 
 - AI review follows the perspective and natural-language template while preserving source facts and reasoning. It reviews text and generates an internal summary, analyzes images independently, then lets the text model coordinate image retention, placement and soft removal. The last stage preserves prose by default and makes only necessary local image-related wording changes. A separate vision provider supports text-only review models; failed or uncertain image judgments preserve images.
+- Web capture/review tasks show processing stages without an estimated percentage while running (`progress: null`). Provider events never indicate a completion fraction. Successful publication completes and archives the task automatically; the legacy `awaiting_review` terminal capture status requires no extra confirmation. Streaming Markdown appears in the knowledge workspace article with explicit follow/pause controls and cancellation that preserves the starting article. Before prose arrives the reader is blank; starting a new review must not flash the original article back while task snapshots refresh. Completed blocks remain stable as new prose grows.
 - The crawler stack is configurable. Set `crawler.primary` to `firecrawl` when you need better JavaScript-heavy page support (for example, WeChat GIF extraction).
 - `extract` and `upload` are deliberately manual endpoints. You can run `extract`, edit `reviewed.md` yourself, and upload it directly without `ai-review`.
 

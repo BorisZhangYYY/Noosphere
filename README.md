@@ -6,7 +6,7 @@ It combines Crawl4AI and Firecrawl, downloads article assets, and asks a languag
 
 Noosphere is an article-processing service and MCP capability, not a general-purpose personal note-taking application. Downstream knowledge systems remain independent and receive content only through explicitly configured, user-authorized adapters.
 
-The current release is [v0.3.3.2](docs/releases/v0.3.3.2.md), with editor refinements, category-preserving workspace ordering, persistent quote bubbles and body-only search highlighting.
+The current release is [v0.3.3.3](docs/releases/v0.3.3.3.md), with live article review, cancellable re-review, automatic task history and image-operation refinements.
 
 In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into clean, structured, understandable, and portable knowledge.
 
@@ -21,6 +21,7 @@ In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into
 - In reading mode, quote exact passages, underline resolved anchors, and keep Markdown interpretations in an independent `annotations.json` sidecar with persistent click-open quote bubbles, an Edit action and rail-based navigation and management.
 - Search reviewed article text with highlighted excerpts and navigation that marks every occurrence in the opened article; private annotations and reflections stay outside the index.
 - Process batches of URLs with duplicate checks, durable per-item progress, pause/cancel and failed-item retry.
+- Follow capture and article-page review jobs in the dashboard, with actual processing stages, smooth live article output and automatic task history. The article stays blank until prose arrives; starting another review does not flash the previous draft. Model work uses an indeterminate activity bar until completion. See [workspace tasks](docs/workspace-tasks.md).
 - Archive locally or upload reviewed content to SiYuan.
 - Use the same data, configuration, and business rules through the web app, MCP service, or CLI.
 
