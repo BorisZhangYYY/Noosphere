@@ -4,6 +4,7 @@ This directory contains user-facing installation, deployment, operation, and int
 
 ## Start Here
 
+- [简体中文项目介绍](README.zh-CN.md): 功能介绍、界面截图与快速开始。
 - [Installation and deployment](installation.md): CLI, Docker, web, MCP endpoints, and persistent data.
 - [Troubleshooting](troubleshooting.md): extraction, provider, image review, SiYuan, PostgreSQL, and Docker build failures.
 - [CLI reference](cli-reference.md): pipeline and workspace-management commands.
