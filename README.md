@@ -1,57 +1,104 @@
 # Noosphere
 
-Noosphere is an article extraction, AI review, and note-import tool for long-form reading, content collection, knowledge organization, and sharing.
+[English](README.md) | [简体中文](docs/README.zh-CN.md)
 
-It combines Crawl4AI and Firecrawl, downloads article assets, and asks a language model to review the complete article using a chosen perspective and a natural-language Markdown template. Noosphere assembles the title and trusted source metadata, while the template guides the article’s headings, section order, and writing requirements.
+Noosphere turns lengthy, noisy web articles into clean, structured reading material you can understand, organize, and keep.
 
-Noosphere is an article-processing service and MCP capability, not a general-purpose personal note-taking application. Downstream knowledge systems remain independent and receive content only through explicitly configured, user-authorized adapters.
+Capture an article, review or translate it with AI, add your own thoughts, and archive it locally or send it to SiYuan. Use the web workspace for reading and editing, MCP for agent-driven workflows, or the CLI for scripts and automation. All three share the same articles and settings.
 
-The current release is [v0.3.3.3](docs/releases/v0.3.3.3.md), with live article review, cancellable re-review, automatic task history and image-operation refinements.
+![English reading workspace with nested Collections, article text, local images, and source details](docs/images/reading-workspace.png)
 
-In one sentence: Noosphere turns scattered, lengthy, and noisy web articles into clean, structured, understandable, and portable knowledge.
+*Read with your Collections, article, and source details in one workspace. Screenshots use the English interface and sample content.*
 
-## Highlights
+## Features
 
-- Extract articles and local assets from supported platforms with configurable primary and fallback crawlers.
-- Review, translate, and restructure content through built-in or custom perspectives.
-- Keep source metadata protected while describing the article format in natural language.
-- Organize articles in a user-owned Knowledge workspace of clickable index documents with arbitrary nesting; articles may also remain directly at the workspace level.
-- Review text, analyze images independently from the resulting summary, then coordinate image placement and recoverable removal without changing `raw.md`.
-- Keep a personal `reflection.md` beside each article, optionally polish it with the reviewing model, and decide per article whether it is appended to an upload copy.
-- In reading mode, quote exact passages, underline resolved anchors, and keep Markdown interpretations in an independent `annotations.json` sidecar with persistent click-open quote bubbles, an Edit action and rail-based navigation and management.
-- Search reviewed article text with highlighted excerpts and navigation that marks every occurrence in the opened article; private annotations and reflections stay outside the index.
-- Process batches of URLs with duplicate checks, durable per-item progress, pause/cancel and failed-item retry.
-- Follow capture and article-page review jobs in the dashboard, with actual processing stages, smooth live article output and automatic task history. The article stays blank until prose arrives; starting another review does not flash the previous draft. Model work uses an indeterminate activity bar until completion. See [workspace tasks](docs/workspace-tasks.md).
-- Archive locally or upload reviewed content to SiYuan.
-- Use the same data, configuration, and business rules through the web app, MCP service, or CLI.
+### Capture articles, individually or in batches
 
-## Supported Sources
+Extract article text and download its images from supported platforms. Batch capture includes duplicate checks, saved progress, pause and cancel controls, and retries for failed items. Follow capture, review, and upload progress in the dashboard, with live article output and automatic task history. Re-reviews can also be cancelled.
 
-### Article platforms
+![Article capture dialog with review mode, perspective, and language options](docs/images/article-capture.png)
 
-- WeChat public account articles: `mp.weixin.qq.com/s/...`
-- Zhihu Zhuanlan: `zhuanlan.zhihu.com/p/...`
-- Xiaoheihe posts: `xiaoheihe.cn/bbs/post_share?...`
+*Choose how an article is reviewed and which language to read it in before capture.*
 
-### Social post platforms
+### Review and translate in your own style
 
-- X (Twitter): `x.com/...` or `twitter.com/...` (text-only via oEmbed MVP)
+Choose a built-in source-faithful or beginner-friendly perspective, or create your own. Describe the desired structure, language, and writing style in a natural-language article template. Noosphere reviews the full article, including long articles, rather than replacing it with a summary.
 
-### Note-taking platforms
+Original extractions stay intact, and source information is protected while you edit. Missing authors and publication dates can be supplemented when supported by evidence in the captured article. Configure your preferred AI providers and crawlers in Settings.
 
-- SiYuan
+![Review settings with a source-faithful perspective and natural-language instructions](docs/images/review-configuration.png)
 
-For the v0.3.2.7 upgrade, including required Docker credentials and revision-aware saves, see [the upgrade guide](docs/reliability-upgrade.md).
+*Start with a built-in perspective, or create your own perspective and article template.*
 
-The `v0.3.2.7-fix` polish release replaces the browser credential prompt with an in-app login, consolidates single and batch capture under the workspace add menu, cleans search excerpts, and corrects responsive display regressions. See the [patch release notes](docs/releases/v0.3.2.7-fix.md).
+### Coordinate text and images
 
-## Three Ways to Install and Use Noosphere
+Configure text and image review separately. AI analyzes what each image shows and how it supports the article, then keeps, repositions, or removes it to fit the reviewed text. Removed images remain recoverable. If image review is unavailable, downloaded images are preserved.
 
-All three entry points share article workspaces, configuration, collections, review perspectives, and operation history. Choose the interface that fits the operator; do not deploy a separate database for each interface.
+### Read, edit, and organize
 
-### 1. CLI
+Build Collections at any depth. Each Collection is a clickable index page with a title, introduction, and contents; articles can live at any level or remain unfiled. Create, rename, nest, and reorder Collections in the sidebar, with recovery for deleted Collections. Place articles manually or let AI classify them into existing Collections, and adjust their display order.
 
-Use the CLI for local scripts, shell automation, and direct maintenance.
+Read with an outline, or edit the article by moving paragraphs, quotes, lists, tables, and code blocks. Fold headings to manage longer sections, and use undo and redo while editing. Search reviewed article text with highlighted excerpts and jump between matches in the article.
+
+### Add reflections and passage annotations
+
+Keep personal reflections alongside an article and optionally ask AI to polish them. Review the preview before applying it, and choose whether to include your reflections when uploading that article.
+
+![Personal reflection preview with Markdown editing and an AI polish action](docs/images/personal-reflections.png)
+
+*Write and preview your own reflections separately from the article.*
+
+Select a passage to attach a Markdown interpretation. Annotated passages are underlined and open their notes when clicked; a side panel lets you navigate, edit, and delete annotations. Reflections and annotations stay separate from the article text and outside the search index. Passage annotations are excluded from uploads.
+
+![Passage annotation showing the original quote and a reader's Markdown interpretation](docs/images/passage-annotations.png)
+
+*Keep your interpretation attached to the passage that prompted it.*
+
+### Archive and export
+
+Keep reviewed articles and their assets locally, or upload them to SiYuan. Your original extraction, reviewed text, images, and personal notes remain available together for future reading and reuse.
+
+## Supported Platforms
+
+| Purpose | Platforms |
+|---|---|
+| Article capture | WeChat public account articles, Zhihu Zhuanlan, Xiaoheihe posts |
+| Social post capture | X (Twitter), currently text-only |
+| Note import | SiYuan |
+
+## Get Started
+
+### Web workspace
+
+The Docker deployment includes the web workspace and MCP service.
+
+```bash
+git clone https://github.com/BorisZhangYYY/Noosphere.git
+cd Noosphere
+```
+
+Before starting, set `NOOSPHERE_ACCESS_TOKEN` and `NOOSPHERE_DATABASE_PASSWORD` following the [credential setup instructions](docs/reliability-upgrade.md). Keep the existing database password when reusing a PostgreSQL data directory.
+
+```bash
+docker compose up -d --build
+open http://localhost:8080/app/
+```
+
+See [Installation and deployment](docs/installation.md) for configuration and persistent storage.
+
+### MCP
+
+Start the Docker service above and connect your MCP client to `http://localhost:8080/sse`. See the [MCP reference](docs/mcp-reference.md) for available tools and usage.
+
+You can also install the optional Codex/Claude-compatible Noosphere skill:
+
+```bash
+npx skills add https://github.com/BorisZhangYYY/Noosphere
+```
+
+### CLI
+
+For local scripts and automation, clone the repository and install the CLI:
 
 ```bash
 git clone https://github.com/BorisZhangYYY/Noosphere.git
@@ -64,175 +111,8 @@ cp config.json.example config.json
 nsphr --help
 ```
 
-Local development uses SQLite unless PostgreSQL is configured. Add `--json` to core and management commands when another program consumes the result. See [CLI reference](docs/cli-reference.md).
+See the [CLI reference](docs/cli-reference.md) for commands and examples.
 
-### 2. MCP service
-
-Use Docker when an MCP client or agent should operate Noosphere. PostgreSQL, Crawl4AI, Firecrawl, Chromium, the Python runtime, and the built frontend are contained in the deployment.
-
-Before starting Compose, set `NOOSPHERE_ACCESS_TOKEN` and `NOOSPHERE_DATABASE_PASSWORD` following the [credential setup instructions](docs/reliability-upgrade.md). Keep the existing password when reusing a PostgreSQL data directory.
-
-```bash
-git clone https://github.com/BorisZhangYYY/Noosphere.git
-cd Noosphere
-docker compose up -d --build
-curl http://localhost:8080/health
-```
-
-Connect the MCP client to `http://localhost:8080/sse`. See [MCP reference](docs/mcp-reference.md) for the tool groups and safe automation patterns.
-
-### 3. Web frontend
-
-The frontend ships with the same Docker service, so no separate backend or Node.js runtime is required after the image is built:
-
-```bash
-docker compose up -d --build
-open http://localhost:8080/app/
-```
-
-The web workspace keeps navigation and the Collection tree together in one persistent sidebar. Collections can be created, renamed, deleted recoverably, and nested in place. Drag to reorder sibling Collections or articles within their existing Collection; a boundary and insertion line show the permitted area, and cross-Collection article drops are blocked. Display order persists without changing AI classification. The article workbench combines clickable Collection breadcrumbs, save state, an outline, editor, and collapsible inspection rail for explicit placement, image recovery, review, and upload. See [workspace ordering](docs/workspace-ordering.md).
-
-To install the optional Codex/Claude-compatible Noosphere skill:
-
-```bash
-npx skills add https://github.com/BorisZhangYYY/Noosphere
-```
-
-For deployment layout, environment variables, and persistent storage, see [Installation and deployment](docs/installation.md).
-
-## Core Concepts
-
-### One shared application layer
-
-The web API, MCP tools, and CLI call the same application service. Interface-specific code translates inputs and outputs; it does not reimplement Collection placement, image state, settings, or article rules.
-
-### Raw and reviewed boundaries
-
-Each article workspace keeps the original extraction in `raw.md` and the canonical export document in `reviewed.md`. Noosphere never rewrites `raw.md`. The editor receives prose without the source metadata block; on every save, Noosphere restores protected Source, Platform, Captured, and Type values and permits controlled entry only when Author or Published was genuinely absent.
-
-In Edit mode, a contextual block handle lets users move paragraphs, quotations, tables, code and complete lists, with keyboard and touch controls. Lists show paired grips for moving one item with its nested contents or the complete list. Body headings can fold: expanded headings move alone, while folded headings move their complete section. Reading keeps its existing continuous layout. See [the article editor guide](docs/article-editor.md) for movement, undo/redo and saving.
-
-### Review perspectives and natural-language article templates
-
-Review Configuration exposes two prompt fields: the review perspective and the article template. Shared cleaning rules, source metadata and the JSON response protocol stay system-managed. Templates describe the desired Markdown with normal headings and writing instructions; they do not need variables or fixed sections. Built-in source-faithful and beginner-friendly defaults are read-only and can be copied into custom perspectives. AI returns a complete Markdown body and an internal summary, even when the template requests no visible summary. Noosphere assembles the title and trusted metadata and preserves retained local images. When Author or Published is absent, review may submit a candidate only with a short exact excerpt from the captured article; Noosphere verifies both evidence and value before accepting it and records accepted or reverted attempts with provider provenance. Response checks require valid JSON and nonempty fields, without enforcing article chapter names or order. Review checks model capacities and generation budgets before sending the draft; oversized requests go directly to bounded parts. The 18,000-character trigger remains a fallback for unknown context capacity. Full reviewed parts are assembled without being replaced by summaries. Legacy variable templates are interpreted as writing guidance when read and converted to natural instructions when saved. See [review configuration](docs/configuration.md#review-perspectives-and-article-templates) and [v0.3.3.0 notes](docs/releases/v0.3.3.0.md).
-
-### Hierarchical Collections
-
-Organization follows `index document → nested index document → … → article` at arbitrary depth. Every index is itself a page with a title, introduction, and clickable contents. Users build the hierarchy directly in the sidebar and can keep articles at any index level or unfiled at the workspace level. Manual moves and AI placement use stable active Collection IDs internally. AI cannot create or rename indexes; an unknown or low-confidence match remains unfiled.
-
-Existing two-level taxonomy records are migrated once into equivalent Collection paths and assignments. The original article files are not changed by this migration.
-
-### Independent image review
-
-The text-review provider and image-review provider are configured independently. If no vision-capable image provider is selected, Noosphere preserves images and records that image review was skipped.
-
-AI review completes the current text draft and an internal summary first. A separate vision context then describes each image's visible content and functional role and recommends retention or removal. Finally, the text model uses those descriptions and the selected perspective/template to keep, move or soft-remove images. It does not need vision support. Existing prose stays unchanged unless a specific image operation requires a local transition or reference adjustment. Failed final coordination keeps the completed draft and all images; removed images remain recoverable in the workbench. See [the three-stage review workflow](docs/configuration.md#image-and-text-coordination).
-
-### Independent personal reflections
-
-Personal notes live in `reflection.md`, never inside `raw.md` or `reviewed.md`. Web, MCP, and CLI can save the note and request a stateless AI polish preview based only on the current reviewed article and reflection. Applying that preview is always explicit. The reviewing provider and model recorded in `review.json` are preferred; if that profile is no longer available, Noosphere falls back to the active text provider.
-
-The page and upload document render “My Reflections” as a level-two heading. When a reflection needs its own structure, start its headings at Markdown level three (`###`); the web editor shows this guidance and AI polish preserves the same hierarchy.
-
-Each article also keeps a persistent upload preference in `manifest.json`. When enabled, Noosphere appends a canonical localized “My Reflections” section to a temporary upload copy and deletes that copy afterward. The stored `reviewed.md` remains unchanged.
-
-### Anchored reading quotes
-
-In web reading mode, select a passage and choose Quote this passage to write a Markdown interpretation. Resolved passages receive a dashed underline; clicking one opens its interpretation. The article inspection rail shows the total, navigates to each passage, and provides editing and deletion. Noosphere stores the exact quote, bounded prefix/suffix context, occurrence, reviewed-source digest, and Markdown note in `annotations.json`. If the article changes, an anchor is rendered only when it can still be resolved safely; unresolved entries stay manageable in the rail as needing re-location instead of attaching to the wrong text.
-
-Annotations never modify `raw.md`, `reviewed.md`, or `reflection.md`, and are never appended to uploads.
-
-## Capability Parity
-
-| Business capability | Web | MCP | CLI |
-|---|---|---|---|
-| Extract, review, upload, full pipeline | Background actions | Synchronous tools and `start_*` jobs | Foreground commands with JSON output |
-| Article list, protected metadata, and prose update | Library and editor | `list_articles`, `get_article`, `update_article_content`, `update_missing_article_metadata` | `articles list/show/update/metadata` |
-| Arbitrary-depth Collections and article placement | Persistent sidebar and article rail | `list_collections`, `create_collection`, `update_collection`, `delete_collection`, `restore_collection`, `place_article` | `collections list/create/update/delete/restore/place` |
-| Ordering within existing categories | Sidebar and category index drag/keyboard ordering | `reorder_workspace` | `collections order` |
-| Active and removed images | Visual inventory | `list_article_images`, `set_article_image_state` | `images list/set` |
-| Personal reflections and AI polish | Article section, floating editor, preview, and upload switch | `get_article_reflection`, `save_article_reflection`, `polish_article_reflection`, `start_polish` | `reflect`, plus upload inclusion overrides |
-| Anchored quote interpretations | Selection action, dashed underline, Markdown dialog, and rail management | `list_article_annotations`, `create_article_annotation`, `update_article_annotation`, `delete_article_annotation` | `annotations list/add/update/delete` |
-| Review perspectives and templates | Review Configuration | List/save/delete perspective tools | `perspectives list/show/save/delete/use` |
-| Provider, crawler, and archive settings | Settings page | Masked get/update/activate/test tools | `config show/apply/activate/test` |
-| Capture, review, and upload jobs | Live progress | `start_*`, `get_job`, `list_jobs` | `jobs list/show` against a running service |
-
-Secrets are masked by default everywhere. Only the local CLI has an explicit `config reveal ... --yes` command. MCP intentionally has no secret-read tool.
-
-## Portable Data
-
-Docker Compose keeps configuration, article workspaces, assets, archives, crawler cache, logs, backups, Collection and activity state, and PostgreSQL data under one host directory. The default is `.noosphere/`; override it without editing Compose:
-
-```bash
-NOOSPHERE_DATA_DIR=/path/to/noosphere-data docker compose up -d --build
-```
-
-Every article keeps `raw.md`, editable `reviewed.md`, optional `reflection.md`, optional `annotations.json`, `manifest.json`, `review.json`, and `assets/` together. See [Configuration](docs/configuration.md) for the full data layout and migration guidance.
-
-## Project Structure
-
-```text
-Noosphere/
-├── src/
-│   ├── api/              # Web API and background jobs
-│   ├── application/      # Shared business operations
-│   ├── graph/            # LangGraph workflows and checkpoints
-│   ├── mcp/              # MCP transport and structured tools
-│   ├── platforms/        # Platform-specific extraction adapters
-│   └── core/             # Configuration, review, storage, and upload domain code
-├── frontend/             # React web workspace
-├── prompts/              # Shared rules, perspectives, and output templates
-├── skills/               # Installable agent skills
-├── docs/                 # User-facing operation and deployment guides
-├── .project/             # Repository-internal engineering rules
-├── tests/                # Backend and cross-interface tests
-└── docker-compose.yml    # Noosphere and PostgreSQL deployment
-```
-
-## Documentation
-
-- [Documentation index](docs/README.md)
-- [Installation and deployment](docs/installation.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [CLI reference](docs/cli-reference.md)
-- [MCP reference](docs/mcp-reference.md)
-- [Configuration and portable data](docs/configuration.md)
-- [Search and batch workspace](docs/search-and-batches.md)
-- [Changelog](CHANGELOG.md)
-- [Planned work](TODO.md)
-
-## Frequently Asked Questions
-
-### Which interface should I use?
-
-Use the web app for interactive reading and review, MCP for agent-driven workflows, and the CLI for scripts and local maintenance. They share the same business state.
-
-MCP and CLI agents normally place articles only into existing Collections. When you explicitly name a missing destination, they can create and describe its final path segment with a separate creation flag; parent Collections must already exist, so automatic classification cannot silently expand the workspace.
-
-### Does switching the interface language rewrite existing articles?
-
-No. The interface locale controls display labels and can be used as the default output language for a new review. Existing reviewed content is not rewritten automatically. When `follow_ui` is used from CLI, MCP, or another entry point without an interface locale, Noosphere follows the source article language instead of assuming English.
-
-### What happens when image review is unavailable?
-
-Noosphere safely keeps all downloaded images. Image removal only runs when a separately selected provider is declared vision-capable.
-
-### Can AI change my reflection automatically?
-
-No. AI polish produces a preview from an immutable snapshot of the current draft. You must apply the preview explicitly, and Noosphere refuses to apply it after the draft has changed. The original article and `reviewed.md` are never modified by reflection editing or upload inclusion.
-
-### Where is my data stored?
-
-Local CLI runs use the configured output paths. Docker deployments keep portable state beneath `.noosphere/` by default, or beneath `NOOSPHERE_DATA_DIR` when supplied.
-
-## Contributing
-
-Issues and pull requests are welcome. Before changing workflow behavior, read [CLAUDE.md](CLAUDE.md), [TODO.md](TODO.md), [CHANGELOG.md](CHANGELOG.md), and the relevant internal guide under [.project/](.project/).
-
-## License and Links
+## License
 
 Noosphere is available under the [MIT License](LICENSE).
-
-- Repository: [BorisZhangYYY/Noosphere](https://github.com/BorisZhangYYY/Noosphere)
-- Issues: [GitHub Issues](https://github.com/BorisZhangYYY/Noosphere/issues)
-- Releases: [GitHub Releases](https://github.com/BorisZhangYYY/Noosphere/releases)
